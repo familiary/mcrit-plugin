@@ -13,6 +13,11 @@ on:
         description: 'JSON list of {"name", "packages"}; packages are passed to pip install'
         required: true
         type: string
+      pythons:
+        description: JSON list of the Python versions to build bundles for
+        required: false
+        type: string
+        default: '["3.10", "3.11", "3.12", "3.13"]'
   workflow_dispatch:
     inputs:
       tag:
@@ -24,6 +29,11 @@ on:
         required: true
         type: string
         default: '[{"name": "smda", "packages": "smda"}, {"name": "full", "packages": "smda ida-settings"}]'
+      pythons:
+        description: JSON list of the Python versions to build bundles for
+        required: false
+        type: string
+        default: '["3.10", "3.11", "3.12", "3.13"]'
 
 permissions:
   contents: read
@@ -37,7 +47,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        python-version: ["3.10", "3.11", "3.12", "3.13"]
+        python-version: ${{ fromJSON(inputs.pythons) }}
         variant: ${{ fromJSON(inputs.variants) }}
 
     steps:

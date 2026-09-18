@@ -13,7 +13,7 @@ mcrit-plugin/
 │   │   └── pylev/           # vendored Levenshtein helper (do not edit)
 │   ├── ui_qt/               # Qt widgets shared by IDA and Binary Ninja
 │   ├── ida/                 # ida-plugin.json, ida_mcrit.py, IDA backend, graph viewer
-│   ├── binja/               # Binary Ninja backend, SMDA exporter interface, settings, sidebar
+│   ├── binja/               # Binary Ninja backend, settings, sidebar (SMDA export via smda.binja)
 │   └── headless/            # backend without a disassembler: SMDA disassembles the file itself
 ├── scripts/
 │   ├── common/              # shared checks, fixtures, headless integration runner
@@ -144,10 +144,10 @@ python scripts/ida/run_gui_integration.py \
 
 ### Binary Ninja
 
-Needs a licensed Binary Ninja and a Python environment matching its interpreter, with `smda` and
-`requests` installed. The runner uses a throwaway user directory with this checkout linked as a
-plugin, so your own profile isn't touched. The query file must have a SHA-256 the server hasn't
-seen yet.
+Needs a licensed Binary Ninja and a Python environment matching its interpreter, with
+`smda>=4.9.0` (it provides `smda.binja`) and `requests` installed. The runner uses a throwaway user
+directory with this checkout linked as a plugin, so your own profile isn't touched. The query file
+must have a SHA-256 the server hasn't seen yet.
 
 ```bash
 python scripts/binja/run_gui_integration.py --input /tmp/mcrit-query \

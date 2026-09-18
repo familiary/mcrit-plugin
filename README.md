@@ -65,7 +65,7 @@ Requires Binary Ninja 6.0 (build 10601) or newer.
 
 ### Install
 
-Install MCRIT from the Extension Manager, or clone this repository into your Binary Ninja user plugins folder and install `requirements.txt` into Binary Ninja's Python. For offline machines, each release has a `binja` wheelhouse bundle. It is built for Windows only, and is installed the same way as the IDA bundle.
+Install MCRIT from the Extension Manager, or clone this repository into your Binary Ninja user plugins folder and install `requirements.txt` into Binary Ninja's Python. For offline machines, each release has a `binja` wheelhouse bundle. It is built for Windows and Python 3.11 to 3.13 only, and is installed the same way as the IDA bundle.
 
 ### Configure
 
