@@ -1,32 +1,51 @@
 # Changelog
 
-All notable changes to this project are documented in this file.
-
-The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project
-adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html) over what a user of the plugin
-sees: the settings declared in `ida-plugin.json`, the minimum IDA version, and the Python
-dependencies the plugin needs in IDA's interpreter. A release that raises any of those says so in
-its entry.
-
-Add your entry to `[Unreleased]` when the change merges, while the reasoning is still at hand,
-rather than reconstructing it from the commit log at release time.
+All notable changes to both plugins are documented in this file, in the format of
+[Keep a Changelog](https://keepachangelog.com/en/1.1.0/). [RELEASING.md](RELEASING.md) states what
+[Semantic Versioning](https://semver.org/spec/v2.0.0.html) covers for each plugin, and how and when
+to add an entry.
 
 ## [Unreleased]
 
+### Changed
+
+- The Binary Ninja plugin exports SMDA reports through SMDA's own `smda.binja` package instead of
+  a copy of the exporter carried here, so the exporter is versioned with the report format it
+  produces. Binary Ninja requires `smda>=4.9.0`; the IDA plugin's requirement is unchanged. ELF and
+  Mach-O reports now record the entry point relative to the base address, as native SMDA reports
+  and IDA exports do, where the copy recorded an absolute address; PE reports are unchanged, since
+  their entry point was already an RVA.
+
+## [2.0.0] - 2026-09-18
+
 ### Added
 
-- Pushing a `vX.Y.Z` tag now cuts the release. The workflow refuses to continue unless the tag
-  matches `ida-plugin.json` and `config.py`, `CHANGELOG.md` has a section for it, the commit is on
-  `main` and CI passed there; it then runs the metadata, settings and quality checks, builds
-  `mcrit-ida-<version>.zip`, lints the repository and the archive with `hcli`, and creates the
-  GitHub release from that version's changelog section with the generated contributor list
-  appended and the archive attached. The offline wheelhouse workflow runs from the published
-  release as before. Pre-release tags (`v1.2.0rc1`) are marked as such. See `RELEASING.md`.
+- IDA releases are now cut by pushing an `ida-vX.Y.Z` tag, gated on the version strings, this file
+  and CI, with pre-release tags (`ida-v1.2.0rc1`) marked as such. See
+  [RELEASING.md](RELEASING.md).
 - A pull request that changes the shipped plugin files has to add a `CHANGELOG.md` entry or carry
   the `no-changelog` label; CI checks it.
+- Binary Ninja support from the same repository: a native sidebar with the same toolbar and tabs as
+  in IDA, SMDA reports exported from Binary Ninja's own analysis, settings under Settings → MCRIT
+  with the API token kept in the system keychain, label import as one undo step, and remote CFGs as
+  graph reports. Requires Binary Ninja 6.0 (build 10601) and is released separately through the
+  extension manager; see `RELEASING.md`.
+- The start message shows the core commit the plugin was built from, so a report names the exact
+  code a user runs.
 
 ### Changed
 
+- IDA release tags are now `ida-vX.Y.Z` instead of `vX.Y.Z`, and IDA releases are never marked as
+  the latest GitHub release, so the Binary Ninja extension manager always reads the Binary Ninja
+  release.
+- The code moved into one `mcrit_plugin` package: `core` (no GUI imports), `ui_qt` (the shared
+  widgets), `ida`, `binja` and `headless`. The IDA ZIP layout is unchanged (`ida-plugin.json` and
+  `ida_mcrit.py` at the root), and existing settings keys and `config_override.json` still apply.
+  A repository checkout is no longer an IDA plugin directory; install the packaged ZIP.
+- Cursor tracking in the Hex-Rays pseudocode view reads the current function from the open view
+  instead of decompiling it again.
+- In IDA, the SMDA export runs behind a wait box, and a failed export shows a warning and logs
+  the traceback to the Output window instead of raising out of the button handler.
 - The release history moved out of `README.md` into this file; the entries below are unchanged.
   `verify_metadata_sync.py` now reads the latest release heading from here.
 - The offline-dependency workflow no longer expands the release tag inside its scripts (a tag
@@ -35,6 +54,17 @@ rather than reconstructing it from the commit log at release time.
 - CI and the release workflow run on Python 3.12, matching the floor the rest of the MCRIT
   ecosystem now shares (`smda`, which the plugin needs in IDA's interpreter, requires 3.12 from
   its next release). IDA 9 bundles 3.12 alongside 3.11; nothing in the plugin needed 3.12.
+- The IDA integration workflow now ends in a "Licensed IDA result" check that reports when the
+  licensed job could not run (a pull request from a fork, or missing licence secrets) and says
+  why, instead of the job silently reporting `skipped` and the pull request looking green. It
+  warns rather than fails, because a fork cannot obtain the licence secrets; a genuine failure of
+  the licensed job is still red on that job.
+
+### Fixed
+
+- Releases get their Windows offline dependency bundles again. The bundle workflow listened for
+  published releases, which a release created by the release workflow never triggers, so 1.1.7
+  to 1.1.9 shipped without them; the release workflow now calls it directly.
 
 ## [1.1.10] - 2026-09-16
 
@@ -112,5 +142,6 @@ Recorded as they were written in the README at the time, newest first.
 - Initial standalone release.
 - IDA 9.2 (PySide6) compatibility.
 
-[Unreleased]: https://github.com/danielplohmann/mcrit-plugin/compare/v1.1.10...HEAD
+[Unreleased]: https://github.com/danielplohmann/mcrit-plugin/compare/ida-v2.0.0...HEAD
+[2.0.0]: https://github.com/danielplohmann/mcrit-plugin/compare/v1.1.10...ida-v2.0.0
 [1.1.10]: https://github.com/danielplohmann/mcrit-plugin/compare/v1.1.9...v1.1.10

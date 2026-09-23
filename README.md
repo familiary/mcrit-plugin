@@ -1,335 +1,104 @@
-﻿# MCRIT IDA Plugin
+# MCRIT Plugin
 
 [![IDA Version](https://img.shields.io/badge/IDA-9.0%2B-blue.svg)](https://hex-rays.com/ida-pro/)
-[![Python](https://img.shields.io/badge/python-3.x-blue.svg)](https://www.python.org/)
 [![License](https://img.shields.io/badge/license-GPL--3.0-green.svg)](LICENSE)
 [![HCLI Compatible](https://img.shields.io/badge/HCLI-compatible-brightgreen.svg)](https://hcli.docs.hex-rays.com/)
 [![Ask DeepWiki](https://deepwiki.com/badge.svg)](https://deepwiki.com/danielplohmann/mcrit-plugin)
 
-> **Integration with MCRIT** for MinHash-based code similarity analysis in IDA Pro.
+Client for [MCRIT](https://github.com/danielplohmann/mcrit), the MinHash-based code similarity server, for IDA Pro and Binary Ninja. It exports your database as an SMDA report, uploads it, and shows matching blocks, functions and labels from the server next to your analysis.
 
-MCRIT (MinHash-based Code Relationship & Investigation Toolkit) simplifies MinHash-based code similarity detection.
-This plugin seamlessly integrates the interaction with MCRIT servers from with IDA Pro for malware analysis and function identification.
+- Block and function matches for the current cursor position
+- Function overview with label import and conflict resolution
+- Matching jobs against the whole server or a sample group
+- YARA string builder from a selection
+- CFG view of remote matched functions
 
-## ✨ Features
+## IDA Pro
 
-- **Code Similarity** - Compare functions/blocks against MCRIT.
-- **Function Matching** - Identify similar functions across binaries.
-- **Label Management** - Sync function labels with the server.
-- **Interactive Widgets** - Dedicated views for blocks, functions, and overview.
-- **Integrated Settings** - Native configuration via `ida-settings`.
-- **HCLI Support** - Easy installation and updates.
+Requires IDA 9.0 or newer.
 
-## 🚀 Installation
-
-### Option 1: HCLI
-
-For new users, start with [HCLI](https://hcli.docs.hex-rays.com/). The package to install is `ida-hcli`, and the command you will use afterward is `hcli`.
+### Install with HCLI
 
 ```bash
 python -m pip install --upgrade ida-hcli
-hcli --version
-```
-
-If `mcrit-ida` has already been indexed by the Hex-Rays plugin repository, install it directly:
-
-```bash
-hcli plugin search mcrit
 hcli plugin install mcrit-ida
 ```
 
-Useful follow-up commands:
+`hcli plugin upgrade mcrit-ida` and `hcli plugin uninstall mcrit-ida` work as usual. To install a local build instead:
 
 ```bash
-hcli plugin status
-hcli plugin upgrade mcrit-ida
-hcli plugin uninstall mcrit-ida
-```
-
-If the plugin has not been indexed yet, or you want to test a local build first, package the plugin locally and install the ZIP:
-
-```bash
-python scripts/package_plugin.py --repo . --output ../mcrit-ida.zip
+python scripts/ida/package_plugin.py --repo . --output ../mcrit-ida.zip
 hcli plugin install ../mcrit-ida.zip
 ```
 
-For headless shells or CI, pass settings explicitly so `hcli` does not try to open its interactive configuration prompt:
+In CI or a headless shell, pass settings with `--config mcrit_server=https://mcrit.example.com/api/` (and `mcritweb_api_token`, `mcritweb_username`, `mcrit_request_timeout`) so `hcli` doesn't prompt.
 
-```bash
-hcli plugin install ../mcrit-ida.zip \
-  --config mcrit_server=https://mcrit.example.com/api/ \
-  --config mcritweb_api_token=YOUR_TOKEN \
-  --config mcritweb_username=analyst \
-  --config mcrit_request_timeout=10
-```
+### Install manually
 
-### Option 2: Manual Installation Without HCLI
+1. Extract a release ZIP into `$IDAUSR/plugins/mcrit-ida/`. A repository checkout won't work directly: the packager puts `ida-plugin.json` and `ida_mcrit.py` at the archive root.
+2. Install the dependencies with IDA's Python: `python -m pip install "smda>=4.3.10" "ida-settings>=3.5.1" requests`
+3. Restart IDA.
 
-If you do not want to use HCLI at all, you can install the plugin manually:
+IDA 9.4 may ask once whether to enable PyQt5 shims when the plugin loads; answer No. The prompt comes from the `ida-settings` dependency, and the plugin itself uses PySide6.
 
-1. Copy this repository, or extract a packaged release ZIP, into `$IDAUSR/plugins/mcrit-ida/`.
-2. Ensure the plugin directory contains at least `ida-plugin.json`, `ida_mcrit.py`, `config.py`, `helpers/`, `widgets/`, and `icons/`.
-3. Install the Python dependencies with the Python interpreter bundled with your IDA installation:
+For offline machines, each release has a wheelhouse bundle: unpack it and run `python -m pip install --no-index --find-links=. -r requirements.txt`.
 
-```bash
-python -m pip install "smda>=4.3.10" "ida-settings>=3.5.1"
-```
+### Configure
 
-4. Restart IDA Pro.
+Settings are handled by [ida-settings](https://github.com/williballenthin/ida-settings):
 
-If your installation of IDA Pro is in an offline Windows VM, use the wheelhouse bundle from the release assets instead. After unpacking it, install from the local directory:
+- HCLI: `hcli plugin config mcrit-ida set mcrit_server https://mcrit.example.com/api/` (`list`, `get`, `export` and `import` also work)
+- GUI: install `ida-settings-editor` and use Edit → Plugins → Plugin Settings Manager
+- File: put a `config_override.json` next to `ida_mcrit.py` (template in `docs/config_override.json.template`)
 
-```bash
-python -m pip install --no-index --find-links=. -r requirements.txt
-```
+### Use
 
+1. Open a binary and start MCRIT4IDA from Edit → Plugins, or press Ctrl-F4.
+2. Use the toolbar to convert the database to an SMDA report, upload it, and fetch a matching result.
+3. Browse the results in the Block Scope, Function Scope, Function Overview and Sample Match Summary tabs.
 
-## ⚙️ Configuration
+## Binary Ninja
 
-Configuration is managed via [ida-settings](https://github.com/williballenthin/ida-settings).
+Requires Binary Ninja 6.0 (build 10601) or newer.
 
-### Configure with HCLI
+### Install
 
-If you installed via HCLI, inspect and update settings from the command line:
+Install MCRIT from the Extension Manager, or clone this repository into your Binary Ninja user plugins folder and install `requirements.txt` into Binary Ninja's Python. For offline machines, each release has a `binja` wheelhouse bundle. It is built for Windows only, and is installed the same way as the IDA bundle.
 
-```bash
-hcli plugin config mcrit-ida list
-hcli plugin config mcrit-ida get mcrit_server
-hcli plugin config mcrit-ida set mcrit_server https://mcrit.example.com/api/
-hcli plugin config mcrit-ida set mcritweb_api_token YOUR_TOKEN
-hcli plugin config mcrit-ida set mcrit_request_timeout 10
-```
+### Configure
 
-You can also export or import settings as JSON:
+Settings are under Settings → MCRIT, with the same keys as the IDA plugin. Where a system keychain is available, an API token entered there is moved into it and the field is cleared; otherwise the token stays in the Settings entry. Plugins → MCRIT → Clear Stored API Token removes it.
 
-```bash
-hcli plugin config mcrit-ida export
-hcli plugin config mcrit-ida import "{\"mcrit_server\":\"https://mcrit.example.com/api/\",\"mcrit_request_timeout\":\"10\"}"
-```
+### Use
 
-### Configure with the GUI
+Open the MCRIT sidebar, or run any MCRIT action from the command palette or Plugins → MCRIT. It has the same toolbar and tabs as the IDA plugin. Reports are exported from Binary Ninja's own analysis, and remote CFGs open as graph reports.
 
-Install `ida-settings-editor` and configure the plugin through **Edit -> Plugins -> Plugin Settings Manager**:
+## Settings
 
-```bash
-hcli plugin install ida-settings-editor
-```
-
-### Configure Manually
-
-If you are not using HCLI, the most practical manual override is a `config_override.json` placed next to `config.py`. A minimal example looks like this:
-
-```json
-{
-  "mcrit_server": "https://mcrit.example.com/api/",
-  "mcritweb_api_token": "YOUR_TOKEN",
-  "mcritweb_username": "analyst",
-  "mcrit_request_timeout": "10"
-}
-```
-
-You can also manage settings through `$IDAUSR/ida-config.json` if you already use `ida-settings`.
-
-### Connecting to Server
-Configure the plugin to connect to your MCRIT instance:
+The keys below are the ones most often changed; `mcrit_plugin/core/settings.json` declares all of
+them, with their types and defaults.
 
 | Setting | Description | Example |
 | :--- | :--- | :--- |
 | `mcrit_server` | Server URL | `https://mcrit.example.com/api/` |
-| `mcritweb_api_token` | API Token (for MCRITweb) | `eyJ0eXAi...` |
+| `mcritweb_api_token` | MCRITweb API token; the username is inferred from it | `eyJ0eXAi...` |
 | `mcritweb_username` | Username (optional) | `analyst` |
-| `sample_group_only` | Restrict matching queries to the server-side sample group | `false` |
+| `mcrit_request_timeout` | Request timeout in seconds | `10` |
+| `sample_group_only` | Restrict matching to the server-side sample group | `false` |
 
-**Note**: For MCRITweb, the username is inferred automatically by setting the API token.
+## Development
 
-## 📖 Usage
+See [docs/development.md](docs/development.md) for the layout, checks, integration tests and release process.
 
-1.  **Open Binary**: Load a file in IDA Pro.
-2.  **Open Widgets**: View → Open subviews → MCRIT widgets.
-3.  **Analyze**: Right-click a function → **MCRIT** → **Query function**.
-4.  **Matches**: Review results in the **Function Scope Widget**.
-
-## 🔧 Development
-
-### Project Structure
-```text
-mcrit-plugin/
-├── ida-plugin.json   # Plugin metadata
-├── ida_mcrit.py      # Entry point
-├── config.py         # Settings management
-├── helpers/          # Utilities (incl. vendored pyperclip and pylev)
-├── widgets/          # UI components
-└── icons/            # Resources
-```
-
-### Local Build & Install
-To install a development version from source:
-
-```bash
-# 1. Clone
-git clone https://github.com/danielplohmann/mcrit-plugin.git
-cd mcrit-plugin
-
-# 2. Package
-python scripts/package_plugin.py --repo . --output ../mcrit-ida.zip
-
-# 3. Install
-hcli plugin install ../mcrit-ida.zip
-```
-
-### Validation
-Run the local checks before publishing:
-
-```bash
-python scripts/verify_metadata_sync.py --repo .
-python scripts/verify_settings_sync.py --repo .
-python scripts/run_quality_checks.py --repo .
-python scripts/package_plugin.py --repo . --output dist/mcrit-ida.zip
-hcli plugin lint .
-hcli plugin lint dist/mcrit-ida.zip
-```
-
-### IDA and MCRIT Integration Tests
-
-The repository keeps the normal pytest and Ruff jobs secret-free. Licensed IDA
-testing is isolated in `.github/workflows/ida-tests.yml`: it runs on pushes to
-`main` and through manual dispatch, using the `IDA_LICENSE_ID` and
-`HCLI_API_KEY` repository secrets. Pull requests, including fork pull requests,
-do not receive those secrets.
-
-The required Linux job installs IDA Pro 9.3, starts a local MCRIT server backed
-by MongoDB, seeds a deterministic reference binary, and runs an IDALib MCRIT
-smoke test followed by a GUI-process toolbar smoke test. To run the broader
-IDA-version/platform IDALib checks, manually dispatch the workflow with
-`run_matrix` enabled.
-
-#### Local IDALib integration smoke test
-
-IDALib runs the IDA analysis APIs without a GUI. Use it for the package,
-conversion, upload, and matching workflow; the separate GUI smoke below covers
-the actual toolbar callbacks. Use the Python ABI configured for the installed
-IDA version (the CI job deliberately selects Python 3.12); install the
-`idapro` package from that IDA distribution and use an isolated IDA user
-directory:
-
-```bash
-python3 -m venv .venv-idalib
-.venv-idalib/bin/python -m pip install --upgrade \
-  "/path/to/IDA Professional 9.3/idalib/python"/idapro-*.whl \
-  "smda==4.3.10" "ida-settings==3.5.1"
-
-python scripts/build_test_fixture.py \
-  --source tests/fixtures/mcrit_sample.c \
-  --output /tmp/mcrit-idalib-fixture \
-  --variant 1
-
-.venv-idalib/bin/python scripts/run_idalib_smoke.py \
-  --ida-dir "/path/to/IDA Professional 9.3" \
-  --input /tmp/mcrit-idalib-fixture \
-  --idausr /tmp/mcrit-idalib-user \
-  --mcrit-server http://127.0.0.1:8000
-```
-
-The runner activates IDALib for that virtual environment, installs the local
-ZIP into the isolated profile, and restores its MCRIT settings afterwards.
-Use `--offline` to validate package loading and IDB-to-SMDA conversion without
-a MCRIT service.
-
-#### Local GUI toolbar smoke test
-
-The local runner uses an existing IDA installation and your normal IDA user
-profile; it does not require an HCLI API key. When `hcli` is available it
-installs the current local ZIP into that profile when no copy is present; an
-already-installed copy is refreshed directly without HCLI. The headless
-process therefore loads the same plugin setup that your normal IDA session
-uses. It invokes IDA with `-A -S` and chooses the GUI executable by default
-because IDA's `idat` binary refuses to import PySide6. It uses the native
-`cocoa` Qt platform on macOS and `offscreen` elsewhere; use `--ida-binary` or
-`--qt-platform` to override either choice.
-
-```bash
-python scripts/build_test_fixture.py \
-  --source tests/fixtures/mcrit_sample.c \
-  --output /tmp/mcrit-ida-fixture \
-  --variant 1
-
-python scripts/run_ida_smoke.py \
-  --ida-dir "/path/to/IDA Professional 9.3.app" \
-  --input /tmp/mcrit-ida-fixture \
-  --mcrit-server http://127.0.0.1:8000
-```
-
-If the plugin is already installed and should not be replaced, pass its
-installed directory explicitly:
-
-```bash
-python scripts/run_ida_smoke.py \
-  --ida-dir "/path/to/IDA Professional 9.3.app" \
-  --input /tmp/mcrit-ida-fixture \
-  --plugin-root "$HOME/.idapro/plugins/mcrit-ida" \
-  --mcrit-server http://127.0.0.1:8000
-```
-
-The CI workflow passes `--idausr` to create an isolated profile; the default
-local path deliberately reuses the profile that already has IDAPython and the
-plugin configured. The runner temporarily points that profile at the requested
-MCRIT server and restores its original `ida-config.json` afterward.
-
-IDA itself still enforces its license when it starts; the runner does not
-perform or bypass that check. If headless execution reports that Python is not
-configured, run the matching `idapyswitch --auto-apply` from that IDA
-installation first.
-
-For a live local MCRIT test, use Python 3.12 for the service, then run
-MongoDB and the two MCRIT processes in separate terminals. The workflow pins
-MCRIT `1.5.0`; it requires Python 3.11 or 3.12 (use 3.12) and its default API is
-`http://127.0.0.1:8000`:
-
-```bash
-docker run --rm --name mcrit-mongo -p 27017:27017 mongo:5.0
-python3.12 -m venv .venv-mcrit
-.venv-mcrit/bin/python -m pip install "mcrit==1.5.0"
-.venv-mcrit/bin/python -m mcrit server
-.venv-mcrit/bin/python -m mcrit worker
-```
-
-For a deterministic positive local match, build and seed the reference variant
-before running the query fixture; `seed_mcrit.py` waits for the worker:
-
-```bash
-python scripts/build_test_fixture.py \
-  --source tests/fixtures/mcrit_sample.c \
-  --output /tmp/mcrit-ida-reference \
-  --variant 0
-.venv-mcrit/bin/python scripts/seed_mcrit.py \
-  --server http://127.0.0.1:8000 \
-  --sample /tmp/mcrit-ida-reference
-```
-
-Use `--offline` with `run_ida_smoke.py` when a live MCRIT service is not
-available; the GUI smoke still drives conversion, metadata dialogs, YARA, and
-isolated settings. With a live service it additionally drives
-upload/query/matching, labels, graphs, and SMDA export. A manual GUI pass is
-still useful for visual rendering: open the MCRIT views, inspect labels and
-graphs, and verify settings through the Plugin Settings Manager.
-
-### Release Workflow
-This plugin publishes a dedicated plugin ZIP as the HCLI package artifact.
-
-```bash
-git tag -a v1.1.9 -m "mcrit-ida 1.1.9"
-git push origin v1.1.9
-```
-
-The tag-driven release workflow checks the tag against the declared version and the changelog, validates metadata, builds `mcrit-ida-<version>.zip`, lints both the repo and the ZIP with `hcli`, and then creates the GitHub release from that version's `CHANGELOG.md` section with the plugin archive attached. The offline dependency workflow runs after the release is published and attaches the optional wheelhouse bundles. The full procedure, including pre-releases and recovery, is in [RELEASING.md](RELEASING.md).
-
-##  Version History
+## Version History
 
 See [CHANGELOG.md](CHANGELOG.md) for the full release history.
 
-## 📄 License
-GPL-3.0. See [LICENSE](LICENSE) for details.
+## License
 
-## 👤 Author
-**Daniel Plohmann** ([@danielplohmann](https://github.com/danielplohmann))  
-**Rony** ([@r0ny123](https://github.com/r0ny123))
+GPL-3.0, see [LICENSE](LICENSE).
+
+## Authors
+
+- Daniel Plohmann ([@danielplohmann](https://github.com/danielplohmann))
+- Rony ([@r0ny123](https://github.com/r0ny123))

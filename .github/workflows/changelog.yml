@@ -1,9 +1,7 @@
 name: Changelog
 
-# pull_request rather than pull_request_target: this needs the PR's changed-file list and no
-# secrets, so the read-only token a fork PR receives is enough, and no PR content is checked
-# out or executed. `labeled`/`unlabeled` are here so applying the skip label re-runs the check
-# rather than leaving a stale failure behind.
+# pull_request rather than pull_request_target: this needs only the PR's changed-file list and no
+# secrets, and no PR content is checked out or executed. labeled/unlabeled re-run it when the skip label changes.
 on:
   pull_request:
     types:
@@ -24,9 +22,7 @@ jobs:
     name: Changelog entry
     runs-on: ubuntu-latest
     steps:
-      # The job runs unconditionally and decides inside the step, rather than skipping on an
-      # `if`: a skipped job reports as neither passing nor failing, and the reason a PR is
-      # exempt belongs in the log where the next reader will look for it.
+      # decided inside the step rather than by an `if`: a skipped job reports as neither passing nor failing
       - name: Require a changelog entry beside a user-visible change
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -50,7 +46,7 @@ jobs:
 
           changed="$(gh api --paginate "repos/${REPOSITORY}/pulls/${PR_NUMBER}/files" --jq '.[].filename')"
 
-          if ! printf '%s\n' "${changed}" | grep -qE '^(helpers/|widgets/|icons/|ida_mcrit.py$|config.py$|ida-plugin.json$)'; then
+          if ! printf '%s\n' "${changed}" | grep -qE '^(mcrit_plugin/(core|ui_qt|ida|binja)/|icons/)'; then
             echo "No shipped files changed; entry not required."
             exit 0
           fi

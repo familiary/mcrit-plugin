@@ -136,4 +136,13 @@ def _ida_get_current_plugin_setting(key):
     raise KeyError(key)
 
 
-_make_module("ida_settings", get_current_plugin_setting=_ida_get_current_plugin_setting)
+def _ida_get_plugin_setting(plugin_name, key):
+    """Stub for ida_settings.get_plugin_setting that always raises KeyError."""
+    raise KeyError(key)
+
+
+_make_module(
+    "ida_settings",
+    get_current_plugin_setting=_ida_get_current_plugin_setting,
+    get_plugin_setting=_ida_get_plugin_setting,
+)
