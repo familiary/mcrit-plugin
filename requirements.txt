@@ -1,0 +1,2 @@
+smda>=4.3.10
+requests

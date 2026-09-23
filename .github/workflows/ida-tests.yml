@@ -4,9 +4,47 @@ on:
   push:
     branches:
       - main
+    paths:
+      - "mcrit_plugin/ida/**"
+      - "scripts/ida/**"
+      - "tests/ida/**"
+      - "CHANGELOG.md"
+      - "docs/config_override.json.template"
+      - ".github/workflows/ida-*.yml"
+      - ".github/workflows/scripts/ida/**"
+      - "mcrit_plugin/core/**"
+      - "mcrit_plugin/ui_qt/**"
+      - "icons/**"
+      - "scripts/common/**"
+      - "tests/core/**"
+      - "tests/conftest.py"
+      - "tests/fixtures/**"
+      - "README.md"
+      - "LICENSE"
+      - "pyproject.toml"
+      - ".gitattributes"
   pull_request:
     branches:
       - main
+    paths:
+      - "mcrit_plugin/ida/**"
+      - "scripts/ida/**"
+      - "tests/ida/**"
+      - "CHANGELOG.md"
+      - "docs/config_override.json.template"
+      - ".github/workflows/ida-*.yml"
+      - ".github/workflows/scripts/ida/**"
+      - "mcrit_plugin/core/**"
+      - "mcrit_plugin/ui_qt/**"
+      - "icons/**"
+      - "scripts/common/**"
+      - "tests/core/**"
+      - "tests/conftest.py"
+      - "tests/fixtures/**"
+      - "README.md"
+      - "LICENSE"
+      - "pyproject.toml"
+      - ".gitattributes"
   workflow_dispatch:
     inputs:
       run_matrix:
@@ -23,15 +61,42 @@ concurrency:
   cancel-in-progress: true
 
 env:
-  MCRIT_VERSION: "1.5.2"
+  MCRIT_VERSION: "1.9.0"
   MCRIT_SERVER: "http://127.0.0.1:8000"
 
 jobs:
+  preflight:
+    name: Licence preflight
+    runs-on: ubuntu-latest
+    outputs:
+      run: ${{ steps.decide.outputs.run }}
+      reason: ${{ steps.decide.outputs.reason }}
+    steps:
+      - name: Decide whether the licensed job can run
+        id: decide
+        shell: bash
+        env:
+          FORK_PR: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository }}
+          HAS_SECRETS: ${{ secrets.IDA_LICENSE_ID != '' && secrets.HCLI_API_KEY != '' }}
+        run: |
+          reason=""
+          if [[ "$FORK_PR" == "true" ]]; then
+            reason="the pull request comes from a fork, which does not receive the IDA licence secrets"
+          elif [[ "$HAS_SECRETS" != "true" ]]; then
+            reason="IDA_LICENSE_ID or HCLI_API_KEY is not set on this repository"
+          fi
+          if [[ -z "$reason" ]]; then
+            echo "run=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "run=false" >> "$GITHUB_OUTPUT"
+            echo "reason=$reason" >> "$GITHUB_OUTPUT"
+            echo "::warning::Licensed IDA integration will not run: $reason"
+          fi
+
   licensed-linux:
     name: IDA Pro 9.3 / Ubuntu / live MCRIT
-    if: >-
-      github.event_name != 'pull_request' ||
-      github.event.pull_request.head.repo.full_name == github.repository
+    needs: preflight
+    if: needs.preflight.outputs.run == 'true'
     runs-on: ubuntu-latest
     services:
       mongo:
@@ -45,10 +110,10 @@ jobs:
         with:
           persist-credentials: false
 
-      - name: Set up Python 3.11
+      - name: Set up Python 3.12
         uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
         with:
-          python-version: "3.11"
+          python-version: "3.12"
 
       - name: Set up uv
         uses: astral-sh/setup-uv@c771a70e6277c0a99b617c7a806ffedaca235ff9 # v9.0.0
@@ -86,22 +151,20 @@ jobs:
           test -x "$IDA_DIR/ida"
           echo "ida-dir=$IDA_DIR" >> "$GITHUB_OUTPUT"
           echo "ida-bin=$IDA_DIR/ida" >> "$GITHUB_OUTPUT"
-          # hcli --accept-eula records EULA acceptance in the *default* IDAUSR,
-          # but the smoke tests use isolated profiles which would otherwise
-          # refuse batch mode.
-          # Propagate the accepted ida.reg into those profiles.
+          # hcli --accept-eula records EULA acceptance only in the *default* IDAUSR; the isolated
+          # test profiles refuse batch mode without the accepted ida.reg.
           SRC=""
           for cand in "$IDA_DIR/ida.reg" "$HOME/.idapro/ida.reg"; do
             if [[ -f "$cand" ]]; then SRC="$cand"; break; fi
           done
           if [[ -z "$SRC" ]]; then
-            echo "::warning::No accepted ida.reg found to propagate into smoke profiles"
+            echo "::warning::No accepted ida.reg found to propagate into test profiles"
           else
             for prof in "$RUNNER_TEMP/idausr-idalib" "$RUNNER_TEMP/idausr-gui"; do
               mkdir -p "$prof"
               cp "$SRC" "$prof/ida.reg"
             done
-            echo "Propagated IDA acceptance from $SRC into smoke profiles"
+            echo "Propagated IDA acceptance from $SRC into test profiles"
           fi
 
       - name: Keep HCLI on PATH
@@ -118,9 +181,10 @@ jobs:
           import os
           import sys
 
-          if sys.version_info[:2] != (3, 11):
+          if sys.version_info[:2] != (3, 12):
               raise SystemExit(
-                  f"MCRIT {os.environ['MCRIT_VERSION']} requires Python 3.11, got {sys.version}"
+                  f"the MCRIT {os.environ['MCRIT_VERSION']} service venv must use Python 3.12,"
+                  f" the repository floor, got {sys.version}"
               )
           PY
 
@@ -140,10 +204,8 @@ jobs:
             exit 1
           fi
           echo "Found headless IDA executable: $IDA_HEADLESS"
-          # Probe the binary to capture diagnostic help output. This must not fail
-          # the build: a freshly installed IDA may not have its license accepted
-          # yet (which the later smoke test tolerates) and some IDA versions/
-          # platforms return a non-zero exit from `-h` regardless.
+          # must not fail: a fresh IDA may not have its license accepted yet, and some IDA
+          # versions/platforms return a non-zero exit from `-h` regardless
           "$IDA_HEADLESS" -h > "$RUNNER_TEMP/ida-headless-help.txt" 2>&1 || true
 
       - name: Install validation tooling
@@ -152,24 +214,23 @@ jobs:
       - name: Verify metadata and package
         shell: bash
         run: |
-          python scripts/verify_metadata_sync.py --repo .
-          python scripts/verify_settings_sync.py --repo .
-          python scripts/run_quality_checks.py --repo .
-          python scripts/package_plugin.py --repo . --output dist/mcrit-ida.zip
-          hcli plugin lint .
+          python scripts/ida/verify_metadata_sync.py --repo .
+          python scripts/common/verify_settings_sync.py --repo .
+          python scripts/common/run_quality_checks.py --repo .
+          python scripts/ida/package_plugin.py --repo . --output dist/mcrit-ida.zip
           hcli plugin lint dist/mcrit-ida.zip
 
       - name: Build deterministic MCRIT fixtures
         run: |
-          python scripts/build_test_fixture.py \
+          python scripts/common/build_test_fixture.py \
             --source tests/fixtures/mcrit_sample.c \
             --output "${{ runner.temp }}/mcrit-reference.exe" \
             --variant 0
-          python scripts/build_test_fixture.py \
+          python scripts/common/build_test_fixture.py \
             --source tests/fixtures/mcrit_sample.c \
             --output "${{ runner.temp }}/mcrit-idalib-query.exe" \
             --variant 1
-          python scripts/build_test_fixture.py \
+          python scripts/common/build_test_fixture.py \
             --source tests/fixtures/mcrit_sample.c \
             --output "${{ runner.temp }}/mcrit-gui-query.exe" \
             --variant 2
@@ -194,7 +255,7 @@ jobs:
           "$IDALIB_PYTHON" -m pip install --upgrade pip
           "$IDALIB_PYTHON" -m pip install --upgrade \
             "${{ steps.ida.outputs.ida-dir }}/idalib/python"/idapro-*.whl \
-            "smda==4.3.10" "ida-settings==3.5.1" "PySide6" "requests"
+            "smda==4.8.0" "ida-settings==3.5.1" "PySide6" "requests"
 
       - name: Wait for MongoDB
         shell: bash
@@ -224,20 +285,14 @@ jobs:
       - name: Start MCRIT server and worker
         shell: bash
         run: |
-          # setsid fully detaches the services into their own session so GitHub
-          # Actions does not terminate them when this step's shell exits (nohup
-          # alone only ignores SIGHUP, not the SIGTERM the runner sends to the
-          # step's process group). Without this, the server/worker are killed
-          # before the "Wait for MCRIT API" step runs, which then hangs until
-          # its timeout.
+          # setsid, not nohup alone: the runner SIGTERMs the step's process group when this step's
+          # shell exits, which would kill the services before the "Wait for MCRIT API" step
           setsid nohup "$RUNNER_TEMP/mcrit-venv/bin/python" -m mcrit server \
             > "$RUNNER_TEMP/mcrit-server.log" 2>&1 < /dev/null &
           echo $! > "$RUNNER_TEMP/mcrit-server.pid"
           setsid nohup "$RUNNER_TEMP/mcrit-venv/bin/python" -m mcrit worker \
             > "$RUNNER_TEMP/mcrit-worker.log" 2>&1 < /dev/null &
           echo $! > "$RUNNER_TEMP/mcrit-worker.pid"
-          # Fail fast (with startup logs) if either process crashed immediately,
-          # instead of hanging for the full API-wait timeout.
           sleep 5
           if ! kill -0 "$(cat "$RUNNER_TEMP/mcrit-server.pid")" 2>/dev/null; then
             echo "::error::MCRIT server exited during startup:"
@@ -278,7 +333,7 @@ jobs:
         env:
           PYTHONPATH: ${{ github.workspace }}
         run: |
-          "$RUNNER_TEMP/mcrit-venv/bin/python" scripts/seed_mcrit.py \
+          "$RUNNER_TEMP/mcrit-venv/bin/python" scripts/common/seed_mcrit.py \
             --server "$MCRIT_SERVER" \
             --sample "${{ runner.temp }}/mcrit-reference.exe" \
             --timeout 180
@@ -288,10 +343,10 @@ jobs:
         shell: bash
         run: echo "sha256=$(sha256sum '${{ runner.temp }}/mcrit-reference.exe' | cut -d' ' -f1)" >> "$GITHUB_OUTPUT"
 
-      - name: Run live IDALib integration smoke test
+      - name: Run live IDALib integration test
         shell: bash
         run: |
-          "$IDALIB_PYTHON" scripts/run_idalib_smoke.py \
+          "$IDALIB_PYTHON" scripts/ida/run_idalib_integration.py \
             --ida-dir "${{ steps.ida.outputs.ida-dir }}" \
             --input "${{ runner.temp }}/mcrit-idalib-query.exe" \
             --mcrit-server "$MCRIT_SERVER" \
@@ -299,17 +354,16 @@ jobs:
             --idausr "$RUNNER_TEMP/idausr-idalib" \
             --plugin-zip dist/mcrit-ida.zip \
             --artifacts "$RUNNER_TEMP/idalib-artifacts" \
-            --log "$RUNNER_TEMP/idalib-smoke.log" \
+            --log "$RUNNER_TEMP/idalib-integration.log" \
             --timeout 180 \
             --require-hcli
 
       - name: Install plugin runtime deps for IDA's Python
         shell: bash
         run: |
-          # The Linux installer has no bundled Python executable. Keep the plugin
-          # dependencies isolated and make them visible to the configured IDAPython.
+          # The Linux installer has no bundled Python executable.
           python -m pip install --target "$RUNNER_TEMP/ida-py-deps" \
-            "requests" "smda==4.3.10" "ida-settings==3.5.1"
+            "requests" "smda==4.8.0" "ida-settings==3.5.1"
 
       - name: Seed GUI profile from licensed IDALib profile
         shell: bash
@@ -323,12 +377,8 @@ jobs:
       - name: Pre-accept IDAPython PyQt5 shim for GUI profile
         shell: bash
         run: |
-          # IDA 9.2+ shows a modal "do you want to enable the PyQt5 shim?" dialog
-          # the first time anything in the process imports PyQt5. The mcrit plugin
-          # imports PyQt5 unconditionally (helpers/QtShim.py, helpers/pyperclip),
-          # and the dialog ignores -A / batch mode, blocking startup forever.
-          # IDAPYTHON_USE_PYQT5_SHIM=0 in the GUI profile's idapython.cfg silences
-          # the prompt. Guarded on __IDAVER__ >= 920 so older IDA versions ignore it.
+          # IDA 9.2+ shows a modal "enable the PyQt5 shim?" dialog on the first PyQt5 import; it ignores
+          # -A / batch mode and blocks startup forever. IDAPYTHON_USE_PYQT5_SHIM=0 silences it.
           mkdir -p "$RUNNER_TEMP/idausr-gui/cfg"
           cat > "$RUNNER_TEMP/idausr-gui/cfg/idapython.cfg" <<'CFG'
           #if __IDAVER__ >= 920
@@ -336,7 +386,7 @@ jobs:
           #endif
           CFG
 
-      - name: Configure IDAPython for GUI smoke
+      - name: Configure IDAPython for GUI integration test
         shell: bash
         env:
           IDAUSR: ${{ runner.temp }}/idausr-gui
@@ -371,21 +421,17 @@ jobs:
           echo "Using $PYTHON_LIBRARY"
           "$IDAPYSWITCH" --force-path "$PYTHON_LIBRARY"
 
-      - name: Run licensed IDA GUI toolbar smoke test
+      - name: Run licensed IDA GUI toolbar integration test
         shell: bash
         env:
           PYTHONPATH: ${{ runner.temp }}/ida-py-deps
           IDALOG: ${{ runner.temp }}/ida-gui-startup.log
         run: |
-          # The GUI smoke test launches the actual IDA GUI binary, which needs a
-          # usable display. Provide a virtual X display via xvfb-run and let Qt use
-          # the xcb platform against it.
-          # The GUI run uses an isolated IDAUSR. Keep the keyfile outside that
-          # directory, because the profile is uploaded as a CI artifact.
+          # keep the keyfile outside the isolated IDAUSR: that profile is uploaded as a CI artifact
           LICENSE_FILE=$(find "${{ steps.ida.outputs.ida-dir }}" -maxdepth 1 -type f -name '*.hexlic' -print -quit)
           test -n "$LICENSE_FILE"
           export IDA_LICENSE="keyfile=${LICENSE_FILE}:setpref"
-          xvfb-run -a python scripts/run_ida_smoke.py \
+          xvfb-run -a python scripts/ida/run_gui_integration.py \
             --ida-dir "${{ steps.ida.outputs.ida-dir }}" \
             --input "${{ runner.temp }}/mcrit-gui-query.exe" \
             --mcrit-server "$MCRIT_SERVER" \
@@ -393,7 +439,7 @@ jobs:
             --idausr "$RUNNER_TEMP/idausr-gui" \
             --plugin-zip dist/mcrit-ida.zip \
             --artifacts "$RUNNER_TEMP/ida-gui-artifacts" \
-            --log "$RUNNER_TEMP/ida-gui-smoke.log" \
+            --log "$RUNNER_TEMP/ida-gui-integration.log" \
             --timeout 180 \
             --qt-platform xcb \
             --require-hcli
@@ -414,8 +460,8 @@ jobs:
         with:
           name: ida-integration-logs
           path: |
-            ${{ runner.temp }}/idalib-smoke.log
-            ${{ runner.temp }}/ida-gui-smoke.log
+            ${{ runner.temp }}/idalib-integration.log
+            ${{ runner.temp }}/ida-gui-integration.log
             ${{ runner.temp }}/ida-gui-startup.log
             ${{ runner.temp }}/mcrit-server.log
             ${{ runner.temp }}/mcrit-worker.log
@@ -425,6 +471,33 @@ jobs:
             ${{ runner.temp }}/idausr-idalib
             ${{ runner.temp }}/idausr-gui
           if-no-files-found: warn
+
+  licensed-result:
+    name: Licensed IDA result
+    needs: [preflight, licensed-linux]
+    if: always()
+    runs-on: ubuntu-latest
+    steps:
+      # Reports rather than blocks: a fork pull request cannot obtain the licence secrets, so a
+      # red check here would be one the contributor has no way to clear. A genuine failure of the
+      # licensed job is still red on that job itself; this one exists so a *skip* cannot read as
+      # a pass, which is how a broken step survived six weeks of fork pull requests.
+      - name: Report whether the licensed job actually passed
+        shell: bash
+        env:
+          RESULT: ${{ needs.licensed-linux.result }}
+          REASON: ${{ needs.preflight.outputs.reason }}
+        run: |
+          if [[ "$RESULT" == "success" ]]; then
+            exit 0
+          fi
+          if [[ "$RESULT" == "skipped" ]]; then
+            message="The licensed IDA integration did not run: $REASON. Dispatch this workflow on a branch of this repository before merging."
+          else
+            message="The licensed IDA integration ended with result '$RESULT'."
+          fi
+          echo "::warning::$message"
+          echo "$message" >> "$GITHUB_STEP_SUMMARY"
 
   compatibility-matrix:
     name: ${{ matrix.name }}
@@ -459,10 +532,10 @@ jobs:
         with:
           persist-credentials: false
 
-      - name: Set up Python 3.11
+      - name: Set up Python 3.12
         uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
         with:
-          python-version: "3.11"
+          python-version: "3.12"
 
       - name: Set up uv
         uses: astral-sh/setup-uv@c771a70e6277c0a99b617c7a806ffedaca235ff9 # v9.0.0
@@ -496,21 +569,18 @@ jobs:
           test -x "$IDA_BIN"
           echo "ida-dir=$IDA_DIR" >> "$GITHUB_OUTPUT"
           echo "ida-bin=$IDA_BIN" >> "$GITHUB_OUTPUT"
-          # Propagate the accepted ida.reg (from hcli --accept-eula) into the
-          # isolated IDAUSR profiles used by the offline smoke tests so IDA does
-          # not refuse batch mode.
           SRC=""
           for cand in "$IDA_DIR/ida.reg" "$HOME/.idapro/ida.reg"; do
             if [[ -f "$cand" ]]; then SRC="$cand"; break; fi
           done
           if [[ -z "$SRC" ]]; then
-            echo "::warning::No accepted ida.reg found to propagate into smoke profiles"
+            echo "::warning::No accepted ida.reg found to propagate into test profiles"
           else
             for prof in "$RUNNER_TEMP/idausr-idalib" "$RUNNER_TEMP/idausr-gui"; do
               mkdir -p "$prof"
               cp "$SRC" "$prof/ida.reg"
             done
-            echo "Propagated IDA acceptance from $SRC into smoke profiles"
+            echo "Propagated IDA acceptance from $SRC into test profiles"
           fi
 
       - name: Keep HCLI on PATH
@@ -535,25 +605,21 @@ jobs:
             exit 1
           fi
           echo "Found headless IDA executable: $IDA_HEADLESS"
-          # Probe the binary to capture diagnostic help output. This must not fail
-          # the build: a freshly installed IDA may not have its license accepted
-          # yet (which the later smoke test tolerates) and some IDA versions/
-          # platforms return a non-zero exit from `-h` regardless.
           "$IDA_HEADLESS" -h > "$RUNNER_TEMP/ida-headless-help.txt" 2>&1 || true
 
       - name: Package and lint plugin
         shell: bash
         run: |
           python -m pip install --upgrade pip ruff
-          python scripts/verify_metadata_sync.py --repo .
-          python scripts/verify_settings_sync.py --repo .
-          python scripts/run_quality_checks.py --repo .
-          python scripts/package_plugin.py --repo . --output dist/mcrit-ida.zip
+          python scripts/ida/verify_metadata_sync.py --repo .
+          python scripts/common/verify_settings_sync.py --repo .
+          python scripts/common/run_quality_checks.py --repo .
+          python scripts/ida/package_plugin.py --repo . --output dist/mcrit-ida.zip
           hcli plugin lint dist/mcrit-ida.zip
 
       - name: Build compatibility fixture
         run: |
-          python scripts/build_test_fixture.py \
+          python scripts/common/build_test_fixture.py \
             --source tests/fixtures/mcrit_sample.c \
             --output "${{ runner.temp }}/ida-fixture.exe" \
             --variant 0
@@ -571,19 +637,19 @@ jobs:
           "$IDALIB_PYTHON" -m pip install --upgrade pip
           "$IDALIB_PYTHON" -m pip install --upgrade \
             "${{ steps.ida.outputs.ida-dir }}/idalib/python"/idapro-*.whl \
-            "smda==4.3.10" "ida-settings==3.5.1" "PySide6" "requests"
+            "smda==4.8.0" "ida-settings==3.5.1" "PySide6" "requests"
 
-      - name: Run offline IDALib lifecycle smoke test
+      - name: Run offline IDALib lifecycle integration test
         shell: bash
         run: |
-          "$IDALIB_PYTHON" scripts/run_idalib_smoke.py \
+          "$IDALIB_PYTHON" scripts/ida/run_idalib_integration.py \
             --ida-dir "${{ steps.ida.outputs.ida-dir }}" \
             --input "${{ runner.temp }}/ida-fixture.exe" \
             --mcrit-server "$MCRIT_SERVER" \
             --idausr "$RUNNER_TEMP/idausr-idalib" \
             --plugin-zip dist/mcrit-ida.zip \
             --artifacts "$RUNNER_TEMP/idalib-artifacts" \
-            --log "$RUNNER_TEMP/idalib-smoke.log" \
+            --log "$RUNNER_TEMP/idalib-integration.log" \
             --offline \
             --require-hcli
 
@@ -593,7 +659,7 @@ jobs:
         with:
           name: ida-compatibility-${{ matrix.name }}
           path: |
-            ${{ runner.temp }}/idalib-smoke.log
+            ${{ runner.temp }}/idalib-integration.log
             ${{ runner.temp }}/ida-headless-help.txt
             ${{ runner.temp }}/idalib-artifacts
             ${{ runner.temp }}/idausr-idalib

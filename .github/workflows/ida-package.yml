@@ -1,0 +1,74 @@
+name: IDA package
+
+on:
+  push:
+    paths:
+      - "mcrit_plugin/ida/**"
+      - "scripts/ida/**"
+      - "tests/ida/**"
+      - "CHANGELOG.md"
+      - "docs/config_override.json.template"
+      - ".github/workflows/ida-*.yml"
+      - ".github/workflows/scripts/ida/**"
+      - "mcrit_plugin/core/**"
+      - "mcrit_plugin/ui_qt/**"
+      - "icons/**"
+      - "scripts/common/**"
+      - "tests/core/**"
+      - "tests/conftest.py"
+      - "tests/fixtures/**"
+      - "README.md"
+      - "LICENSE"
+      - "pyproject.toml"
+      - ".gitattributes"
+  pull_request:
+    paths:
+      - "mcrit_plugin/ida/**"
+      - "scripts/ida/**"
+      - "tests/ida/**"
+      - "CHANGELOG.md"
+      - "docs/config_override.json.template"
+      - ".github/workflows/ida-*.yml"
+      - ".github/workflows/scripts/ida/**"
+      - "mcrit_plugin/core/**"
+      - "mcrit_plugin/ui_qt/**"
+      - "icons/**"
+      - "scripts/common/**"
+      - "tests/core/**"
+      - "tests/conftest.py"
+      - "tests/fixtures/**"
+      - "README.md"
+      - "LICENSE"
+      - "pyproject.toml"
+      - ".gitattributes"
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  package:
+    name: IDA plugin package
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Set up Python
+        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: "3.12"
+      - name: Install HCLI
+        run: python -m pip install --upgrade pip ida-hcli
+      - name: Verify HCLI runtime imports
+        run: python -c "import hcli.main"
+      - name: Verify metadata sync
+        run: python scripts/ida/verify_metadata_sync.py --repo .
+      - name: Build plugin archive
+        run: python scripts/ida/package_plugin.py --repo . --output dist/mcrit-ida.zip
+      - name: Lint HCLI package metadata
+        run: hcli plugin lint dist/mcrit-ida.zip

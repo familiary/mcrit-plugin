@@ -1,0 +1,75 @@
+name: Binary Ninja package
+
+on:
+  push:
+    paths:
+      - "mcrit_plugin/binja/**"
+      - "plugin.json"
+      - "__init__.py"
+      - "requirements.txt"
+      - "**/ida-plugin.json"
+      - "scripts/binja/**"
+      - "tests/binja/**"
+      - ".github/workflows/binja-*.yml"
+      - "mcrit_plugin/core/**"
+      - "mcrit_plugin/ui_qt/**"
+      - "icons/**"
+      - "scripts/common/**"
+      - "tests/core/**"
+      - "tests/conftest.py"
+      - "tests/fixtures/**"
+      - "README.md"
+      - "LICENSE"
+      - "pyproject.toml"
+      - ".gitattributes"
+  pull_request:
+    paths:
+      - "mcrit_plugin/binja/**"
+      - "plugin.json"
+      - "__init__.py"
+      - "requirements.txt"
+      - "**/ida-plugin.json"
+      - "scripts/binja/**"
+      - "tests/binja/**"
+      - ".github/workflows/binja-*.yml"
+      - "mcrit_plugin/core/**"
+      - "mcrit_plugin/ui_qt/**"
+      - "icons/**"
+      - "scripts/common/**"
+      - "tests/core/**"
+      - "tests/conftest.py"
+      - "tests/fixtures/**"
+      - "README.md"
+      - "LICENSE"
+      - "pyproject.toml"
+      - ".gitattributes"
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  package:
+    name: Binary Ninja plugin package
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          # the release checks refuse a version an existing tag already published
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Set up Python
+        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: "3.12"
+      - name: Verify metadata sync
+        run: python scripts/binja/verify_metadata_sync.py --repo .
+      - name: Validate plugin.json with the extension manager's release checks
+        uses: Vector35/plugin_actions@9ea98e06c5aa58a8e2d973c91af583beaecb0efd # v1.1.0
+        with:
+          checkout: "false"
+          dry-run: "true"

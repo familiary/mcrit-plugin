@@ -1,0 +1,6 @@
+# HCLI indexes GitHub source archives of every release; only the attached IDA ZIP must match
+mcrit_plugin/ida/ida-plugin.json export-ignore
+mcrit_plugin/core/revision.py export-subst
+docs/ export-ignore
+scripts/ export-ignore
+tests/ export-ignore

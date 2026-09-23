@@ -7,6 +7,10 @@ on:
 permissions:
   contents: read
 
+env:
+  MCRIT_VERSION: "1.9.0"
+  MCRIT_SERVER: "http://127.0.0.1:8000"
+
 jobs:
   pytest:
     runs-on: ubuntu-latest
@@ -28,3 +32,110 @@ jobs:
 
       - name: Run pure Python tests
         run: python -m pytest tests
+
+  headless-integration:
+    name: Headless backend / live MCRIT
+    runs-on: ubuntu-latest
+    services:
+      mongo:
+        image: mongo:5.0
+        ports:
+          - 27017:27017
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Set up Python
+        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: "3.12"
+
+      - name: Install MCRIT service and plugin dependencies
+        shell: bash
+        run: |
+          python -m venv "$RUNNER_TEMP/mcrit-venv"
+          "$RUNNER_TEMP/mcrit-venv/bin/python" -m pip install --upgrade pip
+          "$RUNNER_TEMP/mcrit-venv/bin/python" -m pip install "mcrit==${MCRIT_VERSION}"
+          python -m pip install --upgrade pip
+          python -m pip install "smda==4.8.0" requests
+
+      - name: Build deterministic MCRIT fixtures
+        run: |
+          python scripts/common/build_test_fixture.py \
+            --source tests/fixtures/mcrit_sample.c \
+            --output "$RUNNER_TEMP/mcrit-reference" \
+            --variant 0
+          python scripts/common/build_test_fixture.py \
+            --source tests/fixtures/mcrit_sample.c \
+            --output "$RUNNER_TEMP/mcrit-headless-query" \
+            --variant 1
+
+      - name: Wait for MongoDB
+        shell: bash
+        run: |
+          "$RUNNER_TEMP/mcrit-venv/bin/python" - <<'PY'
+          import time
+          import pymongo
+
+          deadline = time.monotonic() + 60
+          last_error = None
+          while time.monotonic() < deadline:
+              try:
+                  pymongo.MongoClient("mongodb://127.0.0.1:27017/", serverSelectionTimeoutMS=1000).admin.command("ping")
+                  break
+              except Exception as exc:
+                  last_error = exc
+                  time.sleep(1)
+          else:
+              raise SystemExit(f"MongoDB did not become ready: {last_error}")
+          PY
+
+      - name: Start MCRIT server and worker
+        shell: bash
+        run: |
+          # setsid detaches the services so the runner does not kill them when this step ends
+          setsid nohup "$RUNNER_TEMP/mcrit-venv/bin/python" -m mcrit server \
+            > "$RUNNER_TEMP/mcrit-server.log" 2>&1 < /dev/null &
+          setsid nohup "$RUNNER_TEMP/mcrit-venv/bin/python" -m mcrit worker \
+            > "$RUNNER_TEMP/mcrit-worker.log" 2>&1 < /dev/null &
+          "$RUNNER_TEMP/mcrit-venv/bin/python" - <<'PY'
+          import time
+          import requests
+
+          deadline = time.monotonic() + 90
+          while time.monotonic() < deadline:
+              try:
+                  if requests.get("http://127.0.0.1:8000/version", timeout=2).ok:
+                      break
+              except Exception:
+                  pass
+              time.sleep(2)
+          else:
+              raise SystemExit("MCRIT API did not become ready")
+          PY
+
+      - name: Seed MCRIT reference sample
+        env:
+          PYTHONPATH: ${{ github.workspace }}
+        run: |
+          "$RUNNER_TEMP/mcrit-venv/bin/python" scripts/common/seed_mcrit.py \
+            --server "$MCRIT_SERVER" \
+            --sample "$RUNNER_TEMP/mcrit-reference" \
+            --timeout 180
+
+      - name: Run headless integration test
+        shell: bash
+        run: |
+          python scripts/common/run_headless_integration.py \
+            --input "$RUNNER_TEMP/mcrit-headless-query" \
+            --mcrit-server "$MCRIT_SERVER" \
+            --reference-sha256 "$(sha256sum "$RUNNER_TEMP/mcrit-reference" | cut -d' ' -f1)"
+
+      - name: Show MCRIT logs on failure
+        if: failure()
+        shell: bash
+        run: |
+          cat "$RUNNER_TEMP/mcrit-server.log" || true
+          cat "$RUNNER_TEMP/mcrit-worker.log" || true
