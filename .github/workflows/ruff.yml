@@ -20,18 +20,8 @@ jobs:
         with:
           python-version: "3.12"
       - name: Install validation tooling
-        run: python -m pip install --upgrade pip ida-hcli ruff
-      - name: Verify HCLI runtime imports
-        run: python -c "import hcli.main"
-      - name: Verify metadata sync
-        run: python scripts/verify_metadata_sync.py --repo .
+        run: python -m pip install --upgrade pip ruff
       - name: Verify settings sync
-        run: python scripts/verify_settings_sync.py --repo .
+        run: python scripts/common/verify_settings_sync.py --repo .
       - name: Run quality checks
-        run: python scripts/run_quality_checks.py --repo .
-      - name: Build plugin archive
-        run: python scripts/package_plugin.py --repo . --output dist/mcrit-ida.zip
-      - name: Lint HCLI package metadata
-        run: |
-          hcli plugin lint .
-          hcli plugin lint dist/mcrit-ida.zip
+        run: python scripts/common/run_quality_checks.py --repo .

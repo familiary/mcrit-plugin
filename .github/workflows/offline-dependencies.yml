@@ -1,0 +1,101 @@
+name: Offline dependencies
+
+# A release created with GITHUB_TOKEN does not start workflows listening for release events, so
+# the release workflows attach the bundles by a direct call.
+on:
+  workflow_call:
+    inputs:
+      tag:
+        description: Release to attach the bundles to
+        required: true
+        type: string
+      variants:
+        description: 'JSON list of {"name", "packages"}; packages are passed to pip install'
+        required: true
+        type: string
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: Release to attach the bundles to
+        required: true
+        type: string
+      variants:
+        description: 'JSON list of {"name", "packages"}; packages are passed to pip install'
+        required: true
+        type: string
+        default: '[{"name": "smda", "packages": "smda"}, {"name": "full", "packages": "smda ida-settings"}]'
+
+permissions:
+  contents: read
+
+jobs:
+  build-dependencies:
+    runs-on: windows-latest
+    permissions:
+      contents: write
+    timeout-minutes: 60
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ["3.10", "3.11", "3.12", "3.13"]
+        variant: ${{ fromJSON(inputs.variants) }}
+
+    steps:
+    - name: Checkout the release
+      uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      with:
+        ref: ${{ inputs.tag }}
+        persist-credentials: false
+
+    - name: Set up Python ${{ matrix.python-version }}
+      uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+      with:
+        python-version: ${{ matrix.python-version }}
+
+    - name: Create virtual environment
+      run: |
+        python -m venv venv
+        .\venv\Scripts\python.exe -m pip install --upgrade pip wheel
+
+    - name: Install dependencies
+      env:
+        PACKAGES: ${{ matrix.variant.packages }}
+      run: |
+        $packages = $env:PACKAGES -split ' '
+        .\venv\Scripts\python.exe -m pip install @packages
+
+    - name: Generate requirements
+      run: |
+        .\venv\Scripts\python.exe -m pip freeze > requirements-frozen.txt
+
+    - name: Create wheels directory and download dependencies
+      run: |
+        New-Item -ItemType Directory -Path "wheels" -Force
+        .\venv\Scripts\python.exe -m pip wheel --wheel-dir wheels -r requirements-frozen.txt
+        Copy-Item "requirements-frozen.txt" "wheels/requirements.txt"
+
+    - name: Create bundle
+      env:
+        VARIANT: ${{ matrix.variant.name }}
+        PYTHON_VERSION: ${{ matrix.python-version }}
+        TAG: ${{ inputs.tag }}
+      run: |
+        $bundleName = "mcrit-plugin-dependencies-$env:VARIANT-winpy$env:PYTHON_VERSION-$env:TAG.zip"
+        Set-Location "wheels"
+        Compress-Archive -Path "*" -DestinationPath "../$bundleName"
+        Set-Location ".."
+        echo "BUNDLE_NAME=$bundleName" >> $env:GITHUB_ENV
+
+    - name: Upload bundle as artifact
+      uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+      with:
+        name: ${{ env.BUNDLE_NAME }}
+        path: ${{ env.BUNDLE_NAME }}
+        retention-days: 90
+
+    - name: Upload bundle to release
+      env:
+        GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        REPO: ${{ github.repository }}
+        TAG: ${{ inputs.tag }}
+      run: gh release upload $env:TAG $env:BUNDLE_NAME --repo $env:REPO --clobber

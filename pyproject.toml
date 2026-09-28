@@ -4,11 +4,10 @@ line-length = 100
 exclude = [
     ".git",
     ".vscode",
-    "helpers/minimcrit",
-    "helpers/pylev",
-    "helpers/pyperclip",
+    "mcrit_plugin/core/minimcrit",
+    "mcrit_plugin/core/pylev",
     "icons",
-    "qt-designer-mockup",
+    "docs/qt-designer-mockup",
 ]
 
 [tool.ruff.lint]

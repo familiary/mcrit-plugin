@@ -128,12 +128,12 @@ _make_module(
 
 
 # Stub `ida_settings` so config.py imports succeed.
-def _ida_get_current_plugin_setting(key):
-    """Stub for ida_settings.get_current_plugin_setting that always raises KeyError.
-
-    Used during tests to force fallback to default values.
-    """
+def _ida_get_plugin_setting(plugin_name, key):
+    """Stub for ida_settings.get_plugin_setting that always raises KeyError."""
     raise KeyError(key)
 
 
-_make_module("ida_settings", get_current_plugin_setting=_ida_get_current_plugin_setting)
+_make_module(
+    "ida_settings",
+    get_plugin_setting=_ida_get_plugin_setting,
+)
