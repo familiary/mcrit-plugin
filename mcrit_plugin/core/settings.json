@@ -25,15 +25,6 @@
     "prompt": false
   },
   {
-    "key": "sample_group_only",
-    "type": "boolean",
-    "required": false,
-    "default": false,
-    "name": "Restrict Matches to Sample Group (deprecated)",
-    "documentation": "Deprecated, has no effect: no MCRIT or MCRITweb version applies it to the plugin's requests.",
-    "prompt": false
-  },
-  {
     "key": "mcritweb_api_token",
     "type": "string",
     "required": false,

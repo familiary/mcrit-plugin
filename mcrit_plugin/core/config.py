@@ -87,7 +87,6 @@ class McritConfig:
             "mcrit_server": "http://127.0.0.1:8000/",
             "mcritweb_api_token": "",
             "mcrit_request_timeout": "10",
-            "sample_group_only": False,
             "auto_analyze_smda_on_startup": False,
             "use_smda_for_analysis": False,
             "submit_function_names_on_close": False,
@@ -109,13 +108,16 @@ class McritConfig:
             try:
                 with open(override_path, "r") as override_file:
                     override_settings = json.load(override_file)
-                    self._overrides = {
-                        key: override_settings[key]
-                        for key in self._defaults
-                        if key in override_settings
-                    }
             except (json.JSONDecodeError, IOError):
-                pass
+                override_settings = None
+            if isinstance(override_settings, dict):
+                self._overrides = {
+                    key: override_settings[key]
+                    for key in self._defaults
+                    if key in override_settings
+                }
+            if self._overrides:
+                print("[!] config_override.json forces: " + ", ".join(sorted(self._overrides)))
 
     def _get(self, key):
         """Get a setting from config_override.json, else the settings store, falling back to
@@ -178,12 +180,6 @@ class McritConfig:
     def MCRIT_REQUEST_TIMEOUT(self):
         """Timeout in seconds for MCRIT API requests."""
         return self._get_int("mcrit_request_timeout", 10)
-
-    @property
-    def SAMPLE_GROUP_ONLY(self):
-        """Deprecated and read by nothing: MCRIT fails a matching job or function query that carries
-        it, and MCRITweb drops it."""
-        return self._get_bool("sample_group_only")
 
     @property
     def AUTO_ANALYZE_SMDA_ON_STARTUP(self):

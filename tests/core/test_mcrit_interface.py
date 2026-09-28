@@ -37,12 +37,11 @@ class _FakeSmdaReport:
         return self._functions
 
 
-def _make_interface(timeout=10, sample_group_only=False):
+def _make_interface(timeout=10):
     """Build a McritInterface instance bypassing __init__ to avoid IDA-specific setup.
 
     Args:
         timeout: MCRIT request timeout in seconds.
-        sample_group_only: Whether to restrict to sample group.
 
     Returns:
         A partially initialized McritInterface for testing.
@@ -50,10 +49,7 @@ def _make_interface(timeout=10, sample_group_only=False):
     inst = McritInterface.__new__(McritInterface)
     inst.parent = SimpleNamespace(
         local_widget=MagicMock(),
-        config=SimpleNamespace(
-            MCRIT_REQUEST_TIMEOUT=timeout,
-            SAMPLE_GROUP_ONLY=sample_group_only,
-        ),
+        config=SimpleNamespace(MCRIT_REQUEST_TIMEOUT=timeout),
         remote_sample_id=23,
         function_matches={},
         function_id_to_offset={},
@@ -129,29 +125,6 @@ class TestCheckConnectionImpl:
         interface.mcrit_client.getVersion.side_effect = RuntimeError("plugin bug")
         interface._check_connection_impl()
         assert "Traceback" in capsys.readouterr().err
-
-
-class TestSampleGroupOnly:
-    def test_a_matching_job_never_carries_sample_group_only(self):
-        interface = _make_interface(sample_group_only=True)
-        interface.mcrit_client.requestMatchesForSample.return_value = "job-1"
-
-        interface.requestMatchingJob(23, force_update=True)
-
-        interface.mcrit_client.requestMatchesForSample.assert_called_once_with(
-            23, band_matches_required=2, force_recalculation=True
-        )
-
-    def test_a_function_query_never_carries_sample_group_only(self):
-        interface = _make_interface(sample_group_only=True)
-        interface.mcrit_client.getMatchesForSmdaFunction.return_value = None
-        smda_report = _FakeSmdaReport([_FakeSmdaFunction(0x401000)])
-
-        interface.querySmdaFunctionMatches(smda_report)
-
-        interface.mcrit_client.getMatchesForSmdaFunction.assert_called_once_with(
-            smda_report, exclude_self_matches=False
-        )
 
 
 class TestQueryFunctionEntriesById:

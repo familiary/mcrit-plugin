@@ -251,7 +251,8 @@ class McritInterface(object):
         self.parent.local_widget.updateActivityInfo("Querying for FamilyEntries")
         try:
             family_entries = self.mcrit_client.getFamilies()
-            if family_entries:
+            # None is a failed request; an empty dict is a server without families
+            if family_entries is not None:
                 self.parent.family_infos = {int(k): v for k, v in family_entries.items()}
                 self.parent.local_widget.updateActivityInfo(
                     "Success! Received all remote FamilyEntries."
@@ -330,7 +331,7 @@ class McritInterface(object):
         self.parent.local_widget.updateActivityInfo("Querying for SampleEntries")
         try:
             sample_entries = self.mcrit_client.getSamples()
-            if sample_entries:
+            if sample_entries is not None:
                 self.parent.sample_infos = sample_entries
                 self.parent.local_widget.updateActivityInfo(
                     "Success! Received all remote SampleEntries."

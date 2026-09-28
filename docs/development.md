@@ -21,7 +21,7 @@ mcrit-plugin/
 │   └── binja/               # Binary Ninja metadata sync, integration runner
 ├── tests/
 │   ├── core/                # pytest: core and headless backend
-│   ├── ui_qt/               # pytest: McritSession
+│   ├── ui_qt/               # pytest: McritSession; sorted tables with PySide6
 │   ├── ida/                 # pytest for the IDA entry point, backend, release guard; in-IDA tests
 │   └── binja/               # pytest for the Binja token storage; in-Binary Ninja integration tests
 └── .github/workflows/

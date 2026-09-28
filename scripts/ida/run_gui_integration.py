@@ -67,7 +67,6 @@ def _test_settings(server: str, timeout: int) -> dict[str, object]:
         "mcritweb_api_token": "",
         "mcrit_server": server.rstrip("/"),
         "mcrit_request_timeout": str(timeout),
-        "sample_group_only": False,
         "auto_analyze_smda_on_startup": False,
         "use_smda_for_analysis": False,
         "submit_function_names_on_close": False,

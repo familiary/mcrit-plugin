@@ -38,7 +38,7 @@ class HeadlessMcritContext:
         self.matching_report = None
         self.matched_function_entries = None
         self.remote_function_mapping = {}
-        self.sample_infos = {}
+        self.sample_infos = None
         self.family_infos = None
         self.function_id_to_offset = {}
         self.function_matches = {}

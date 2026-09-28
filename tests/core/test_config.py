@@ -65,11 +65,6 @@ def test_mcrit_request_timeout_invalid_falls_back_to_default(fresh_config, raw_v
         assert settings.MCRIT_REQUEST_TIMEOUT == 10
 
 
-def test_sample_group_only_default(fresh_config):
-    settings = fresh_config.McritConfig("0.0.0")
-    assert settings.SAMPLE_GROUP_ONLY is False
-
-
 @pytest.mark.parametrize(
     "raw_value, expected",
     [
@@ -83,14 +78,13 @@ def test_sample_group_only_default(fresh_config):
         (1, True),
     ],
 )
-def test_sample_group_only_coerces_setting_value(fresh_config, raw_value, expected):
+def test_boolean_settings_coerce_the_stored_value(fresh_config, raw_value, expected):
     settings = fresh_config.McritConfig("0.0.0")
     with patch.object(settings, "_get", return_value=raw_value):
-        assert settings.SAMPLE_GROUP_ONLY is expected
+        assert settings.FUNCTION_LIVE_QUERY is expected
 
 
 BOOL_PROPERTIES = [
-    "SAMPLE_GROUP_ONLY",
     "AUTO_ANALYZE_SMDA_ON_STARTUP",
     "USE_SMDA_FOR_ANALYSIS",
     "SUBMIT_FUNCTION_NAMES_ON_CLOSE",
@@ -164,20 +158,7 @@ def test_version_matches_ida_plugin_json():
     assert manifest["plugin"]["version"] == ida_config.VERSION
 
 
-def test_manifest_declares_sample_group_only_setting():
-    import json
-    import os
-
-    project_root = os.path.abspath(os.path.join(os.path.dirname(__file__), os.pardir, os.pardir))
-    with open(os.path.join(project_root, "mcrit_plugin", "ida", "ida-plugin.json"), "r") as fh:
-        manifest = json.load(fh)
-
-    settings = {setting["key"]: setting for setting in manifest["plugin"]["settings"]}
-    assert settings["sample_group_only"]["type"] == "boolean"
-    assert settings["sample_group_only"]["default"] is False
-
-
-def test_override_template_declares_sample_group_only_default():
+def test_override_template_uses_only_declared_keys(fresh_config):
     import json
     import os
 
@@ -185,7 +166,7 @@ def test_override_template_declares_sample_group_only_default():
     with open(os.path.join(project_root, "docs", "config_override.json.template"), "r") as fh:
         override_template = json.load(fh)
 
-    assert override_template["sample_group_only"] is False
+    assert set(override_template) <= set(fresh_config.McritConfig("0.0.0")._defaults)
 
 
 def test_plugin_loggers_do_not_propagate_to_existing_root_handler(fresh_config):
@@ -228,3 +209,23 @@ def test_config_override_wins_over_the_settings_store(fresh_config, tmp_path):
     assert settings.MCRIT_SERVER == "http://override:8000/"
     assert settings.BLOCKS_MIN_SIZE == 8
     assert settings.MCRIT_REQUEST_TIMEOUT == 30
+
+
+def test_config_override_names_the_keys_it_forces(fresh_config, tmp_path, capsys):
+    (tmp_path / "config_override.json").write_text(
+        '{"mcrit_server": "http://override:8000/", "blocks_min_size": 8, "unknown": 1}',
+        encoding="utf-8",
+    )
+
+    fresh_config.McritConfig("0.0.0")
+
+    assert "config_override.json forces: blocks_min_size, mcrit_server" in capsys.readouterr().out
+
+
+@pytest.mark.parametrize("content", ["3", "true", "null", '"mcrit_server"', "[1]"])
+def test_a_config_override_that_is_not_an_object_is_ignored(fresh_config, tmp_path, content):
+    (tmp_path / "config_override.json").write_text(content, encoding="utf-8")
+
+    settings = fresh_config.McritConfig("0.0.0", {"mcrit_server": "http://store:8000/"}.__getitem__)
+
+    assert settings.MCRIT_SERVER == "http://store:8000/"

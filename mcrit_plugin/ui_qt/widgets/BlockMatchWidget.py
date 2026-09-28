@@ -138,11 +138,11 @@ class BlockMatchWidget(QMainWindow):
         return None
 
     def _ensure_remote_cache(self):
-        if not self.parent.family_infos:
+        if self.parent.family_infos is None:
             self.parent.mcrit_interface.queryAllFamilyEntries()
-        if not self.parent.sample_infos:
+        if self.parent.sample_infos is None:
             self.parent.mcrit_interface.queryAllSampleEntries()
-        if not self.parent.family_infos or not self.parent.sample_infos:
+        if self.parent.family_infos is None or self.parent.sample_infos is None:
             self.clearTable()
             self.label_current_function_matches.setText(
                 "Remote family/sample info unavailable. Check server connection."
@@ -176,6 +176,8 @@ class BlockMatchWidget(QMainWindow):
             block = self.parent.local_smda_report.findBlockByContainedAddress(address)
             if block:
                 self.parent.current_block = block.offset
+                # the Function Scope hook may not have seen this cursor move yet
+                self.parent.current_function = block.smda_function.offset
         self.updateViewWithCurrentBlock()
 
     def hook_refresh(self, view, use_current_block=False):
@@ -241,14 +243,18 @@ class BlockMatchWidget(QMainWindow):
         block_matches_by_offset = {}
         start = time.time()
         num_queries = 0
+        lookup_failed = False
         for entry in pbh:
-            if entry["hash"] not in self.parent.blockhash_matches:
+            if entry["hash"] not in self.parent.blockhash_matches and not lookup_failed:
                 pichash_matches = self.parent.mcrit_interface.getMatchesForPicBlockHash(
                     entry["hash"]
                 )
                 num_queries += 1
-                # a failed query answers None; leave it uncached so the next visit retries
-                if pichash_matches is not None:
+                # a failed query answers None; leave it uncached so the next visit retries, and
+                # skip this visit's other lookups, which would each wait out the same timeout
+                if pichash_matches is None:
+                    lookup_failed = True
+                else:
                     self.parent.blockhash_matches[entry["hash"]] = pichash_matches
             pichash_matches = self.parent.blockhash_matches.get(entry["hash"])
             if pichash_matches is None:

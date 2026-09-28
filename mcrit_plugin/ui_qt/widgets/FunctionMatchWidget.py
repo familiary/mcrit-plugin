@@ -136,11 +136,11 @@ class FunctionMatchWidget(QMainWindow):
         return None
 
     def _ensure_remote_cache(self):
-        if not self.parent.family_infos:
+        if self.parent.family_infos is None:
             self.parent.mcrit_interface.queryAllFamilyEntries()
-        if not self.parent.sample_infos:
+        if self.parent.sample_infos is None:
             self.parent.mcrit_interface.queryAllSampleEntries()
-        if not self.parent.family_infos or not self.parent.sample_infos:
+        if self.parent.family_infos is None or self.parent.sample_infos is None:
             self.clearTable()
             self.label_current_function_matches.setText(
                 "Remote family/sample info unavailable. Check server connection."
@@ -201,7 +201,7 @@ class FunctionMatchWidget(QMainWindow):
     def updateViewWithCurrentFunction(self):
         self.last_viewed = self.parent.current_function
         smda_function = self.parent.local_smda_report.getFunction(self.parent.current_function)
-        # MCRIT MinHashes only functions above 10 instructions (MINHASH_FN_MIN_INS)
+        # MCRIT's default MINHASH_FN_MIN_INS, compared with >; a server can set another value
         if smda_function is None or smda_function.num_instructions <= 10:
             self.clearTable()
             self.label_current_function_matches.setText(

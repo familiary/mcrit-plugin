@@ -51,7 +51,7 @@ Settings are handled by [ida-settings](https://github.com/williballenthin/ida-se
 
 - HCLI: `hcli plugin config mcrit-ida set mcrit_server https://mcrit.example.com/api/` (`list`, `get`, `export` and `import` also work)
 - GUI: install `ida-settings-editor` and use Edit → Plugins → Plugin Settings Manager
-- File: put a `config_override.json` next to `ida_mcrit.py`. Its keys take precedence over the other two, so keep only the ones you want to force; `docs/config_override.json.template` lists them all.
+- File: put a `config_override.json` next to `ida_mcrit.py`. Its keys take precedence over the other two, so keep only the ones you want to force; `docs/config_override.json.template` shows the format, and the plugin prints the keys it forces when it loads.
 
 ### Use
 
@@ -86,7 +86,6 @@ them, with their types and defaults.
 | `mcritweb_api_token` | MCRITweb API token; the username is inferred from it | `eyJ0eXAi...` |
 | `mcritweb_username` | Username (optional) | `analyst` |
 | `mcrit_request_timeout` | Request timeout in seconds | `10` |
-| `sample_group_only` | Deprecated, has no effect | `false` |
 
 ## Development
 

@@ -1,20 +1,4 @@
 {
-    "mcritweb_username": "",
     "mcrit_server": "http://127.0.0.1:8000/",
-    "mcritweb_api_token": "",
-    "mcrit_request_timeout": 10,
-    "sample_group_only": false,
-    "auto_analyze_smda_on_startup": false,
-    "use_smda_for_analysis": false,
-    "submit_function_names_on_close": false,
-    "blocks_filter_library_functions": false,
-    "blocks_live_query": false,
-    "blocks_min_size": 4,
-    "function_filter_library_functions": false,
-    "function_live_query": false,
-    "function_min_score": 50,
-    "overview_fetch_labels_automatically": false,
-    "overview_filter_to_labels": false,
-    "overview_filter_to_conflicts": false,
-    "overview_min_score": 50
+    "function_live_query": true
 }
