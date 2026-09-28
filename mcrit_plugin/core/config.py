@@ -103,18 +103,23 @@ class McritConfig:
             "overview_min_score": "50",
         }
         # developer convenience to override settings without touching the disassembler's settings store
+        self._overrides = {}
         override_path = os.path.join(PLUGIN_ROOT, "config_override.json")
         if os.path.exists(override_path):
             try:
                 with open(override_path, "r") as override_file:
                     override_settings = json.load(override_file)
-                    for key in self._defaults.keys():
-                        self._defaults[key] = override_settings.get(key, self._defaults[key])
+                    self._overrides = {
+                        key: override_settings[key]
+                        for key in self._defaults
+                        if key in override_settings
+                    }
             except (json.JSONDecodeError, IOError):
                 pass
 
     def _get(self, key):
-        """Get a setting from the settings store, falling back to defaults on error.
+        """Get a setting from config_override.json, else the settings store, falling back to
+        defaults on error.
 
         Args:
             key: Setting key to retrieve.
@@ -122,6 +127,8 @@ class McritConfig:
         Returns:
             The setting value or its default.
         """
+        if key in self._overrides:
+            return self._overrides[key]
         if self._get_setting is None:
             return self._defaults.get(key)
         try:
@@ -174,7 +181,8 @@ class McritConfig:
 
     @property
     def SAMPLE_GROUP_ONLY(self):
-        """Restrict matching results to samples in the current sample group."""
+        """Deprecated and read by nothing: MCRIT fails a matching job or function query that carries
+        it, and MCRITweb drops it."""
         return self._get_bool("sample_group_only")
 
     @property

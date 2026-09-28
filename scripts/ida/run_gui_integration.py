@@ -302,6 +302,10 @@ def main() -> int:
         idausr.mkdir(parents=True, exist_ok=True)
 
     plugin_root = args.plugin_root.expanduser().resolve() if args.plugin_root else None
+    # checked before anything is installed or written; the packaged ZIP never carries one
+    override_path = (plugin_root or idausr / "plugins" / "mcrit-ida") / "config_override.json"
+    if override_path.exists():
+        raise RuntimeError(f"{override_path} would override the test settings; move it aside")
     package_root = None
     session_root = None
     plugin_zip = None

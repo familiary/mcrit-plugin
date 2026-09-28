@@ -222,7 +222,6 @@ class McritInterface(object):
                 sample_id,
                 band_matches_required=2,
                 force_recalculation=force_update,
-                sample_group_only=self.config.SAMPLE_GROUP_ONLY,
             )
             if job_id:
                 self.parent.local_widget.updateActivityInfo(
@@ -270,9 +269,7 @@ class McritInterface(object):
             smda_function = functions[0]
             if smda_function.offset not in self.parent.function_matches:
                 match_report_dict = self.mcrit_client.getMatchesForSmdaFunction(
-                    smda_report,
-                    exclude_self_matches=False,
-                    sample_group_only=self.config.SAMPLE_GROUP_ONLY,
+                    smda_report, exclude_self_matches=False
                 )
                 if match_report_dict:
                     self.parent.function_matches.update({smda_function.offset: match_report_dict})

@@ -63,6 +63,11 @@ Ninja applies to that plugin only.
   warns rather than fails, because a fork cannot obtain the licence secrets; a genuine failure of
   the licensed job is still red on that job.
 
+### Deprecated
+
+- `sample_group_only` has no effect: MCRIT takes it for neither a matching job nor a function
+  query, and MCRITweb drops it. It stays declared so existing configurations remain valid.
+
 ### Fixed
 
 - Releases get their Windows offline dependency bundles again. The bundle workflow listened for
@@ -86,9 +91,13 @@ Ninja applies to that plugin only.
 - Sample Info kept showing a family picked for an earlier result even when the next result has no
   match in it; it falls back to the best family then.
 - The hover hint of the IDA graph view showed a placeholder text; it shows the block's offset.
+- Values in `config_override.json` were ignored whenever ida-settings had the key, which is always,
+  since every key has a declared default; they now take precedence over ida-settings.
 - Where `config_override.json` applied, which was only when the settings store failed, boolean
   values given as strings are read as their value. Only `sample_group_only` was converted before,
   so `"false"` switched any other option on.
+- With `sample_group_only` on, every matching job and every Function Scope query failed on an
+  MCRIT server, which takes that parameter for neither. The plugin no longer sends it.
 - Converting with SMDA selects SMDA's `aarch64` backend for AArch64 databases instead of `arm`,
   which SMDA does not have. Other non-x86 architectures still fail, since SMDA does not support
   them.

@@ -74,7 +74,8 @@ protection.
 ## Integration tests
 
 All integration tests except the offline modes need a MCRIT server. CI uses MCRIT 1.12.0 and
-SMDA 4.9.0.
+SMDA 4.9.0. Every runner refuses to start while the plugin it runs has a `config_override.json`,
+which would take precedence over the settings under test.
 
 ```bash
 docker run --rm -p 27017:27017 mongo:5.0

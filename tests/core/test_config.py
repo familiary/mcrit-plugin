@@ -24,9 +24,12 @@ def _reload_config():
 
 
 @pytest.fixture
-def fresh_config():
-    """Fixture that provides a freshly loaded config module for testing."""
-    return _reload_config()
+def fresh_config(tmp_path, monkeypatch):
+    """A freshly loaded config module whose plugin root holds no config_override.json, so a
+    developer's own override file cannot change the defaults under test."""
+    module = _reload_config()
+    monkeypatch.setattr(module, "PLUGIN_ROOT", str(tmp_path))
+    return module
 
 
 def test_mcrit_request_timeout_default(fresh_config):
@@ -209,3 +212,19 @@ def test_plugin_loggers_do_not_propagate_to_existing_root_handler(fresh_config):
         assert minimcrit_logger.getEffectiveLevel() == config.LOG_LEVEL
     finally:
         root.removeHandler(root_handler)
+
+
+def test_config_override_wins_over_the_settings_store(fresh_config, tmp_path):
+    (tmp_path / "config_override.json").write_text(
+        '{"mcrit_server": "http://override:8000/", "blocks_min_size": "8"}', encoding="utf-8"
+    )
+    store = {
+        "mcrit_server": "http://store:8000/",
+        "blocks_min_size": "4",
+        "mcrit_request_timeout": "30",
+    }
+    settings = fresh_config.McritConfig("0.0.0", store.__getitem__)
+
+    assert settings.MCRIT_SERVER == "http://override:8000/"
+    assert settings.BLOCKS_MIN_SIZE == 8
+    assert settings.MCRIT_REQUEST_TIMEOUT == 30

@@ -132,33 +132,17 @@ class TestCheckConnectionImpl:
 
 
 class TestSampleGroupOnly:
-    def test_request_matching_job_passes_configured_sample_group_only(self):
+    def test_a_matching_job_never_carries_sample_group_only(self):
         interface = _make_interface(sample_group_only=True)
         interface.mcrit_client.requestMatchesForSample.return_value = "job-1"
 
         interface.requestMatchingJob(23, force_update=True)
 
         interface.mcrit_client.requestMatchesForSample.assert_called_once_with(
-            23,
-            band_matches_required=2,
-            force_recalculation=True,
-            sample_group_only=True,
+            23, band_matches_required=2, force_recalculation=True
         )
 
-    def test_request_matching_job_defaults_sample_group_only_to_false(self):
-        interface = _make_interface()
-        interface.mcrit_client.requestMatchesForSample.return_value = "job-1"
-
-        interface.requestMatchingJob(23)
-
-        interface.mcrit_client.requestMatchesForSample.assert_called_once_with(
-            23,
-            band_matches_required=2,
-            force_recalculation=False,
-            sample_group_only=False,
-        )
-
-    def test_query_smda_function_matches_passes_configured_sample_group_only(self):
+    def test_a_function_query_never_carries_sample_group_only(self):
         interface = _make_interface(sample_group_only=True)
         interface.mcrit_client.getMatchesForSmdaFunction.return_value = None
         smda_report = _FakeSmdaReport([_FakeSmdaFunction(0x401000)])
@@ -166,9 +150,7 @@ class TestSampleGroupOnly:
         interface.querySmdaFunctionMatches(smda_report)
 
         interface.mcrit_client.getMatchesForSmdaFunction.assert_called_once_with(
-            smda_report,
-            exclude_self_matches=False,
-            sample_group_only=True,
+            smda_report, exclude_self_matches=False
         )
 
 
