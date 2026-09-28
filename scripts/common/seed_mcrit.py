@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Submit and wait for a deterministic reference sample in a local MCRIT server."""
+"""Submit a deterministic reference sample to a local MCRIT server, wait for it and label it."""
 
 from __future__ import annotations
 
@@ -35,6 +35,22 @@ def _wait_for_processed_sample(client, sha256: str, timeout: float):
     raise TimeoutError(message)
 
 
+def _label_reference_functions(client, sample_path: Path):
+    """Give every reference function a label, so label fetch and import have something to find.
+
+    A sample submitted as a binary gets no labels. Submitting its SMDA report again makes MCRIT
+    add the report's function names as labels, so unnamed functions are named after their offset.
+    """
+    from smda.Disassembler import Disassembler
+
+    report = Disassembler().disassembleFile(str(sample_path))
+    for function in report.getFunctions():
+        if not function.function_name:
+            function.function_name = "reference_%x" % function.offset
+    if client.addReport(report) is None:
+        raise RuntimeError("MCRIT did not accept the labelled reference report")
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--server", default="http://127.0.0.1:8000")
@@ -64,6 +80,7 @@ def main() -> int:
         bitness=64,
     )
     sample, functions = _wait_for_processed_sample(client, sha256, args.timeout)
+    _label_reference_functions(client, sample_path)
 
     print(
         json.dumps(

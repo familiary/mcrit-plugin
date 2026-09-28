@@ -79,7 +79,7 @@ def test_outline_carries_no_functions(outline_getter):
 
 
 def test_outline_follows_a_replaced_local_report(outline_getter):
-    """Uploading on close swaps local_smda_report, and the outline must not stay on the old one."""
+    """A replaced local_smda_report must not leave the outline on the old one."""
     session = _make_session(_CachingSmdaReport({0x1000: "func_a"}, sha256="b" * 64))
     outline_getter(session)
 

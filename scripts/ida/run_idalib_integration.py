@@ -73,9 +73,10 @@ def main() -> int:
     idausr.mkdir(parents=True, exist_ok=True)
 
     package_root = None
-    ida_config_path = None
-    previous_ida_config = None
     settings = _test_settings(args.mcrit_server, args.timeout)
+    # hcli writes the test settings into ida-config.json while it installs, so snapshot it first
+    ida_config_path = idausr / "ida-config.json"
+    previous_ida_config = ida_config_path.read_bytes() if ida_config_path.exists() else None
     try:
         _disable_pyqt5_shim(idausr)
         _activate_idalib(ida_dir, idausr)
@@ -100,7 +101,7 @@ def main() -> int:
         if not (plugin_root / "ida_mcrit.py").is_file():
             raise FileNotFoundError(f"mcrit-ida entrypoint was not found at {plugin_root}")
 
-        ida_config_path, previous_ida_config = _prepare_ida_settings(idausr, settings)
+        _prepare_ida_settings(idausr, settings)
         integration_script = repo_root / "tests" / "ida" / "idalib_integration.py"
         log_path = (
             args.log.expanduser().resolve() if args.log else idausr / "idalib-integration.log"
@@ -124,13 +125,27 @@ def main() -> int:
             artifacts.mkdir(parents=True, exist_ok=True)
             environment["MCRIT_IDA_INTEGRATION_ARTIFACT_DIR"] = str(artifacts)
 
-        completed = subprocess.run(
-            [sys.executable, str(integration_script), "--input", str(input_path)],
-            env=environment,
-            check=False,
-            text=True,
-            capture_output=True,
-        )
+        try:
+            completed = subprocess.run(
+                [sys.executable, str(integration_script), "--input", str(input_path)],
+                env=environment,
+                check=False,
+                text=True,
+                capture_output=True,
+                # each wait inside is bounded by --timeout; this bounds analysis and all waits together
+                timeout=args.timeout * 10,
+            )
+        except subprocess.TimeoutExpired as exc:
+            # captured output arrives as bytes here even with text=True; keep it for the CI artifact
+            partial = [
+                part.decode("utf-8", errors="replace") if isinstance(part, bytes) else part
+                for part in (exc.stdout, exc.stderr)
+                if part
+            ]
+            log_path.write_text("".join(partial), encoding="utf-8")
+            raise RuntimeError(
+                f"IDALib integration test did not finish within {args.timeout * 10} seconds"
+            ) from exc
         log_path.write_text(completed.stdout + completed.stderr, encoding="utf-8")
         print(log_path.read_text(encoding="utf-8", errors="replace"))
         if completed.returncode != 0 or "MCRIT_IDALIB_INTEGRATION_OK" not in completed.stdout:
@@ -140,8 +155,7 @@ def main() -> int:
         print(f"[idalib-integration] completed successfully; log: {log_path}")
         return 0
     finally:
-        if ida_config_path is not None:
-            _restore_ida_settings(ida_config_path, previous_ida_config)
+        _restore_ida_settings(ida_config_path, previous_ida_config)
         if package_root is not None:
             shutil.rmtree(package_root, ignore_errors=True)
 

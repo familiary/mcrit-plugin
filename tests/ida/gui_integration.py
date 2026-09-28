@@ -104,7 +104,7 @@ def _double_click(table, row, column):
 
 
 def _has_disassembly_view():
-    """IDA only tracks a screen address while a disassembly view exists (not in batch mode)."""
+    """IDA tracks a screen address only while a disassembly view exists, which -A mode lacks."""
     import ida_kernwin
 
     widget = ida_kernwin.get_current_widget()
@@ -115,7 +115,7 @@ def _expect_jump(form, action, offset, message):
     """Assert that action() navigates to offset, through IDA's cursor or through the backend."""
     if _has_disassembly_view():
         action()
-        _check(form.cc.backend.get_cursor_address() == offset, message)
+        _check(form.cc.backend.get_cursor_address() == offset, f"{message} (IDA cursor)")
         return
     jumped = []
     form.cc.backend.jump_to = lambda address: jumped.append(address)
@@ -123,7 +123,7 @@ def _expect_jump(form, action, offset, message):
         action()
     finally:
         del form.cc.backend.jump_to
-    _check(jumped == [offset], message)
+    _check(jumped == [offset], f"{message} (backend jump_to, no disassembly view)")
 
 
 def _qt_order(form, descending=False):
@@ -146,6 +146,24 @@ def _wait_for_functions(client, sample_id, qt_application=None):
         f"MCRIT did not finish processing query sample {sample_id} "
         f"within {timeout}s (functions={last_functions!r})"
     )
+
+
+def _await_result(client, job_id, qt_application):
+    """McritClient.awaitResult without its unbounded wait."""
+    from mcrit_plugin.core.minimcrit.client.McritClient import isJobFinishedTerminatedOrFailed
+
+    timeout = int(os.environ.get("MCRIT_IDA_INTEGRATION_TIMEOUT", "30"))
+    deadline = time.monotonic() + timeout
+    while time.monotonic() < deadline:
+        job = client.getJobData(job_id)
+        if job is not None and isJobFinishedTerminatedOrFailed(job):
+            result = client.getResultForJob(job_id)
+            if not result:
+                raise RuntimeError(f"MCRIT job {job_id} ended without a result")
+            return result
+        _process_events(qt_application)
+        time.sleep(1)
+    raise TimeoutError(f"MCRIT did not finish job {job_id} within {timeout}s")
 
 
 def _matches_sample(matches, sample_id):
@@ -202,6 +220,8 @@ def _exercise_cursor_tracking(form, qt_application):
             backend.get_current_function(disassembly) == function.start_ea,
             "disassembly cursor resolves to its function",
         )
+    else:
+        print("[!] no disassembly view is current; skipping the disassembly cursor check")
     if not ida_hexrays.init_hexrays_plugin():
         print("[!] Hex-Rays unavailable; skipping pseudocode cursor tracking check")
         return
@@ -427,7 +447,7 @@ def _upload_and_match(form, report, qt_application):
         client.requestMatchesForSample = original_request
     _check(bool(job_ids and job_ids[-1]), "Create Matching Job returned a job id")
 
-    result = client.awaitResult(job_ids[-1], sleep_time=1)
+    result = _await_result(client, job_ids[-1], qt_application)
     _check(isinstance(result, dict), "matching job finished")
     matches = result.get("matches", {})
     _check(bool(matches.get("samples") or matches.get("functions")), "MCRIT returned matches")
@@ -650,22 +670,24 @@ def _navigate_to(form, offset, qt_application):
         _check(ida_kernwin.jumpto(offset), "jumpto moved the IDA cursor to 0x%x" % offset)
         _process_events(qt_application, rounds=4)
         form.view_hook.refresh_widget(ida_kernwin.get_current_widget())
+        via = "view hook"
     else:
-        # batch mode has no view to follow; drive the same refresh the view hook would
+        # autonomous mode (-A) has no view to follow; drive the same refresh the view hook would
         form.current_function = offset
         form.function_match_widget.hook_refresh(None, use_current_function=True)
         form.block_match_widget.hook_refresh(None, use_current_block=True)
+        via = "direct refresh, no disassembly view"
     _process_events(qt_application, rounds=2)
     expected = "0x%x" % offset
     block_label = form.block_match_widget.label_current_function_matches.text()
     function_label = form.function_match_widget.label_current_function_matches.text()
     _check(
         expected in block_label,
-        f"Block Scope header follows the cursor to {expected} ({block_label!r})",
+        f"Block Scope header follows the cursor to {expected} via {via} ({block_label!r})",
     )
     _check(
         expected in function_label,
-        f"Function Scope header follows the cursor to {expected} ({function_label!r})",
+        f"Function Scope header follows the cursor to {expected} via {via} ({function_label!r})",
     )
 
 
@@ -674,7 +696,8 @@ def _exercise_navigation(form, report, qt_application):
         (
             function
             for function in report.getFunctions()
-            if function.num_instructions >= 10
+            # MCRIT MinHashes only functions above 10 instructions (MINHASH_FN_MIN_INS)
+            if function.num_instructions > 10
             and any(sum(1 for _ in block.getInstructions()) >= 4 for block in function.getBlocks())
         ),
         key=lambda function: len(list(function.getBlocks())),

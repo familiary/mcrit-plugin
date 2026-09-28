@@ -50,6 +50,22 @@ def _wait_for_functions(client, sample_id):
     raise TimeoutError(f"MCRIT did not process sample {sample_id} before the timeout")
 
 
+def _await_result(client, job_id):
+    """McritClient.awaitResult without its unbounded wait."""
+    from mcrit_plugin.core.minimcrit.client.McritClient import isJobFinishedTerminatedOrFailed
+
+    deadline = time.monotonic() + int(os.environ.get("MCRIT_IDA_INTEGRATION_TIMEOUT", "30"))
+    while time.monotonic() < deadline:
+        job = client.getJobData(job_id)
+        if job is not None and isJobFinishedTerminatedOrFailed(job):
+            result = client.getResultForJob(job_id)
+            if not result:
+                raise RuntimeError(f"MCRIT job {job_id} ended without a result")
+            return result
+        time.sleep(1)
+    raise TimeoutError(f"MCRIT did not finish job {job_id} before the timeout")
+
+
 def _matches_sample(matches, sample_id):
     for sample_match in matches.get("samples", []) or []:
         if isinstance(sample_match, dict) and sample_match.get("sample_id") == sample_id:
@@ -98,9 +114,10 @@ def _exercise_function_scope(context, interface, report):
     eligible = [
         function
         for function in sorted(report.getFunctions(), key=lambda f: f.offset)
-        if function.num_instructions >= 10
+        # MCRIT MinHashes only functions above 10 instructions (MINHASH_FN_MIN_INS)
+        if function.num_instructions > 10
     ]
-    _assert(len(eligible) >= 2, "need at least two functions with >=10 instructions")
+    _assert(len(eligible) >= 2, "need at least two functions with more than 10 instructions")
     targets = eligible[:_FUNCTION_SCOPE_QUERIES]
 
     submitted = []
@@ -172,7 +189,7 @@ def _exercise_live_mcrit():
 
     job_id = interface.requestMatchingJob(context.remote_sample_id)
     _assert(job_id, "MCRIT matching request returned no job id")
-    result = client.awaitResult(job_id, sleep_time=1)
+    result = _await_result(client, job_id)
     _assert(isinstance(result, dict), "MCRIT matching result was not a JSON object")
     matches = result.get("matches", {})
     _assert(matches.get("samples") or matches.get("functions"), "MCRIT returned no matches")

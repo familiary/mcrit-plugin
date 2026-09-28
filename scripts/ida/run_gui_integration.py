@@ -56,8 +56,9 @@ def _safe_extract_plugin(plugin_zip: Path, plugin_root: Path) -> None:
         archive.extractall(plugin_root)
 
 
-def _read_log(path: Path) -> str:
-    return path.read_text(encoding="utf-8", errors="replace") if path.is_file() else ""
+def _read_log(path: Path, start: int = 0) -> str:
+    """The log's text from byte offset start on."""
+    return path.read_bytes()[start:].decode("utf-8", errors="replace") if path.is_file() else ""
 
 
 def _test_settings(server: str, timeout: int) -> dict[str, object]:
@@ -96,7 +97,7 @@ def _terminate_process_tree(process: subprocess.Popen[str]) -> None:
         pass
 
 
-def _prepare_ida_settings(idausr: Path, settings: dict[str, object]):
+def _prepare_ida_settings(idausr: Path, settings: dict[str, object]) -> None:
     config_path = idausr / "ida-config.json"
     previous_contents = config_path.read_bytes() if config_path.exists() else None
     if previous_contents is None:
@@ -108,7 +109,6 @@ def _prepare_ida_settings(idausr: Path, settings: dict[str, object]):
     plugin_config = plugins.setdefault("mcrit-ida", {})
     plugin_config.setdefault("settings", {}).update(settings)
     config_path.write_text(json.dumps(config, indent=2, sort_keys=True) + "\n", encoding="utf-8")
-    return config_path, previous_contents
 
 
 def _restore_ida_settings(config_path: Path, previous_contents) -> None:
@@ -277,9 +277,8 @@ def main() -> int:
     parser.add_argument(
         "--ui-session",
         action="store_true",
-        help="Start IDA with its UI instead of batch mode (-A), so the test can drive the "
-        "disassembly cursor; deletes an existing database for the input beforehand, because "
-        "no dialog is answered automatically.",
+        help="Start IDA without autonomous mode (-A), so the test can drive the "
+        "disassembly cursor. Either way IDA analyzes a copy of the input in an empty directory.",
     )
     parser.add_argument("--require-hcli", action="store_true")
     args = parser.parse_args()
@@ -306,8 +305,6 @@ def main() -> int:
     package_root = None
     session_root = None
     plugin_zip = None
-    ida_config_path = None
-    previous_ida_config = None
     settings = _test_settings(args.mcrit_server, args.timeout)
     if plugin_root is None:
         if args.plugin_zip:
@@ -318,6 +315,9 @@ def main() -> int:
         if not plugin_zip.is_file():
             _build_plugin_zip(repo_root, plugin_zip)
 
+    # hcli writes the test settings into ida-config.json while it installs, so snapshot it first
+    ida_config_path = idausr / "ida-config.json"
+    previous_ida_config = ida_config_path.read_bytes() if ida_config_path.exists() else None
     try:
         if plugin_root is None:
             installed_with_hcli = _install_with_hcli(plugin_zip, ida_dir, idausr, settings)
@@ -333,13 +333,15 @@ def main() -> int:
             raise FileNotFoundError(f"mcrit-ida entrypoint was not found at {plugin_root}")
 
         _disable_pyqt5_shim(idausr)
-        ida_config_path, previous_ida_config = _prepare_ida_settings(idausr, settings)
+        _prepare_ida_settings(idausr, settings)
         ida_binary = (
             args.ida_binary.expanduser().resolve() if args.ida_binary else _find_ida_binary(ida_dir)
         )
         integration_script = repo_root / "tests" / "ida" / "gui_integration.py"
         log_path = args.log.expanduser().resolve() if args.log else idausr / "ida-integration.log"
         log_path.parent.mkdir(parents=True, exist_ok=True)
+        # IDA appends to -L, and an earlier run's success marker must not pass this one
+        log_path.unlink(missing_ok=True)
         qt_platform = (
             args.qt_platform
             or os.environ.get("QT_QPA_PLATFORM")
@@ -367,12 +369,11 @@ def main() -> int:
         command = [str(ida_binary)]
         if ida_license := environment.get("IDA_LICENSE"):
             command.append(f"-Olicense:{ida_license}")
-        if args.ui_session:
-            # without -A nothing answers the "database already exists" dialog, so analyze a copy
-            # in an empty directory where no database or its unpacked sidecars can sit
-            session_root = Path(tempfile.mkdtemp(prefix="mcrit-ida-session-"))
-            input_path = Path(shutil.copy2(input_path, session_root / input_path.name))
-        else:
+        # analyze a copy in an empty directory: IDA would reopen a database left beside the input,
+        # with an earlier run's renames, and without -A its "already exists" dialog would block
+        session_root = Path(tempfile.mkdtemp(prefix="mcrit-ida-session-"))
+        input_path = Path(shutil.copy2(input_path, session_root / input_path.name))
+        if not args.ui_session:
             command.append("-A")
         command.extend(
             [
@@ -391,6 +392,9 @@ def main() -> int:
         process_options = {}
         if os.name != "nt":
             process_options["start_new_session"] = True
+        idalog = environment.get("IDALOG")
+        # IDALOG is the caller's file and may already hold an earlier run's success marker
+        idalog_start = Path(idalog).stat().st_size if idalog and Path(idalog).is_file() else 0
         process = subprocess.Popen(
             command,
             env=environment,
@@ -410,9 +414,9 @@ def main() -> int:
             if stdout:
                 print("--- IDA stdout ---", file=sys.stderr)
                 print(stdout, file=sys.stderr)
-            for diagnostic_path in (log_path, environment.get("IDALOG")):
+            for diagnostic_path, start in ((log_path, 0), (idalog, idalog_start)):
                 if diagnostic_path:
-                    diagnostic_log = _read_log(Path(diagnostic_path))
+                    diagnostic_log = _read_log(Path(diagnostic_path), start)
                     if diagnostic_log:
                         print(diagnostic_log)
             raise RuntimeError(
@@ -423,10 +427,8 @@ def main() -> int:
         log_text = _read_log(log_path)
         # IDA's -L log is empty when IDALOG is set (the env var reroutes output),
         # so fall back to IDALOG for the success-marker check.
-        if not log_text:
-            idalog_path = environment.get("IDALOG")
-            if idalog_path:
-                log_text = _read_log(Path(idalog_path))
+        if not log_text and idalog:
+            log_text = _read_log(Path(idalog), idalog_start)
         if log_text:
             print(log_text)
         if "License not yet accepted" in log_text:
@@ -450,8 +452,7 @@ def main() -> int:
         print(f"[ida-integration] completed successfully; log: {log_path}")
         return 0
     finally:
-        if ida_config_path is not None:
-            _restore_ida_settings(ida_config_path, previous_ida_config)
+        _restore_ida_settings(ida_config_path, previous_ida_config)
         if package_root is not None:
             shutil.rmtree(package_root, ignore_errors=True)
         if session_root is not None:

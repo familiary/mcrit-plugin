@@ -127,6 +127,10 @@ class IntegrationTest:
                 continue
             context = getter()
             if context is not None and context.binaryView is not None:
+                # the handlers fall back to the active window's context, which is not this one
+                # while another application has the focus
+                if context.context is None:
+                    context.context = self.context
                 return context
         context = UIActionContext()
         context.context = self.context
@@ -607,8 +611,8 @@ class IntegrationTest:
                 function
                 for function in self.bv.functions
                 if self.session.local_smda_report.getFunction(function.start) is not None
-                and self.session.local_smda_report.getFunction(function.start).num_instructions
-                >= 10
+                # MCRIT MinHashes only functions above 10 instructions (MINHASH_FN_MIN_INS)
+                and self.session.local_smda_report.getFunction(function.start).num_instructions > 10
             ),
             key=lambda function: len(function.basic_blocks),
             reverse=True,
@@ -1138,6 +1142,11 @@ class IntegrationNotification(UIContextNotification):
 
 
 if os.environ.get("MCRIT_BN_INTEGRATION_SHA256"):
+    import mcrit_plugin.binja.config as mcrit_binja_config
+
+    # the throwaway user directory does not isolate the system keychain, where Clear Stored API
+    # Token would delete a real token; with no such provider the plugin keeps secrets in Settings
+    mcrit_binja_config.KEYCHAIN_PROVIDER = "MCRITIntegrationTestWithoutKeychain"
     open(LOG, "w").close()
     _integration_notification = IntegrationNotification()
     UIContext.registerNotification(_integration_notification)
