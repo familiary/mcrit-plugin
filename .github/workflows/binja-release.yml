@@ -134,3 +134,5 @@ jobs:
     with:
       tag: ${{ needs.release.outputs.tag }}
       variants: '[{"name": "binja", "packages": "-r requirements.txt"}]'
+      # smda 4.9.0, which requirements.txt asks for, needs Python 3.11 or newer
+      pythons: '["3.11", "3.12", "3.13"]'

@@ -163,7 +163,14 @@ quality and pytest checks there with a read-only token, then hands the same comm
 the release action of Vector35's sample plugin. It bumps `plugin.json`, commits it as
 `github-actions[bot]`, tags the commit with the bare version and publishes it as the latest GitHub
 release. If `main` moved between the checks and the release, the run stops. Afterwards it calls
-`offline-dependencies.yml` to attach a `binja` wheelhouse bundle built from `requirements.txt`.
+`offline-dependencies.yml` to attach a `binja` wheelhouse bundle built from `requirements.txt`
+for Python 3.11 to 3.13. To attach it to an existing release by hand, pass the same inputs:
+
+```bash
+gh workflow run offline-dependencies.yml -f tag=X.Y.Z \
+  -f variants='[{"name": "binja", "packages": "-r requirements.txt"}]' \
+  -f pythons='["3.11", "3.12", "3.13"]'
+```
 
 `binja-package.yml`, the counterpart of `ida-package.yml`, runs on pushes and pull requests that
 touch the Binary Ninja plugin or anything both plugins share (see

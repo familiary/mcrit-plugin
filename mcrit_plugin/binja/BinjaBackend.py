@@ -15,7 +15,6 @@ from binaryninja.enums import (
     ThemeColor,
 )
 
-from mcrit_plugin.binja.BinjaSmdaInterface import BinjaSmdaInterface
 from mcrit_plugin.core.Backend import Backend
 from mcrit_plugin.core.ScoreColorProvider import ThemeRole
 
@@ -50,7 +49,9 @@ class BinjaBackend(Backend):
         self._mutation_depth = 0
 
     def _smda_interface(self):
-        return BinjaSmdaInterface(self.bv)
+        from smda.binja.BinjaInterface import BinjaInterface
+
+        return BinjaInterface(self.bv)
 
     def _input_bytes(self):
         raw = self.bv.file.raw
@@ -79,15 +80,9 @@ class BinjaBackend(Backend):
         return self._hashes()[2]
 
     def export_smda_report(self):
-        from smda.Disassembler import Disassembler
-        from smda.ida.IdaExporter import IdaExporter
+        from smda.binja.BinjaExporter import exportBinaryView
 
-        interface = self._smda_interface()
-        disassembler = Disassembler()
-        # same path as Disassembler(backend="IDA"): an explicitly pinned exporter backend
-        disassembler.disassembler = IdaExporter(disassembler.config, ida_interface=interface)
-        disassembler._explicit_backend = True
-        return disassembler.disassembleBuffer(interface.getBinary(), 0)
+        return exportBinaryView(self.bv)
 
     def get_binary_info(self):
         from smda.common.BinaryInfo import BinaryInfo
@@ -162,7 +157,9 @@ class BinjaBackend(Backend):
         function = self.bv.get_function_at(address)
         if function is None:
             return False
-        return function.symbol.auto and re.match("sub_[0-9a-fA-F]+$", function.name) is not None
+        return (
+            function.symbol.auto and re.match("(j_)?sub_[0-9a-fA-F]+$", function.name) is not None
+        )
 
     def run_background(self, title, work, on_done):
         backend = self

@@ -1,2 +1,2 @@
-smda>=4.3.10
+smda>=4.9.0
 requests
