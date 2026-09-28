@@ -47,3 +47,21 @@ def test_run_background_reports_a_failure_instead_of_raising(backend):
     kernwin.hide_wait_box.assert_called_once_with()
     kernwin.warning.assert_called_once_with("Export failed, see the Output window for details.")
     on_done.assert_not_called()
+
+
+@pytest.mark.parametrize("answer, expected", [(1, True), (0, False)])
+def test_ask_yes_no_passes_the_prompt_as_the_whole_format(backend, answer, expected):
+    instance, kernwin = backend
+    kernwin.ASKBTN_NO, kernwin.ASKBTN_YES = 0, 1
+    kernwin.ask_yn = MagicMock(return_value=answer)
+
+    assert instance.ask_yes_no("Upload 100% of the names?") is expected
+    kernwin.ask_yn.assert_called_once_with(0, "Upload 100%% of the names?")
+
+
+def test_ask_save_file_passes_the_prompt_as_the_whole_format(backend):
+    instance, kernwin = backend
+    kernwin.ask_file = MagicMock(return_value="")
+
+    assert instance.ask_save_file("sample.smda", "Save as") is None
+    kernwin.ask_file.assert_called_once_with(1, "sample.smda", "Save as")

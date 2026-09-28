@@ -14,12 +14,10 @@ PLUGIN_NAME = "mcrit-ida"
 
 
 def _get_setting(key):
-    # by name when installed through HCLI; get_current_plugin_setting() instead infers the plugin
-    # from the call stack, which covers manual copies into $IDAUSR/plugins
     try:
         return ida_settings.get_plugin_setting(PLUGIN_NAME, key)
-    except PluginNotInstalledError:
-        return ida_settings.get_current_plugin_setting(key)
+    except PluginNotInstalledError as exc:
+        raise KeyError(key) from exc
 
 
 config = McritConfig(VERSION, _get_setting)

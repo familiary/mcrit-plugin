@@ -82,6 +82,7 @@ class Mcrit4IdaForm(PluginForm, McritSession):
         PluginForm.__init__(self)
         McritSession.__init__(self, IdaBackend(), config)
         self.view_hook = None
+        self.released = False
 
     def OnCreate(self, form):
         """
@@ -115,6 +116,7 @@ class Mcrit4IdaForm(PluginForm, McritSession):
 
     def release(self):
         """Unhook and drop module references; safe to call more than once."""
+        self.released = True
         if self.view_hook is not None:
             self.view_hook.unhook()
             self.view_hook = None
@@ -168,10 +170,10 @@ class Mcrit4IdaPlugmod(ida_idaapi.plugmod_t):
         self.form = None
 
     def run(self, arg):
-        if self.form is None:
+        # a closed form still holds the previous session's reports, so reopening needs a new form
+        if self.form is None or self.form.released:
             self.form = show_mcrit_form()
         else:
-            # Show() re-creates the widget when the user closed the form before
             self.form.Show()
         return True
 
