@@ -141,7 +141,7 @@ class FunctionMatchWidget(QMainWindow):
             self.parent.mcrit_interface.queryAllFamilyEntries()
         if not self.parent.sample_infos:
             self.parent.mcrit_interface.queryAllSampleEntries()
-        if self.parent.family_infos is None or self.parent.sample_infos is None:
+        if not self.parent.family_infos or not self.parent.sample_infos:
             self.clearTable()
             self.label_current_function_matches.setText(
                 "Remote family/sample info unavailable. Check server connection."
@@ -160,11 +160,12 @@ class FunctionMatchWidget(QMainWindow):
         self.updateViewWithCurrentFunction()
 
     def hook_refresh(self, view, use_current_function=False):
+        # follows the cursor before Convert too, so a query afterwards uses the function it is in
+        cursor_function = self.updateCurrentFunction(view)
         if self.parent.local_smda_report is None:
             self.label_current_function_matches.setText("Convert to SMDA report first.")
             return
-        # get current function from cursor position
-        if self.updateCurrentFunction(view) is None and not use_current_function:
+        if cursor_function is None and not use_current_function:
             return
         if self.parent.current_function == self.last_viewed and not use_current_function:
             return
@@ -201,10 +202,11 @@ class FunctionMatchWidget(QMainWindow):
     def updateViewWithCurrentFunction(self):
         self.last_viewed = self.parent.current_function
         smda_function = self.parent.local_smda_report.getFunction(self.parent.current_function)
-        if smda_function is None or smda_function.num_instructions < 10:
+        # MCRIT MinHashes only functions above 10 instructions (MINHASH_FN_MIN_INS)
+        if smda_function is None or smda_function.num_instructions <= 10:
             self.clearTable()
             self.label_current_function_matches.setText(
-                "Can only query functions with 10 instructions or more."
+                "Can only query functions with more than 10 instructions."
             )
             return
         if not self._ensure_remote_cache():

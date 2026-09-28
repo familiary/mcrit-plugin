@@ -293,8 +293,8 @@ def _result_dialog_adapter(main_widget, mode, target_job_id=None):
 
             _assert(self.job_infos, "result chooser had no jobs for selection")
             selected_row = None
-            for row, job_info in enumerate(self.job_infos):
-                if str(job_info.job_id) == target_text:
+            for row in range(self.table_jobs.rowCount()):
+                if str(self.jobInfoAt(row).job_id) == target_text:
                     selected_row = row
                     break
             _assert(selected_row is not None, f"matching job {target_text} was not listed")
@@ -534,7 +534,7 @@ def _exercise_overview_widget(form, qt_application):
 
     delegate = table.itemDelegateForColumn(label_column)
     _check(hasattr(delegate, "getEditorForRow"), "Function Overview installed label dropdowns")
-    editor = delegate.getEditorForRow(0)
+    editor = delegate.getEditorForRow(widget._populatedRow(0))
     _check(editor is not None, "label dropdown editor exists for the first row")
     _check(editor.count() > 1, "label dropdown offers a label and the '-|-' opt-out")
     editor.setCurrentIndex(0)
@@ -542,12 +542,13 @@ def _exercise_overview_widget(form, qt_application):
     _check(editor.hasUserMadeSelection(), "label dropdown records an explicit user selection")
 
     offset = int(table.item(0, offset_column).text(), 16)
-    widget._handleRightClickOnRow(0, label_column)
+    # the dropdowns report the row they were filled into, which sorting may have moved
+    widget._handleRightClickOnRow(widget._populatedRow(0), label_column)
     _check(
         offset in widget.resolved_function_labels,
         "right click on a label dropdown marks the function resolved",
     )
-    widget._handleRightClickOnRow(0, label_column)
+    widget._handleRightClickOnRow(widget._populatedRow(0), label_column)
     _check(
         offset not in widget.resolved_function_labels,
         "right click again clears the resolved marker",
@@ -559,9 +560,13 @@ def _exercise_overview_widget(form, qt_application):
         "(de)select all sets every label dropdown to the opt-out entry",
     )
     widget.b_select_deselect_all.click()
+    # the table was filled again, with a new delegate
+    delegate = table.itemDelegateForColumn(label_column)
     # a row whose matches carry no label has nothing but the opt-out entry to offer
     labelled_rows = [
-        row for row in range(table.rowCount()) if delegate.getEditorForRow(row).count() > 1
+        row
+        for row in range(table.rowCount())
+        if delegate.getEditorForRow(widget._populatedRow(row)).count() > 1
     ]
     _check(
         bool(labelled_rows)
@@ -574,12 +579,25 @@ def _exercise_overview_widget(form, qt_application):
     importable = [offset for offset in offsets if backend.has_default_function_name(offset)]
     _check(bool(importable), "Function Overview lists functions without a custom name")
     before = {offset: backend.get_function_name(offset) for offset in importable}
+    # rows no longer in the order the table was filled in must still get their own labels
+    table.sortByColumn(offset_column, form.cc.QtCore.Qt.DescendingOrder)
     widget.b_import_labels.click()
     _process_events(qt_application)
     renamed = [
         offset for offset in importable if backend.get_function_name(offset) != before[offset]
     ]
     _check(bool(renamed), "Import labels renamed at least one function")
+    labels_by_offset = {
+        info["offset"]: {entry[1] for entry in info["labels"]}
+        for info in widget.current_rows.values()
+    }
+    foreign = [
+        offset
+        for offset in renamed
+        if backend.get_function_name(offset) not in labels_by_offset[offset]
+    ]
+    _check(not foreign, f"Import labels applied each row's own label after sorting {foreign}")
+    table.sortByColumn(offset_column, form.cc.QtCore.Qt.AscendingOrder)
     _check(
         "Imported" in form.local_widget.label_mcrit_activity_info.text(),
         "Import labels reports the import in the activity info",

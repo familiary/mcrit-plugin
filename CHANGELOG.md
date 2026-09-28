@@ -69,10 +69,23 @@ Ninja applies to that plugin only.
   published releases, which a release created by the release workflow never triggers, so 1.1.7
   to 1.1.10 shipped without them; the release workflow now calls it directly.
 - Function and Block Scope showed "unknown" for every sample hash when the sample list could not
-  be fetched at Convert, instead of fetching it again.
+  be fetched at Convert. They fetch it again, and say "Remote family/sample info unavailable" when
+  that fails too.
 - The Sample Match Summary was not refreshed after a result was fetched, and its PicHash and
   MinHash columns were swapped.
 - The Function Overview kept the score range of the first result it showed.
+- After sorting the Function Overview, Import Labels applied each label to a different function,
+  and after sorting the result chooser loaded a different job than the one selected.
+- Function Scope queried functions of exactly 10 instructions, which MCRIT does not MinHash and
+  answers with a server error; it now needs more than 10.
+- Cursor moves before Convert were ignored, so Query Current Function and Query Current Block
+  right after Convert found no current function until the cursor moved again.
+- A failed PicBlockHash query read as "no matches" for the rest of the session; it is retried on
+  the next visit.
+- A failed job query opened the result chooser, which then said no matching results existed.
+- Sample Info kept showing a family picked for an earlier result even when the next result has no
+  match in it; it falls back to the best family then.
+- The hover hint of the IDA graph view showed a placeholder text; it shows the block's offset.
 - Where `config_override.json` applied, which was only when the settings store failed, boolean
   values given as strings are read as their value. Only `sample_group_only` was converted before,
   so `"false"` switched any other option on.

@@ -1,8 +1,5 @@
-# -----------------------------------------------------------------------
-# This is an example illustrating how to use the user graphing functionality
-# in Python
-# (c) Hex-Rays
-# adopted for rendering GraphDiffing in MCRIT
+# Renders a remote function's CFG with its matched blocks coloured; derived from Hex-Rays' Python
+# user graph example.
 
 import ida_graph
 from smda.common.SmdaFunction import SmdaFunction
@@ -29,7 +26,6 @@ class SmdaGraphViewer(ida_graph.GraphViewer):
             node_id = self.AddNode(block.offset)
             self._offset_to_node_id[block.offset] = node_id
             self._node_id_to_offset[node_id] = block.offset
-            self.OnGetText(node_id)
         for src, dests in self.smda_function.blockrefs.items():
             for dest in dests:
                 src_id = self._offset_to_node_id[src]
@@ -76,8 +72,7 @@ class SmdaGraphViewer(ida_graph.GraphViewer):
     def OnHint(self, node_id):
         if self.smda_function is None:
             return
-        # TODO use this properly
-        return "0x%x %s" % (self._node_id_to_offset[node_id], "some text")
+        return "0x%x" % self._node_id_to_offset[node_id]
 
     def Show(self):
         if not ida_graph.GraphViewer.Show(self):

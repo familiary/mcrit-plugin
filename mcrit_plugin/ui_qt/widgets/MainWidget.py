@@ -381,6 +381,8 @@ class MainWidget(QMainWindow):
         if self.parent.remote_sample_id is not None:
             # fetch jobs
             jobs = self.parent.mcrit_interface.queryJobs(sample_id=self.parent.remote_sample_id)
+            if jobs is None:
+                return
             # check which job the user wants to use as reference
             dialog = self.ResultChooserDialog(self, job_infos=jobs)
             dialog.exec_()

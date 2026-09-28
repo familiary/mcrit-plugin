@@ -143,7 +143,7 @@ class BlockMatchWidget(QMainWindow):
             self.parent.mcrit_interface.queryAllFamilyEntries()
         if not self.parent.sample_infos:
             self.parent.mcrit_interface.queryAllSampleEntries()
-        if self.parent.family_infos is None or self.parent.sample_infos is None:
+        if not self.parent.family_infos or not self.parent.sample_infos:
             self.clearTable()
             self.label_current_function_matches.setText(
                 "Remote family/sample info unavailable. Check server connection."
@@ -171,6 +171,12 @@ class BlockMatchWidget(QMainWindow):
 
     def queryCurrentBlock(self):
         self.parent.main_widget.hideLocalWidget()
+        # the refresh hook sets current_block only once a report exists, so take it from the cursor
+        address = self.cc.backend.get_cursor_address()
+        if address is not None and self.parent.local_smda_report is not None:
+            block = self.parent.local_smda_report.findBlockByContainedAddress(address)
+            if block:
+                self.parent.current_block = block.offset
         self.updateViewWithCurrentBlock()
 
     def hook_refresh(self, view, use_current_block=False):
@@ -184,7 +190,7 @@ class BlockMatchWidget(QMainWindow):
             return
         if not self.cb_activate_live_tracking.isChecked():
             self.clearTable()
-            self.label_current_function_matches.setText("Live Function Queries are deactivated.")
+            self.label_current_function_matches.setText("Live Block Queries are deactivated.")
             return
         self.updateViewWithCurrentBlock()
 
@@ -242,8 +248,10 @@ class BlockMatchWidget(QMainWindow):
                     entry["hash"]
                 )
                 num_queries += 1
-                self.parent.blockhash_matches[entry["hash"]] = pichash_matches
-            pichash_matches = self.parent.blockhash_matches[entry["hash"]]
+                # a failed query answers None; leave it uncached so the next visit retries
+                if pichash_matches is not None:
+                    self.parent.blockhash_matches[entry["hash"]] = pichash_matches
+            pichash_matches = self.parent.blockhash_matches.get(entry["hash"])
             if pichash_matches is None:
                 pichash_matches = []
             # cache this so we only query once per block

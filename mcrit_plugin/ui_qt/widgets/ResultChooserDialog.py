@@ -28,11 +28,12 @@ class StatusRowDelegate(QStyledItemDelegate):
         painter.restore()
 
     def paint(self, painter, option, index):
-        if index.row() in self.queued_rows:
+        job_index = index.data(QtShim.get_Qt().UserRole)
+        if job_index in self.queued_rows:
             self.paint_rect(painter, option, index, ThemeRole.RED, (200, 50, 50))
-        elif index.row() in self.progress_rows:
+        elif job_index in self.progress_rows:
             self.paint_rect(painter, option, index, ThemeRole.YELLOW, (200, 200, 50))
-        elif index.row() in self.finished_rows:
+        elif job_index in self.finished_rows:
             self.paint_rect(painter, option, index, ThemeRole.GREEN, (50, 200, 50))
         else:
             # Default painting for other rows
@@ -120,6 +121,7 @@ class ResultChooserDialog(QDialog):
                             preselected = row
                     tmp_item = self.NumberQTableWidgetItem("%5.2f" % progress_value)
                 tmp_item.setFlags(tmp_item.flags() & ~self.cc.QtCore.Qt.ItemIsEditable)
+                tmp_item.setData(self.cc.QtCore.Qt.UserRole, row)
                 self.table_jobs.setItem(row, column, tmp_item)
             row += 1
 
@@ -147,16 +149,17 @@ class ResultChooserDialog(QDialog):
         self.cancel_button.clicked.connect(self.reject)
         self.button_layout.addWidget(self.cancel_button)
 
+    def jobInfoAt(self, row):
+        """The job shown in a table row, which after sorting is not job_infos[row]."""
+        return self.job_infos[self.table_jobs.item(row, 0).data(self.cc.QtCore.Qt.UserRole)]
+
     def _onTableJobRowDoubleClicked(self, mi):
         """
         Use the row with that was double clicked to directly select the job
         """
-        selected_row = mi.row()
-        if (
-            self.job_infos[selected_row].finished_at is not None
-            and self.job_infos[selected_row].progress == 1
-        ):
-            self._selected_job_id = self.job_infos[selected_row].job_id
+        job_info = self.jobInfoAt(mi.row())
+        if job_info.finished_at is not None and job_info.progress == 1:
+            self._selected_job_id = job_info.job_id
             self.done(1)
 
     def accept_select(self):
@@ -164,12 +167,9 @@ class ResultChooserDialog(QDialog):
             self._selected_job_id = None
             # fetch the row from the table
             if self.table_jobs.selectedItems():
-                selected_row = self.table_jobs.selectedItems()[0].row()
-                if (
-                    self.job_infos[selected_row].finished_at is not None
-                    and self.job_infos[selected_row].progress == 1
-                ):
-                    self._selected_job_id = self.job_infos[selected_row].job_id
+                job_info = self.jobInfoAt(self.table_jobs.selectedItems()[0].row())
+                if job_info.finished_at is not None and job_info.progress == 1:
+                    self._selected_job_id = job_info.job_id
                     self.done(1)
 
     def accept_create(self):
