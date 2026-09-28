@@ -9,7 +9,6 @@ class SampleInfoWidget(QMainWindow):
         self.cc = parent.cc
         self.cc.QMainWindow.__init__(self)
         print("[|] loading SampleInfoWidget")
-        # enable access to shared MCRIT4IDA modules
         self.parent = parent
         self.name = "Sample Match Summary"
         self.last_family_selected = None
@@ -288,7 +287,11 @@ class SampleInfoWidget(QMainWindow):
         for header_id in range(0, len(self.best_family_matches_header_labels), 1):
             header.setSectionResizeMode(header_id, header_view.Stretch)
         # propagate family selection to family match table
-        selected_family = self.last_family_selected if self.last_family_selected else best_family
+        # a family picked for an earlier result may have no matches in this one
+        if self.last_family_selected in families_to_samples:
+            selected_family = self.last_family_selected
+        else:
+            selected_family = best_family
         self._updateLabelSampleMatches("All Sample Matches within Family: %s" % selected_family)
         self.populateFamilyMatchTable(selected_family)
 

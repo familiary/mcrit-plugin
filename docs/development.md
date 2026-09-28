@@ -21,7 +21,7 @@ mcrit-plugin/
 │   └── binja/               # Binary Ninja metadata sync, integration runner
 ├── tests/
 │   ├── core/                # pytest: core and headless backend
-│   ├── ui_qt/               # pytest: McritSession
+│   ├── ui_qt/               # pytest: McritSession; sorted tables with PySide6
 │   ├── ida/                 # pytest for the IDA entry point, backend, release guard; in-IDA tests
 │   └── binja/               # pytest for the Binja token storage; in-Binary Ninja integration tests
 └── .github/workflows/
@@ -74,7 +74,8 @@ protection.
 ## Integration tests
 
 All integration tests except the offline modes need a MCRIT server. CI uses MCRIT 1.12.0 and
-SMDA 4.9.0.
+SMDA 4.9.0. Every runner refuses to start while the plugin it runs has a `config_override.json`,
+which would take precedence over the settings under test.
 
 ```bash
 docker run --rm -p 27017:27017 mongo:5.0

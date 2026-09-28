@@ -63,19 +63,45 @@ Ninja applies to that plugin only.
   warns rather than fails, because a fork cannot obtain the licence secrets; a genuine failure of
   the licensed job is still red on that job.
 
+### Removed
+
+- The `sample_group_only` setting. MCRIT takes it for neither a matching job nor a function query,
+  so with it on every matching job and every Function Scope query failed, and MCRITweb drops it.
+  A value stored by an earlier version stays in `ida-config.json` and is ignored.
+
 ### Fixed
 
 - Releases get their Windows offline dependency bundles again. The bundle workflow listened for
   published releases, which a release created by the release workflow never triggers, so 1.1.7
   to 1.1.10 shipped without them; the release workflow now calls it directly.
 - Function and Block Scope showed "unknown" for every sample hash when the sample list could not
-  be fetched at Convert, instead of fetching it again.
+  be fetched at Convert. They fetch it again, and say "Remote family/sample info unavailable" when
+  that fails too.
 - The Sample Match Summary was not refreshed after a result was fetched, and its PicHash and
   MinHash columns were swapped.
 - The Function Overview kept the score range of the first result it showed.
-- Where `config_override.json` applied, which was only when the settings store failed, boolean
-  values given as strings are read as their value. Only `sample_group_only` was converted before,
-  so `"false"` switched any other option on.
+- After sorting the Function Overview, Import Labels applied each label to a different function,
+  and after sorting the result chooser loaded a different job than the one selected.
+- Function Scope queried functions of exactly 10 instructions, which MCRIT does not MinHash and
+  answers with a server error; it now needs more than 10.
+- Cursor moves before Convert were ignored, so Query Current Function and Query Current Block
+  right after Convert found no current function until the cursor moved again.
+- A failed PicBlockHash query read as "no matches" for the rest of the session. It is retried on
+  the next visit, and the rest of that visit's lookups are skipped instead of each waiting out the
+  same timeout.
+- A failed job query opened the result chooser, which then said no matching results existed.
+- Sample Info kept showing a family picked for an earlier result even when the next result has no
+  match in it; it falls back to the best family then.
+- The hover hint of the IDA graph view showed a placeholder text; it shows the block's offset.
+- `config_override.json` applied only when the settings store failed, which with ida-settings is
+  never, since every key has a declared default. It now takes precedence over the settings store,
+  so check an existing copy: every key in it applies. The plugin prints the keys it forces when it
+  loads, the template in the IDA ZIP shows two example keys instead of all of them, and boolean
+  values given as strings are read as their value (only `sample_group_only` was converted before,
+  so `"false"` switched any other option on).
+- Block Scope said "Live Function Queries are deactivated" when its own live queries were off.
+- Sorting Function Scope's match table by offset raised an exception inside Qt's sort, because the
+  offsets are hex; under PySide6 6.11 that crashes the Python process. Offsets now sort by value.
 - Converting with SMDA selects SMDA's `aarch64` backend for AArch64 databases instead of `arm`,
   which SMDA does not have. Other non-x86 architectures still fail, since SMDA does not support
   them.

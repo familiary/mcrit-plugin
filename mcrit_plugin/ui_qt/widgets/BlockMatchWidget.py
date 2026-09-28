@@ -19,7 +19,6 @@ class BlockMatchWidget(QMainWindow):
         self.cc = parent.cc
         self.cc.QMainWindow.__init__(self)
         print("[|] loading BlockMatchWidget")
-        # enable access to shared MCRIT4IDA modules
         self.parent = parent
         self.scp = ScoreColorProvider(self.cc.backend)
         self.last_viewed_function = None
@@ -139,9 +138,9 @@ class BlockMatchWidget(QMainWindow):
         return None
 
     def _ensure_remote_cache(self):
-        if not self.parent.family_infos:
+        if self.parent.family_infos is None:
             self.parent.mcrit_interface.queryAllFamilyEntries()
-        if not self.parent.sample_infos:
+        if self.parent.sample_infos is None:
             self.parent.mcrit_interface.queryAllSampleEntries()
         if self.parent.family_infos is None or self.parent.sample_infos is None:
             self.clearTable()
@@ -171,6 +170,14 @@ class BlockMatchWidget(QMainWindow):
 
     def queryCurrentBlock(self):
         self.parent.main_widget.hideLocalWidget()
+        # the refresh hook sets current_block only once a report exists, so take it from the cursor
+        address = self.cc.backend.get_cursor_address()
+        if address is not None and self.parent.local_smda_report is not None:
+            block = self.parent.local_smda_report.findBlockByContainedAddress(address)
+            if block:
+                self.parent.current_block = block.offset
+                # the Function Scope hook may not have seen this cursor move yet
+                self.parent.current_function = block.smda_function.offset
         self.updateViewWithCurrentBlock()
 
     def hook_refresh(self, view, use_current_block=False):
@@ -184,7 +191,7 @@ class BlockMatchWidget(QMainWindow):
             return
         if not self.cb_activate_live_tracking.isChecked():
             self.clearTable()
-            self.label_current_function_matches.setText("Live Function Queries are deactivated.")
+            self.label_current_function_matches.setText("Live Block Queries are deactivated.")
             return
         self.updateViewWithCurrentBlock()
 
@@ -236,14 +243,20 @@ class BlockMatchWidget(QMainWindow):
         block_matches_by_offset = {}
         start = time.time()
         num_queries = 0
+        lookup_failed = False
         for entry in pbh:
-            if entry["hash"] not in self.parent.blockhash_matches:
+            if entry["hash"] not in self.parent.blockhash_matches and not lookup_failed:
                 pichash_matches = self.parent.mcrit_interface.getMatchesForPicBlockHash(
                     entry["hash"]
                 )
                 num_queries += 1
-                self.parent.blockhash_matches[entry["hash"]] = pichash_matches
-            pichash_matches = self.parent.blockhash_matches[entry["hash"]]
+                # a failed query answers None; leave it uncached so the next visit retries, and
+                # skip this visit's other lookups, which would each wait out the same timeout
+                if pichash_matches is None:
+                    lookup_failed = True
+                else:
+                    self.parent.blockhash_matches[entry["hash"]] = pichash_matches
+            pichash_matches = self.parent.blockhash_matches.get(entry["hash"])
             if pichash_matches is None:
                 pichash_matches = []
             # cache this so we only query once per block

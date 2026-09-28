@@ -38,7 +38,7 @@ class McritSession:
         self.blockhash_matches = {}
         # unused
         self.remote_function_mapping = {}
-        self.sample_infos = {}
+        self.sample_infos = None
         self.family_infos = None
         self.function_id_to_offset = {}
         self.pichash_matches = {}

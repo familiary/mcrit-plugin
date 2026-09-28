@@ -329,8 +329,8 @@ class IntegrationTest:
             def exec_(dialog):
                 rows = [
                     row
-                    for row, info in enumerate(dialog.job_infos)
-                    if str(info.job_id) == target_job
+                    for row in range(dialog.table_jobs.rowCount())
+                    if str(dialog.jobInfoAt(row).job_id) == target_job
                 ]
                 if not rows:
                     raise AssertionError(f"matching job {target_job} was not listed")
@@ -428,7 +428,7 @@ class IntegrationTest:
             self.check(
                 hasattr(delegate, "getEditorForRow"), "Function Overview installed label dropdowns"
             )
-            editor = delegate.getEditorForRow(0)
+            editor = delegate.getEditorForRow(widget._populatedRow(0))
             self.check(editor is not None, "label dropdown editor exists for the first row")
             self.check(editor.count() > 1, "label dropdown offers a label and the '-|-' opt-out")
             editor.setCurrentIndex(0)
@@ -439,12 +439,13 @@ class IntegrationTest:
 
         def right_click_resolves():
             offset = int(table.item(0, 0).text(), 16)
-            widget._handleRightClickOnRow(0, label_column)
+            # the dropdowns report the row they were filled into, which sorting may have moved
+            widget._handleRightClickOnRow(widget._populatedRow(0), label_column)
             self.check(
                 offset in widget.resolved_function_labels,
                 "right click on a label dropdown marks the function resolved",
             )
-            widget._handleRightClickOnRow(0, label_column)
+            widget._handleRightClickOnRow(widget._populatedRow(0), label_column)
             self.check(
                 offset not in widget.resolved_function_labels,
                 "right click again clears the resolved marker",
@@ -464,7 +465,7 @@ class IntegrationTest:
             rows_with_labels = [
                 row
                 for row in range(table.rowCount())
-                if len(widget.function_name_mapping[(row, label_column)]) > 1
+                if len(widget.function_name_mapping[(widget._populatedRow(row), label_column)]) > 1
             ]
             self.check(
                 bool(rows_with_labels), "(de)select all has at least one labelled row to restore"
@@ -482,6 +483,8 @@ class IntegrationTest:
             importable = [offset for offset in offsets if backend.has_default_function_name(offset)]
             self.check(bool(importable), "Function Overview lists functions without a custom name")
             before = {offset: backend.get_function_name(offset) for offset in importable}
+            # rows no longer in the order the table was filled in must still get their own labels
+            table.sortByColumn(0, self.session.cc.QtCore.Qt.DescendingOrder)
             widget.b_import_labels.click()
             renamed = [
                 offset
@@ -489,6 +492,19 @@ class IntegrationTest:
                 if backend.get_function_name(offset) != before[offset]
             ]
             self.check(bool(renamed), "Import labels renamed at least one function")
+            labels_by_offset = {
+                info["offset"]: {entry[1] for entry in info["labels"]}
+                for info in widget.current_rows.values()
+            }
+            foreign = [
+                offset
+                for offset in renamed
+                if backend.get_function_name(offset) not in labels_by_offset[offset]
+            ]
+            self.check(
+                not foreign, f"Import labels applied each row's own label after sorting {foreign}"
+            )
+            table.sortByColumn(0, self.session.cc.QtCore.Qt.AscendingOrder)
             self.check(
                 "Imported" in self.session.local_widget.label_mcrit_activity_info.text(),
                 "Import labels reports the import in the activity info",
@@ -991,8 +1007,8 @@ class IntegrationTest:
             def exec_(dialog):
                 rows = [
                     row
-                    for row, info in enumerate(dialog.job_infos)
-                    if str(info.job_id) == target_job
+                    for row in range(dialog.table_jobs.rowCount())
+                    if str(dialog.jobInfoAt(row).job_id) == target_job
                 ]
                 dialog.table_jobs.selectRow(rows[0])
                 dialog.select_button.click()

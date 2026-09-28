@@ -1,5 +1,4 @@
 import json
-import os
 
 import mcrit_plugin.ui_qt.QtShim as QtShim
 from mcrit_plugin.ui_qt.widgets.ResultChooserDialog import ResultChooserDialog
@@ -14,7 +13,6 @@ class MainWidget(QMainWindow):
         self.cc = parent.cc
         self.cc.QMainWindow.__init__(self)
         print("[|] loading MainWidget")
-        # enable access to shared MCRIT4IDA modules
         self.parent = parent
         self.name = "Main"
         self.icon = self.cc.QIcon(self.parent.config.ICON_FILE_PATH + "mcrit.png")
@@ -33,9 +31,6 @@ class MainWidget(QMainWindow):
         self.YaraStringBuilderDialog = YaraStringBuilderDialog
         self._createGui()
         self.parent.mcrit_interface.checkConnection(async_=True)
-        # IDA 6.x Windows workaronud to avoid lost imports
-        self.os = os
-        self.os_path = os.path
 
     def _createGui(self):
         """
@@ -381,6 +376,8 @@ class MainWidget(QMainWindow):
         if self.parent.remote_sample_id is not None:
             # fetch jobs
             jobs = self.parent.mcrit_interface.queryJobs(sample_id=self.parent.remote_sample_id)
+            if jobs is None:
+                return
             # check which job the user wants to use as reference
             dialog = self.ResultChooserDialog(self, job_infos=jobs)
             dialog.exec_()

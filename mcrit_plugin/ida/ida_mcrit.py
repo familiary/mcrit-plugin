@@ -89,7 +89,6 @@ class Mcrit4IdaForm(PluginForm, McritSession):
         When creating the form, setup the shared modules and widgets
         """
         print("[+] Loading MCRIT4IDA")
-        # compatibility with IDA < 6.9
         self.view_hook = IdaViewHooks(self)
         self.view_hook.hook()
         self.parent = self.FormToPyQtWidget(form)
@@ -104,7 +103,7 @@ class Mcrit4IdaForm(PluginForm, McritSession):
         """
         Perform cleanup.
         """
-        # check if there is a mismatch between function names stored in self.local_smda_report and the atual IDB
+        # check if there is a mismatch between function names stored in self.local_smda_report and the actual IDB
         # if yes, ask the user if they want to upload an updated report to the MCRIT server
         if config.SUBMIT_FUNCTION_NAMES_ON_CLOSE:
             print("Checking for unsynced function names...")

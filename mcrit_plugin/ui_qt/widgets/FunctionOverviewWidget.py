@@ -206,7 +206,6 @@ class FunctionOverviewWidget(QMainWindow):
         self._label_requested_ids = set()
         self._score_range_job_id = None
         self.resolved_function_labels = {}  # offset -> resolved label string
-        # enable access to shared MCRIT4IDA modules
         self.parent = parent
         self.name = "Function Overview"
         self.icon = self.cc.QIcon(self.parent.config.ICON_FILE_PATH + "relationship.png")
@@ -359,13 +358,20 @@ class FunctionOverviewWidget(QMainWindow):
             return "conflicted"
         return "none"  # fallback
 
+    def _populatedRow(self, row):
+        """The row a table row had when the table was filled. Sorting moves rows, but the label
+        mappings and the delegate's editors stay keyed by that row."""
+        item = self.table_local_functions.item(row, 0)
+        populated_row = item.data(self.cc.QtCore.Qt.UserRole) if item is not None else None
+        return row if populated_row is None else populated_row
+
     def getSelectedLabel(self, row, column):
         """Get the currently selected label value from a ComboBox editor or table item"""
         # Get the actual selected value from the ComboBox editor, not the table item
         selected_item_value = None
         delegate = self.table_local_functions.itemDelegateForColumn(column)
         if hasattr(delegate, "getEditorForRow"):
-            editor = delegate.getEditorForRow(row)
+            editor = delegate.getEditorForRow(self._populatedRow(row))
             if editor:
                 selected_item_value = editor.currentText()
 
@@ -695,9 +701,9 @@ class FunctionOverviewWidget(QMainWindow):
                         else:
                             selected_item = item
                 if selected_item == "-" and self.function_name_mapping:
-                    selected_item = self.function_name_mapping[(row, label_score_column_index)][0][
-                        "text"
-                    ]
+                    selected_item = self.function_name_mapping[
+                        (self._populatedRow(row), label_score_column_index)
+                    ][0]["text"]
                 new_selected_fields[offset] = selected_item
             self.last_selected_fields = new_selected_fields
 
@@ -736,6 +742,7 @@ class FunctionOverviewWidget(QMainWindow):
                     tmp_item = self.generateFunctionTableCellItem(column_type, function_info)
                     tmp_item.setFlags(tmp_item.flags() & ~self.cc.QtCore.Qt.ItemIsEditable)
                     tmp_item.setTextAlignment(qt.AlignHCenter)
+                    tmp_item.setData(self.cc.QtCore.Qt.UserRole, row)
                     self.table_local_functions.setItem(row, column, tmp_item)
                 self.table_local_functions.resizeRowToContents(row)
                 row += 1

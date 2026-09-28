@@ -630,8 +630,8 @@ class McritClient:
             required to consider a candidate function a MinHash match.
         :param exclude_self_matches: when True, omit matches against the
             same sample/function as the query.
-        :param sample_group_only: when True, restrict matches to samples in
-            the caller's sample group on the server side.
+        :param sample_group_only: sent as a query parameter; MCRIT's function
+            query does not take it and fails the request.
         :return: when ``self.raw`` is True, the raw ``requests.Response``;
             otherwise the parsed ``data`` payload (typically a dict
             representing a ``MatchingResult``) or ``None`` if the request

@@ -72,6 +72,13 @@ def main() -> int:
         raise FileNotFoundError(f"Input binary does not exist: {input_path}")
     idausr.mkdir(parents=True, exist_ok=True)
 
+    requested_plugin_root = args.plugin_root.expanduser().resolve() if args.plugin_root else None
+    # checked before anything is installed or written; the packaged ZIP never carries one
+    override_path = (
+        requested_plugin_root or idausr / "plugins" / "mcrit-ida"
+    ) / "config_override.json"
+    if override_path.exists():
+        raise RuntimeError(f"{override_path} would override the test settings; move it aside")
     package_root = None
     settings = _test_settings(args.mcrit_server, args.timeout)
     # hcli writes the test settings into ida-config.json while it installs, so snapshot it first
@@ -80,7 +87,7 @@ def main() -> int:
     try:
         _disable_pyqt5_shim(idausr)
         _activate_idalib(ida_dir, idausr)
-        plugin_root = args.plugin_root.expanduser().resolve() if args.plugin_root else None
+        plugin_root = requested_plugin_root
         if plugin_root is None:
             plugin_zip = args.plugin_zip.expanduser().resolve() if args.plugin_zip else None
             if plugin_zip is None:

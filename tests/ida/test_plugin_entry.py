@@ -34,6 +34,9 @@ def test_plugin_entry_defers_qt_imports(monkeypatch):
         types.SimpleNamespace(PluginForm=_PluginForm, is_idaq=lambda: False, View_Hooks=_ViewHooks),
     )
     monkeypatch.delitem(sys.modules, "mcrit_plugin.ida.ida_mcrit", raising=False)
+    # the widget tests load PySide6 into this process; hide it so only the entry point's imports count
+    for name in [name for name in sys.modules if name.startswith(("PySide", "PyQt", "shiboken"))]:
+        monkeypatch.delitem(sys.modules, name)
 
     module = importlib.import_module("mcrit_plugin.ida.ida_mcrit")
     plugin = module.PLUGIN_ENTRY()

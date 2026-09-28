@@ -116,6 +116,9 @@ def main() -> int:
         raise FileNotFoundError(f"Binary Ninja license not found: {args.license}")
     binary = _find_binja_binary(args.install_dir)
 
+    override_path = repo_root / "config_override.json"
+    if override_path.exists():
+        raise RuntimeError(f"{override_path} would override the test settings; move it aside")
     user_dir = Path(tempfile.mkdtemp(prefix="mcrit-binja-integration-"))
     process = None
     try:
