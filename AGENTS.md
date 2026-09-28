@@ -21,12 +21,12 @@ For the MCRIT methodology (PicHash/MinHash, LSH banding) see the [mcrit `AGENTS.
 - `mcrit_plugin/ida/` — `IdaBackend`, `SmdaGraphViewer`, and `config.py` (plugin `VERSION` plus the `ida-settings` binding).
 - `mcrit_plugin/binja/` — Binary Ninja frontend: `BinjaBackend`, `BinjaSmdaInterface` (SMDA `BackendInterface` fed to SMDA's `IdaExporter`), `config.py` (Binary Ninja Settings registered from the declarations in `mcrit_plugin/core/settings.json`; `VERSION` from `plugin.json`), and `McritSidebar` (sidebar, UI actions, close hook). Root `plugin.json` / `__init__.py` / `requirements.txt` are the Binary Ninja manifest, entry point and dependencies; `scripts/ida/package_plugin.py` keeps `mcrit_plugin/binja` out of the IDA archive.
 - `scripts/ida/` — packaging, metadata verification, IDA GUI/IDALib integration runners; `scripts/binja/` — Binary Ninja metadata verification and GUI integration runner; `scripts/common/` — settings verification, quality checks, fixture building, MCRIT seeding.
-- `tests/core/` — pure-Python pytest suite (IDA/SMDA are stubbed in `tests/conftest.py`); `tests/ida/`, `tests/binja/` — integration tests run inside the disassemblers.
+- `tests/` — pure-Python pytest suite, no disassembler needed (IDA/SMDA are stubbed in `tests/conftest.py`): `tests/core/` for the core and the headless backend, `tests/ui_qt/` for the shared session, the `test_*.py` files in `tests/ida/` for the IDA entry point, backend and release guard, and `tests/binja/test_secrets.py` for the Binary Ninja token storage. The other files in `tests/ida/` and `tests/binja/` are integration tests run inside the disassemblers.
 - `icons/` — resources; `docs/` — `config_override.json.template` and the Qt Designer mockup.
 
 ## Development setup
 
-**Python:** the runtime floor is **Python 3.12**, the floor shared across the MCRIT ecosystem (`smda`, the co-dependency, requires it from its next release). IDA 9 bundles 3.12; the `scripts/` harnesses run under a separate venv of the same minor series. `pyproject.toml` sets ruff `target-version = "py312"` to match.
+**Python:** CI, the release workflows and the `scripts/` harnesses in CI run on **Python 3.12**, the floor MCRIT (since 1.10.0) and MCRITweb require (`smda`, the co-dependency, still supports 3.11 and plans to drop it). The plugin itself needs nothing newer than the interpreter IDA or Binary Ninja brings, and the IDA offline bundles are still built for 3.10 to 3.13. `pyproject.toml` sets ruff `target-version = "py312"` to match.
 
 Install dependencies with the IDA-bundled or matching Python:
 
@@ -44,7 +44,7 @@ Lint, tests, packaging and metadata checks are listed in
 ## Architecture primer
 
 - **Entry** (`mcrit_plugin/ida/ida_mcrit.py`) registers IDA menus/actions/hotkeys and the MCRIT widget subviews.
-- **`McritInterface`** owns the connection to the MCRIT server, runs long operations (convert IDB→SMDA, upload, query, match) off the UI thread, and dispatches results back to the widgets.
+- **`McritInterface`** owns the connection to the MCRIT server. Uploads, queries and matching run in the widgets' handlers on the UI thread; the connection check, and on Binary Ninja the conversion with its sample and family download, run in the background and hand their results back to the widgets. IDA's API is main-thread only, so on IDA the conversion runs synchronously behind a wait box.
 - **`McritClient`** (internalized under `mcrit_plugin/core/minimcrit/`) is the HTTP client speaking the MCRIT REST API. The plugin intentionally vendors a minified copy of the core client so it has no hard dependency on the `mcrit` package.
 - **IDB→SMDA conversion** uses SMDA (optionally as the analysis backend via `use_smda_for_analysis`); results feed matching and label sync.
 - **Widgets** render matches/blocks/functions/overview and are built on PySide6 through `QtShim`.
@@ -62,7 +62,7 @@ These mirror the MCRIT core vocabulary (the plugin is a client of them):
 
 ## Code conventions
 
-- Lint/format: `ruff` (line-length 100, `target-version = "py312"`, selects `E4/E7/E9/F/I`). Run `ruff format .` to auto-format. Vendored dirs (`mcrit_plugin/core/minimcrit`, `mcrit_plugin/core/pylev`, `icons`, `qt-designer-mockup`) are excluded from ruff.
+- Lint/format: `ruff` (line-length 100, `target-version = "py312"`, selects `E4/E7/E9/F/I`). Run `ruff format .` to auto-format. Vendored dirs (`mcrit_plugin/core/minimcrit`, `mcrit_plugin/core/pylev`, `icons`, `docs/qt-designer-mockup`) are excluded from ruff.
 - License: GPL-3.0-only.
 - Do **not** introduce or log secrets/API tokens.
 

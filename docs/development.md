@@ -20,9 +20,10 @@ mcrit-plugin/
 │   ├── ida/                 # IDA packaging, metadata sync, integration runners
 │   └── binja/               # Binary Ninja metadata sync, integration runner
 ├── tests/
-│   ├── core/                # pytest suite
-│   ├── ida/                 # in-IDA integration tests
-│   └── binja/               # in-Binary Ninja integration tests
+│   ├── core/                # pytest: core and headless backend
+│   ├── ui_qt/               # pytest: McritSession
+│   ├── ida/                 # pytest for the IDA entry point, backend, release guard; in-IDA tests
+│   └── binja/               # pytest for the Binja token storage; in-Binary Ninja integration tests
 └── .github/workflows/
     └── scripts/ida/release_guard.py   # tag, version and changelog gates for the IDA release
 ```
@@ -62,8 +63,9 @@ python scripts/binja/verify_metadata_sync.py --repo .
 - Binary Ninja: `mcrit_plugin/binja/`, `plugin.json`, `__init__.py`, `requirements.txt`,
   `scripts/binja/`, `tests/binja/`, `.github/workflows/binja-*.yml`, and `**/ida-plugin.json`,
   because the archive check has to prove that file is still `export-ignore`d
-- both: `mcrit_plugin/core/`, `mcrit_plugin/ui_qt/`, `icons/`, `scripts/common/`, `tests/core/`,
-  `tests/conftest.py`, `tests/fixtures/`, `README.md`, `LICENSE`, `pyproject.toml`, `.gitattributes`
+- both: `mcrit_plugin/__init__.py`, `mcrit_plugin/core/`, `mcrit_plugin/ui_qt/`, `icons/`,
+  `scripts/common/`, `tests/core/`, `tests/ui_qt/`, `tests/conftest.py`, `tests/fixtures/`,
+  `README.md`, `LICENSE`, `pyproject.toml`, `.gitattributes`
 
 So a Binary Ninja-only change does not start the IDA jobs and the other way round. A workflow
 skipped by its path filter reports no status, so do not make those checks required in branch
@@ -71,13 +73,13 @@ protection.
 
 ## Integration tests
 
-All integration tests except the offline modes need a MCRIT server. CI uses MCRIT 1.9.0 and
+All integration tests except the offline modes need a MCRIT server. CI uses MCRIT 1.12.0 and
 SMDA 4.8.0.
 
 ```bash
 docker run --rm -p 27017:27017 mongo:5.0
 python3.12 -m venv .venv-mcrit
-.venv-mcrit/bin/python -m pip install "mcrit==1.9.0"
+.venv-mcrit/bin/python -m pip install "mcrit==1.12.0"
 .venv-mcrit/bin/python -m mcrit server
 .venv-mcrit/bin/python -m mcrit worker
 ```
@@ -130,9 +132,11 @@ python scripts/ida/run_gui_integration.py \
   --mcrit-server http://127.0.0.1:8000
 ```
 
-- Without `--idausr` it uses your normal IDA profile. It points that profile at the given server
-  and restores `ida-config.json` afterwards. `--plugin-root` tests an already installed copy
-  instead of the local ZIP.
+- Without `--idausr` it uses your normal IDA profile. It points that profile at the given server,
+  replaces the installed plugin with the local build, and restores `ida-config.json` afterwards.
+  If the profile has no `cfg/idapython.cfg`, it creates one that sets
+  `IDAPYTHON_USE_PYQT5_SHIM = 0` and leaves it in place. `--plugin-root` tests an already
+  installed copy instead of the local ZIP.
 - `--offline` skips the MCRIT parts, in both the IDALib and the GUI test.
 - IDA still checks its licence on start. If it reports that Python is not configured, run
   `idapyswitch --auto-apply` from that installation.

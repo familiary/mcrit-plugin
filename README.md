@@ -3,7 +3,7 @@
 [![IDA Version](https://img.shields.io/badge/IDA-9.0%2B-blue.svg)](https://hex-rays.com/ida-pro/)
 [![License](https://img.shields.io/badge/license-GPL--3.0-green.svg)](LICENSE)
 [![HCLI Compatible](https://img.shields.io/badge/HCLI-compatible-brightgreen.svg)](https://hcli.docs.hex-rays.com/)
-[![Ask DeepWiki](https://deepwiki.com/badge.svg)](https://deepwiki.com/danielplohmann/mcrit-plugin)
+[![Ask DeepWiki](https://deepwiki.com/badge.svg)](https://deepwiki.com/familiary/mcrit-plugin)
 
 Client for [MCRIT](https://github.com/danielplohmann/mcrit), the MinHash-based code similarity server, for IDA Pro and Binary Ninja. It exports your database as an SMDA report, uploads it, and shows matching blocks, functions and labels from the server next to your analysis.
 
@@ -67,7 +67,7 @@ Install MCRIT from the Extension Manager, or clone this repository into your Bin
 
 ### Configure
 
-Settings are under Settings → MCRIT, with the same keys as the IDA plugin. Where a system keychain is available, an API token entered there is moved into it and the field is cleared; otherwise the token stays in the Settings entry. Plugins → MCRIT → Clear Stored API Token removes it.
+Settings are under Settings → MCRIT, with the same keys as the IDA plugin. Where a system keychain is available, an API token entered there is moved into it and the field is cleared; otherwise the token stays in the Settings entry. Plugins → MCRIT → Clear Stored API Token removes it. The sidebar reads the connection settings (server, token, username, timeout) when it opens for a file, so reopen the file after changing them.
 
 ### Use
 

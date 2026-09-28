@@ -21,7 +21,7 @@ the plugin needs in IDA's interpreter, and how the plugin is installed. That las
 is a major release although no setting, version floor or dependency changed: copying a repository
 checkout into the plugins directory was a documented install method and no longer works. It is
 distributed as a ZIP for
-[HCLI](https://docs.hex-rays.com/user-guide/plugins/hcli) and attached to the GitHub release, not
+[HCLI](https://hcli.docs.hex-rays.com/) and attached to the GitHub release, not
 published to PyPI.
 
 The version is declared in `mcrit_plugin/ida/ida-plugin.json` (`plugin.version`) and
@@ -76,7 +76,9 @@ Pushing the tag is the release. `.github/workflows/ida-release.yml` then:
 3. **Release** — creates the GitHub release for the tag with the changelog section as its body,
    GitHub's generated contributor and PR list appended under it, and the archive attached. It is
    never marked as the latest release, because the Binary Ninja extension manager reads the latest
-   release.
+   release. HCLI indexes only the ten most recent releases of the repository, so if Binary Ninja
+   releases ever push the newest IDA release out of that window, cut another IDA release to bring
+   it back.
 4. **Offline dependencies** — calls `offline-dependencies.yml`, which attaches the Windows
    wheelhouse bundles (`smda` and `full`) to the release. It is called directly because a release
    created with `GITHUB_TOKEN` does not start workflows that listen for release events. To attach
@@ -124,6 +126,9 @@ hcli plugin lint dist/mcrit-ida-X.Y.Z.zip
 Done once, by a repository owner; the workflow cannot create these for itself.
 
 - **Label** `no-changelog`, used by the changelog check.
+- **A ruleset bypass for the Binary Ninja release.** `main` is protected by a ruleset that requires
+  a pull request, and the release pushes its version commit to `main` with `GITHUB_TOKEN`. Without
+  a bypass for GitHub Actions the push is rejected and nothing is tagged.
 - Optionally, **immutable releases** (Settings → General → Releases), so a published release's
   assets and tag can no longer be changed. Note that the offline-dependency workflow uploads
   assets to the release after it is published, so it has to finish before a release is made
@@ -167,7 +172,7 @@ that `plugin.json`, `requirements.txt` and the README agree and that the source 
 plugin at its root without `ida-plugin.json`, then validates `plugin.json` with a dry run of the
 same release action.
 
-- If `main` is protected, `github-actions[bot]` must be allowed to push.
+- The release pushes to `main`, which needs the ruleset bypass under "Maintainer configuration".
 - Versions `1.1.4`, `1.1.5` and `1.1.7`–`1.1.10` cannot be used: earlier tags already name them,
   and the action refuses to reuse a version a tag already names.
 - After the first release, open an issue on
