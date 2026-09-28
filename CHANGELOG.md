@@ -8,22 +8,7 @@ Ninja applies to that plugin only.
 
 ## [Unreleased]
 
-### Changed
-
-- Binary Ninja: SMDA reports are exported through SMDA's own `smda.binja` package instead of a
-  copy of the exporter carried here, so the exporter is versioned with the report format it
-  produces. The Binary Ninja plugin requires `smda>=4.9.0`; the IDA plugin's requirement is
-  unchanged.
-- Binary Ninja: ELF and Mach-O reports record the entry point relative to the base address, as
-  native SMDA reports and IDA exports do; the copy recorded an absolute address. PE reports are
-  unchanged, since their entry point was already an RVA.
-- Binary Ninja: thunks named `j_sub_…` count as unnamed, as they do in `smda.binja`. The report
-  leaves their names out, and label import may name them. IDA keeps treating its `j_` thunk names
-  as names.
-- Binary Ninja: the offline bundle is built for Python 3.11 to 3.13, since SMDA 4.9.0 needs 3.11
-  or newer.
-
-## [2.0.0] - 2026-09-18
+## [2.0.0] - 2026-09-28
 
 ### Added
 
@@ -77,6 +62,18 @@ Ninja applies to that plugin only.
   why, instead of the job silently reporting `skipped` and the pull request looking green. It
   warns rather than fails, because a fork cannot obtain the licence secrets; a genuine failure of
   the licensed job is still red on that job.
+- Binary Ninja: SMDA reports are exported through SMDA's own `smda.binja` package instead of a
+  copy of the exporter carried here, so the exporter is versioned with the report format it
+  produces. The Binary Ninja plugin requires `smda>=4.9.0`; the IDA plugin's requirement is
+  unchanged.
+- Binary Ninja: ELF and Mach-O reports record the entry point relative to the base address, as
+  native SMDA reports and IDA exports do; the copy recorded an absolute address. PE reports are
+  unchanged, since their entry point was already an RVA.
+- Binary Ninja: thunks named `j_sub_…` count as unnamed, as they do in `smda.binja`. The report
+  leaves their names out, and label import may name them. IDA keeps treating its `j_` thunk names
+  as names.
+- Binary Ninja: the offline bundle is built for Python 3.11 to 3.13, since SMDA 4.9.0 needs 3.11
+  or newer.
 
 ### Removed
 
