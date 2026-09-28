@@ -162,7 +162,7 @@ class McritInterface(object):
             "Sending SMDA report to server %s" % self._getMcritServerAddress()
         )
         try:
-            sample_entry, job_id = self.mcrit_client.addReport(report)
+            sample_entry, job_id = self.mcrit_client.addReport(report) or (None, None)
             if sample_entry:
                 if job_id:
                     self.parent.local_widget.updateActivityInfo(
@@ -192,6 +192,9 @@ class McritInterface(object):
         try:
             # fetch jobs
             jobs = self.mcrit_client.getQueueData(filter="Matches")
+            if jobs is None:
+                self.parent.local_widget.updateActivityInfo("Job query failed.")
+                return None
             # check if we already have a match report for the sample id
             if sample_id is not None:
                 jobs = [
@@ -295,7 +298,8 @@ class McritInterface(object):
             self._reportFailure("querySmdaFunctionMatches", exc)
 
     def queryFunctionEntriesById(self, function_ids, with_label_only=False):
-        """The entries by id ({} when none qualify), or None when the request failed."""
+        """The entries by id, or None when the request raised; McritClient answers {} both when
+        none qualify and when the server rejects the request."""
         try:
             function_entries = self.mcrit_client.getFunctionsByIds(
                 function_ids, with_label_only=with_label_only

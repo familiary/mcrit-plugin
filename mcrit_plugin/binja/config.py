@@ -12,7 +12,7 @@ KEYCHAIN_PROVIDER = "SystemSecretsProvider"
 NUMBER_SETTINGS = {
     "mcrit_request_timeout": (0, 3600),
     "blocks_min_size": (4, 20),
-    "function_min_score": (0, 100),
+    "function_min_score": (50, 100),
     "overview_min_score": (0, 100),
 }
 

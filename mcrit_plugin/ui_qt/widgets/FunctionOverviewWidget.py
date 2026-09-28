@@ -831,6 +831,8 @@ class FunctionOverviewWidget(QMainWindow):
         clicked_function_address = offset_item.text()
         if mi.column() not in [function_offset_column, function_label_column]:
             self.cc.backend.jump_to(int(clicked_function_address, 16))
+            # Binary Ninja reports the cursor move only after a delay, too late for this query
+            self.parent.current_function = int(clicked_function_address, 16)
             # change to function scope tab
             self.parent.main_widget.setTabFocus(self.parent.function_match_widget.name)
             self.parent.function_match_widget.queryCurrentFunction()

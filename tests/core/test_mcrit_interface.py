@@ -193,3 +193,21 @@ class TestQueryFunctionEntriesById:
 
         assert interface.queryFunctionEntriesById([7]) == {7: entry}
         assert interface.parent.matched_function_entries == {7: entry}
+
+
+class TestServerErrors:
+    def test_a_rejected_upload_reports_failure_without_a_traceback(self, capsys):
+        interface = _make_interface()
+        interface.mcrit_client.addReport.return_value = None
+
+        interface.uploadReport(MagicMock())
+
+        interface.parent.local_widget.updateActivityInfo.assert_called_with("Upload failed.")
+        assert "Traceback" not in capsys.readouterr().err
+
+    def test_a_rejected_job_query_reports_failure(self):
+        interface = _make_interface()
+        interface.mcrit_client.getQueueData.return_value = None
+
+        assert interface.queryJobs(sample_id=23) is None
+        interface.parent.local_widget.updateActivityInfo.assert_called_with("Job query failed.")

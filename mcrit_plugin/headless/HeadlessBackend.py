@@ -111,7 +111,8 @@ class HeadlessBackend(Backend):
 
     def has_default_function_name(self, address):
         name = self.get_function_name(address)
-        return bool(name) and re.match("sub_[0-9a-fA-F]+$", name) is not None
+        # SMDA leaves an unnamed function's name empty where IDA and Binary Ninja say sub_<address>
+        return name is not None and (name == "" or re.match("sub_[0-9a-fA-F]+$", name) is not None)
 
     def run_on_ui_thread(self, func):
         return func()

@@ -256,6 +256,9 @@ class MainWidget(QMainWindow):
     def _buildLocalSmdaReport(self, on_ready, work=None):
         """Run work off the UI thread where supported, then call on_ready(report) on the UI thread."""
         if self._building:
+            self.parent.local_widget.updateActivityInfo(
+                "An SMDA report is still being built; try again when it is done."
+            )
             return
         self._building = True
 

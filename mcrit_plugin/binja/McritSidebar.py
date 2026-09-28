@@ -33,6 +33,10 @@ class McritSidebarWidget(SidebarWidget):
         self.backend = BinjaBackend(bv)
         self.backend.view_frame = frame
         self.session = McritSession(self.backend, config)
+        if frame is not None:
+            self.session.current_function = self.backend.get_current_function(
+                frame.getCurrentOffset()
+            )
         # below the widgets' minimum size their layouts overlap; the scroll area keeps that minimum
         self.session.parent = QWidget()
         self.session.setupWidgets()
@@ -119,7 +123,7 @@ class McritContextNotification(UIContextNotification):
         # navigation from the Symbols pane reaches the sidebar only through this global notification
         if view is None or location is None or not location.isValid():
             return
-        widget = _widget_for_view(view.getData())
+        widget = _widget_for_view(view.getData(), frame)
         if widget is not None:
             widget.notifyOffsetChanged(location.getOffset())
 
@@ -160,20 +164,31 @@ def _session_for(context):
     """Open the MCRIT sidebar for the action's view and return its session."""
     if context.binaryView is None or not _activate_sidebar(context):
         return None
-    widget = _widget_for_view(context.binaryView)
+    widget = _widget_for_view(context.binaryView, _frame_for(context))
     if widget is None:
         logger.log_warn("No MCRIT sidebar for the current view; open the MCRIT sidebar and retry.")
         return None
     return widget.session
 
 
-def _widget_for_view(bv):
-    # per-view-type sidebars: the Raw and PE views of one file share a session_id
-    for widget in _SIDEBAR_WIDGETS:
-        widget_bv = widget.backend.bv
-        if widget_bv.file.session_id == bv.file.session_id and widget_bv.view_type == bv.view_type:
+def _frame_for(context):
+    ui_context = context.context or UIContext.activeContext()
+    return ui_context.getCurrentViewFrame() if ui_context is not None else None
+
+
+def _widget_for_view(bv, frame=None):
+    # per-view-type sidebars: the Raw and PE views of one file share a session_id, and a file split
+    # into several tabs has one widget per tab, told apart by its view frame
+    matches = [
+        widget
+        for widget in _SIDEBAR_WIDGETS
+        if widget.backend.bv.file.session_id == bv.file.session_id
+        and widget.backend.bv.view_type == bv.view_type
+    ]
+    for widget in matches:
+        if frame is not None and widget.backend.view_frame is frame:
             return widget
-    return None
+    return matches[0] if matches else None
 
 
 def _has_report(session):
@@ -246,7 +261,7 @@ def _register_actions():
                 return False
             if enabled is None:
                 return True
-            widget = _widget_for_view(context.binaryView)
+            widget = _widget_for_view(context.binaryView, _frame_for(context))
             return widget is not None and enabled(widget.session)
 
         UIAction.registerAction(name)

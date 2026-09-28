@@ -11,6 +11,9 @@ def core_revision():
     if not ARCHIVE_COMMIT.startswith("$"):
         return ARCHIVE_COMMIT[:12]
     plugin_root = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+    # a plugin folder inside another repository would otherwise report that repository's HEAD
+    if not os.path.exists(os.path.join(plugin_root, ".git")):
+        return "unknown"
     try:
         return subprocess.run(
             ["git", "-C", plugin_root, "rev-parse", "--short=12", "HEAD"],
@@ -18,6 +21,8 @@ def core_revision():
             text=True,
             timeout=5,
             check=True,
+            # the GUI process has no console, so Windows would open one for git
+            creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
         ).stdout.strip()
     except (OSError, subprocess.SubprocessError):
         return "unknown"
