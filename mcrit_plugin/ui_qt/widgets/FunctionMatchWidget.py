@@ -15,7 +15,6 @@ class FunctionMatchWidget(QMainWindow):
         self.cc = parent.cc
         self.cc.QMainWindow.__init__(self)
         print("[|] loading FunctionMatchWidget")
-        # enable access to shared MCRIT4IDA modules
         self.parent = parent
         self.scp = ScoreColorProvider(self.cc.backend)
         self.last_viewed = None

@@ -9,7 +9,6 @@ class SampleInfoWidget(QMainWindow):
         self.cc = parent.cc
         self.cc.QMainWindow.__init__(self)
         print("[|] loading SampleInfoWidget")
-        # enable access to shared MCRIT4IDA modules
         self.parent = parent
         self.name = "Sample Match Summary"
         self.last_family_selected = None

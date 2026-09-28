@@ -206,7 +206,6 @@ class FunctionOverviewWidget(QMainWindow):
         self._label_requested_ids = set()
         self._score_range_job_id = None
         self.resolved_function_labels = {}  # offset -> resolved label string
-        # enable access to shared MCRIT4IDA modules
         self.parent = parent
         self.name = "Function Overview"
         self.icon = self.cc.QIcon(self.parent.config.ICON_FILE_PATH + "relationship.png")

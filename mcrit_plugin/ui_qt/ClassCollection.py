@@ -1,5 +1,3 @@
-import json
-import os
 import re
 import sys
 import time
@@ -9,9 +7,6 @@ from collections import deque
 class ClassCollection:
     def __init__(self, shim, backend):
         # python imports
-        self.json = json
-        self.os = os
-        self.os_path = os.path
         self.re = re
         self.sys = sys
         self.time = time

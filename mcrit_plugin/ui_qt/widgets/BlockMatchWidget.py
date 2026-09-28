@@ -19,7 +19,6 @@ class BlockMatchWidget(QMainWindow):
         self.cc = parent.cc
         self.cc.QMainWindow.__init__(self)
         print("[|] loading BlockMatchWidget")
-        # enable access to shared MCRIT4IDA modules
         self.parent = parent
         self.scp = ScoreColorProvider(self.cc.backend)
         self.last_viewed_function = None

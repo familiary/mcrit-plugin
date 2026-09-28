@@ -16,9 +16,7 @@ class LocalInfoWidget(QMainWindow):
         self.cc.QMainWindow.__init__(self)
         self.activityInfoRequested.connect(self._setActivityInfo)
         self.serverInfoRequested.connect(self._setServerInfo)
-        self._datetime = datetime
         print("[|] loading LocalInfoWidget")
-        # enable access to shared MCRIT4IDA modules
         self.parent = parent
         self.name = "LocalInfo"
         self.icon = self.cc.QIcon(self.parent.config.ICON_FILE_PATH + "scan.png")
@@ -149,7 +147,7 @@ class LocalInfoWidget(QMainWindow):
         self.activityInfoRequested.emit(message)
 
     def _setActivityInfo(self, message):
-        timestamp = self._datetime.datetime.now().strftime("%H:%M:%S")
+        timestamp = datetime.datetime.now().strftime("%H:%M:%S")
         self.label_mcrit_activity_info.setText("Activity Info: %s - %s" % (timestamp, message))
 
     def updateServerInfo(self, mcrit_server, version=None, statistics=None):
