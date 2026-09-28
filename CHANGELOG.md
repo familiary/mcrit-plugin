@@ -37,6 +37,12 @@ to add an entry.
   instead of decompiling it again.
 - In IDA, the SMDA export runs behind a wait box, and a failed export shows a warning and logs
   the traceback to the Output window instead of raising out of the button handler.
+- A failed request to the MCRIT server says why (timed out, server unreachable, request error)
+  instead of reporting a connection error, and an unexpected error logs its traceback to the
+  Output window.
+- The upload offered on close sends the converted report with the current function names patched
+  in, instead of exporting the database again, so closing never re-runs the analysis. Functions
+  created after the last Convert are not in that upload; convert again to include them.
 - The release history moved out of `README.md` into this file; the entries below are unchanged.
   `verify_metadata_sync.py` now reads the latest release heading from here.
 - The offline-dependency workflow no longer expands the release tag inside its scripts (a tag
@@ -55,7 +61,12 @@ to add an entry.
 
 - Releases get their Windows offline dependency bundles again. The bundle workflow listened for
   published releases, which a release created by the release workflow never triggers, so 1.1.7
-  to 1.1.9 shipped without them; the release workflow now calls it directly.
+  to 1.1.10 shipped without them; the release workflow now calls it directly.
+- Boolean settings given as strings in `config_override.json` are read as their value. Only
+  `sample_group_only` was converted before, so `"false"` switched any other option on.
+- Converting with SMDA selects SMDA's `aarch64` backend for AArch64 databases and lets SMDA choose
+  for other non-x86 architectures. It used to request `arm`, `mips` or `ppc`, which SMDA does not
+  have, and failed later with an unrelated error.
 
 ## [1.1.10] - 2026-09-16
 
@@ -133,6 +144,6 @@ Recorded as they were written in the README at the time, newest first.
 - Initial standalone release.
 - IDA 9.2 (PySide6) compatibility.
 
-[Unreleased]: https://github.com/danielplohmann/mcrit-plugin/compare/ida-v2.0.0...HEAD
-[2.0.0]: https://github.com/danielplohmann/mcrit-plugin/compare/v1.1.10...ida-v2.0.0
-[1.1.10]: https://github.com/danielplohmann/mcrit-plugin/compare/v1.1.9...v1.1.10
+[Unreleased]: https://github.com/familiary/mcrit-plugin/compare/ida-v2.0.0...HEAD
+[2.0.0]: https://github.com/familiary/mcrit-plugin/compare/v1.1.10...ida-v2.0.0
+[1.1.10]: https://github.com/familiary/mcrit-plugin/compare/v1.1.9...v1.1.10

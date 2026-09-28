@@ -3,7 +3,7 @@
 This repository follows the release process shared across the MCRIT ecosystem
 ([smda](https://github.com/danielplohmann/smda), [purepdb](https://github.com/danielplohmann/purepdb),
 [mcrit](https://github.com/danielplohmann/mcrit), [mcritweb](https://github.com/fkie-cad/mcritweb),
-[mcrit-plugin](https://github.com/danielplohmann/mcrit-plugin),
+[mcrit-plugin](https://github.com/familiary/mcrit-plugin),
 [docker-mcrit](https://github.com/danielplohmann/docker-mcrit)). The shape is the same everywhere;
 this file states the values that are specific to this repository.
 
@@ -33,16 +33,17 @@ match every one of them, so a bump that misses one fails before anything is publ
 ### Changelog
 
 `CHANGELOG.md` follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and is the
-authoritative record of what a release contains for both plugins: the GitHub release notes are
-generated from it. Add an entry when the change merges, while the reasoning is still at hand, rather
-than reconstructing it from the commit log at release time.
+authoritative record of what a release contains for both plugins, and the notes of IDA releases on
+GitHub are generated from it. Add an entry when the change merges, while the reasoning is still at
+hand, rather than reconstructing it from the commit log at release time.
 
 - Every pull request that changes something a user can observe adds its own bullet under
   `## [Unreleased]`, in the subsection it belongs to (`Added`, `Changed`, `Deprecated`, `Removed`,
   `Fixed`, `Security`), while the change is fresh. The `Changelog` check fails a PR that touches
   files shipped in either plugin (`mcrit_plugin/core`, `mcrit_plugin/ui_qt`, `mcrit_plugin/ida`,
-  `mcrit_plugin/binja`, `icons`) without touching `CHANGELOG.md`; apply the `no-changelog` label when a change
-  genuinely needs no entry (a typo, a CI-only change), and say why in the PR.
+  `mcrit_plugin/binja`, `mcrit_plugin/__init__.py`, `icons`, and the root `plugin.json`,
+  `__init__.py` and `requirements.txt`) without touching `CHANGELOG.md`; apply the `no-changelog`
+  label when a change genuinely needs no entry (a typo, a CI-only change), and say why in the PR.
 - An entry says what changed and what it costs the reader: what to do when upgrading, what may
   behave differently, which issue or PR it closes.
 - Dependency bumps need no entry. GitHub lists them under their own heading in the release notes,
@@ -167,8 +168,8 @@ plugin at its root without `ida-plugin.json`, then validates `plugin.json` with 
 same release action.
 
 - If `main` is protected, `github-actions[bot]` must be allowed to push.
-- Versions `1.1.4`, `1.1.5`, `1.1.7`–`1.1.9` and `1.4.5` cannot be used: earlier tags already name
-  them, and the action refuses to reuse a version a tag already names.
+- Versions `1.1.4`, `1.1.5` and `1.1.7`–`1.1.10` cannot be used: earlier tags already name them,
+  and the action refuses to reuse a version a tag already names.
 - After the first release, open an issue on
   [Vector35/community-plugins](https://github.com/Vector35/community-plugins/issues/new/choose) to get
   the plugin listed.

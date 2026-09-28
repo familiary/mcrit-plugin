@@ -145,7 +145,7 @@ plugin, so your own profile isn't touched. The query file must have a SHA-256 th
 seen yet.
 
 ```bash
-python scripts/binja/run_gui_integration.py --input /tmp/mcrit-query.exe \
+python scripts/binja/run_gui_integration.py --input /tmp/mcrit-query \
   --reference-sha256 <sha256> --mcrit-server http://127.0.0.1:8000/
 ```
 

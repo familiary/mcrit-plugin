@@ -143,7 +143,8 @@ def main() -> int:
         if "MCRIT_BN_INTEGRATION_OK" not in text:
             print("[binja-integration] failed", file=sys.stderr)
             return 1
-        print(f"[binja-integration] completed successfully (user directory: {user_dir})")
+        kept = f" (user directory: {user_dir})" if args.keep_user_dir else ""
+        print(f"[binja-integration] completed successfully{kept}")
         return 0
     finally:
         if process is not None and process.poll() is None:

@@ -19,8 +19,8 @@ For the MCRIT methodology (PicHash/MinHash, LSH banding) see the [mcrit `AGENTS.
 - `mcrit_plugin/headless/` — `HeadlessBackend` (SMDA disassembles the input, labels in memory) for licence-free CI and scripting.
 - `mcrit_plugin/ui_qt/widgets/` — Qt views (`MainWidget`, `FunctionMatchWidget`, `BlockMatchWidget`, `FunctionOverviewWidget`, `SampleInfoWidget`, `LocalInfoWidget`, dialogs).
 - `mcrit_plugin/ida/` — `IdaBackend`, `SmdaGraphViewer`, and `config.py` (plugin `VERSION` plus the `ida-settings` binding).
-- `mcrit_plugin/binja/` — Binary Ninja frontend: `BinjaBackend`, `BinjaSmdaInterface` (SMDA `BackendInterface` fed to SMDA's `IdaExporter`), `config.py` (Binary Ninja Settings registered from the `ida-plugin.json` declarations; `VERSION` from `plugin.json`), and `McritSidebar` (sidebar, UI actions, close hook). Root `plugin.json` / `__init__.py` / `requirements.txt` are the Binary Ninja manifest, entry point and dependencies; `scripts/ida/package_plugin.py` keeps `mcrit_plugin/binja` out of the IDA archive.
-- `scripts/ida/` — packaging, metadata verification, IDA GUI/IDALib integration runners; `scripts/binja/` — Binary Ninja GUI integration runner; `scripts/common/` — settings verification, quality checks, fixture building, MCRIT seeding.
+- `mcrit_plugin/binja/` — Binary Ninja frontend: `BinjaBackend`, `BinjaSmdaInterface` (SMDA `BackendInterface` fed to SMDA's `IdaExporter`), `config.py` (Binary Ninja Settings registered from the declarations in `mcrit_plugin/core/settings.json`; `VERSION` from `plugin.json`), and `McritSidebar` (sidebar, UI actions, close hook). Root `plugin.json` / `__init__.py` / `requirements.txt` are the Binary Ninja manifest, entry point and dependencies; `scripts/ida/package_plugin.py` keeps `mcrit_plugin/binja` out of the IDA archive.
+- `scripts/ida/` — packaging, metadata verification, IDA GUI/IDALib integration runners; `scripts/binja/` — Binary Ninja metadata verification and GUI integration runner; `scripts/common/` — settings verification, quality checks, fixture building, MCRIT seeding.
 - `tests/core/` — pure-Python pytest suite (IDA/SMDA are stubbed in `tests/conftest.py`); `tests/ida/`, `tests/binja/` — integration tests run inside the disassemblers.
 - `icons/` — resources; `docs/` — `config_override.json.template` and the Qt Designer mockup.
 
@@ -73,7 +73,7 @@ These mirror the MCRIT core vocabulary (the plugin is a client of them):
 - **Settings & version sync** (this is the easy-to-break part):
   - Settings are **declared** in `mcrit_plugin/ida/ida-plugin.json` (`settings` array, mirrored in `mcrit_plugin/core/settings.json`) and have **defaults** in `mcrit_plugin/core/config.py` (`McritConfig._defaults`). These two must stay in sync; `verify_settings_sync.py` enforces it.
   - Where each plugin's `version` is declared, what has to agree with it, and the changelog entry every shipped change needs are in [`RELEASING.md`](RELEASING.md). **Do not bump either version unless explicitly asked.**
-  - Always run `verify_metadata_sync.py` and `verify_settings_sync.py` after touching either file.
+  - Always run `scripts/ida/verify_metadata_sync.py`, `scripts/binja/verify_metadata_sync.py` and `scripts/common/verify_settings_sync.py` after touching either file.
 - **Testing**: run `ruff format --check`, `ruff check`, and `python -m pytest tests` before considering work complete. The pure pytest suite is secret-free and runs in CI on every push/PR.
 - **IDA-licensed integration tests** (`.github/workflows/ida-tests.yml`) require a licensed IDA Pro and the `IDA_LICENSE_ID`/`HCLI_API_KEY` secrets. They are **not** available to fork PRs and must **not** be run by default. They are referenced here for completeness only; drive them via manual workflow dispatch or the local `scripts/ida/run_idalib_integration.py` / `scripts/ida/run_gui_integration.py` harnesses when a licensed IDA is present.
 - **Vendored vs. internalized**:
