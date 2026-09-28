@@ -44,7 +44,7 @@ Lint, tests, packaging and metadata checks are listed in
 ## Architecture primer
 
 - **Entry** (`mcrit_plugin/ida/ida_mcrit.py`) registers IDA menus/actions/hotkeys and the MCRIT widget subviews.
-- **`McritInterface`** owns the connection to the MCRIT server. Uploads, queries and matching run in the widgets' handlers on the UI thread; the connection check, and on Binary Ninja the conversion with its sample and family download, run in the background and hand their results back to the widgets. IDA's API is main-thread only, so on IDA the conversion runs synchronously behind a wait box.
+- **`McritInterface`** owns the connection to the MCRIT server. Uploads, the Function and Block Scope queries and fetching a matching result go through `Backend.run_request`: on Binary Ninja they run on a worker thread and hand their results back to the widgets, which drop a live query's answer once the cursor has moved to another function; elsewhere they run synchronously. The connection check, and on Binary Ninja the conversion with its sample and family download, also run in the background. IDA's API is main-thread only, so on IDA the conversion runs synchronously behind a wait box.
 - **`McritClient`** (internalized under `mcrit_plugin/core/minimcrit/`) is the HTTP client speaking the MCRIT REST API. The plugin intentionally vendors a minified copy of the core client so it has no hard dependency on the `mcrit` package.
 - **IDB→SMDA conversion** uses SMDA (optionally as the analysis backend via `use_smda_for_analysis`); results feed matching and label sync.
 - **Widgets** render matches/blocks/functions/overview and are built on PySide6 through `QtShim`.

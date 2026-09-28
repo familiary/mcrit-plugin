@@ -175,7 +175,6 @@ class McritInterface(object):
                     )
                 self.parent.remote_sample_entry = sample_entry
                 self.parent.remote_sample_id = sample_entry.sample_id
-                self.parent.local_widget.update()
             else:
                 self.parent.local_widget.updateActivityInfo("Upload failed.")
         except Exception as exc:
