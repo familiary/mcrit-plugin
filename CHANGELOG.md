@@ -76,9 +76,9 @@ Ninja applies to that plugin only.
 - Where `config_override.json` applied, which was only when the settings store failed, boolean
   values given as strings are read as their value. Only `sample_group_only` was converted before,
   so `"false"` switched any other option on.
-- Converting with SMDA selects SMDA's `aarch64` backend for AArch64 databases and lets SMDA choose
-  for other non-x86 architectures. It used to request `arm`, `mips` or `ppc`, which SMDA does not
-  have, and failed later with an unrelated error.
+- Converting with SMDA selects SMDA's `aarch64` backend for AArch64 databases instead of `arm`,
+  which SMDA does not have. Other non-x86 architectures still fail, since SMDA does not support
+  them.
 
 ### Security
 

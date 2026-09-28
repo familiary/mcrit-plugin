@@ -61,7 +61,7 @@ class McritInterface(object):
         self.parent.local_widget.updateServerInfo(self._getMcritServerAddress())
 
     def _select_smda_backend(self, binary_info):
-        """One of SMDA's own backend names, or None to let SMDA pick; an unknown name leaves the
+        """One of SMDA's own backend names, or None for SMDA's default; an unknown name leaves the
         Disassembler without a backend instead of raising."""
         arch = (binary_info.architecture or "").lower()
         if "x86" in arch or "amd64" in arch or "i386" in arch or "intel" in arch:

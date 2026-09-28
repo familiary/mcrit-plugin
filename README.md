@@ -39,6 +39,8 @@ In CI or a headless shell, pass settings with `--config mcrit_server=https://mcr
 2. Install the dependencies with IDA's Python: `python -m pip install "smda>=4.3.10" "ida-settings>=3.5.1" requests`
 3. Restart IDA.
 
+SMDA 4.3.10 is the last release for Python 3.10, so an IDA running Python 3.10, and the release's 3.10 wheelhouse bundle, get that version and none of the SMDA fixes since.
+
 IDA 9.4 may ask once whether to enable PyQt5 shims when the plugin loads; answer No. The prompt comes from the `ida-settings` dependency, and the plugin itself uses PySide6.
 
 For offline machines, each release has a wheelhouse bundle: unpack it and run `python -m pip install --no-index --find-links=. -r requirements.txt`.

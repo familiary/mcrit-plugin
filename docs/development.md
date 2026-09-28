@@ -74,7 +74,7 @@ protection.
 ## Integration tests
 
 All integration tests except the offline modes need a MCRIT server. CI uses MCRIT 1.12.0 and
-SMDA 4.8.0.
+SMDA 4.9.0.
 
 ```bash
 docker run --rm -p 27017:27017 mongo:5.0
@@ -118,7 +118,7 @@ your IDA is configured for, and install `idapro` from that IDA:
 ```bash
 python3 -m venv .venv-idalib
 .venv-idalib/bin/python -m pip install "/path/to/IDA Professional 9.3/idalib/python"/idapro-*.whl \
-  "smda==4.8.0" "ida-settings==3.5.1" "PySide6" "requests"
+  "smda==4.9.0" "ida-settings==3.5.1" "PySide6" "requests"
 .venv-idalib/bin/python scripts/ida/run_idalib_integration.py \
   --ida-dir "/path/to/IDA Professional 9.3" --input /tmp/mcrit-query \
   --idausr /tmp/mcrit-idalib-user --mcrit-server http://127.0.0.1:8000

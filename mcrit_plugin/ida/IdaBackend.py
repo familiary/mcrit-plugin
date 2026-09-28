@@ -158,15 +158,12 @@ class IdaBackend(Backend):
         ida_kernwin.execute_sync(wrapper, ida_kernwin.MFF_FAST)
         return result[0] if result else None
 
-    # ask_file and ask_yn take the prompt as a printf format; IDAPython drops any further arguments
+    # IDAPython fixes the printf format of ask_file and ask_yn to "%s", so the prompt shows verbatim
     def ask_save_file(self, default_name, prompt):
-        return ida_kernwin.ask_file(1, default_name, prompt.replace("%", "%%")) or None
+        return ida_kernwin.ask_file(1, default_name, prompt) or None
 
     def ask_yes_no(self, prompt):
-        return (
-            ida_kernwin.ask_yn(ida_kernwin.ASKBTN_NO, prompt.replace("%", "%%"))
-            == ida_kernwin.ASKBTN_YES
-        )
+        return ida_kernwin.ask_yn(ida_kernwin.ASKBTN_NO, prompt) == ida_kernwin.ASKBTN_YES
 
     def show_warning(self, message):
         ida_kernwin.warning(message)

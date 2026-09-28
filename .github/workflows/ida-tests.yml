@@ -260,7 +260,7 @@ jobs:
           "$IDALIB_PYTHON" -m pip install --upgrade pip
           "$IDALIB_PYTHON" -m pip install --upgrade \
             "${{ steps.ida.outputs.ida-dir }}/idalib/python"/idapro-*.whl \
-            "smda==4.8.0" "ida-settings==3.5.1" "PySide6" "requests"
+            "smda==4.9.0" "ida-settings==3.5.1" "PySide6" "requests"
 
       - name: Wait for MongoDB
         shell: bash
@@ -368,7 +368,7 @@ jobs:
         run: |
           # The Linux installer has no bundled Python executable.
           python -m pip install --target "$RUNNER_TEMP/ida-py-deps" \
-            "requests" "smda==4.8.0" "ida-settings==3.5.1"
+            "requests" "smda==4.9.0" "ida-settings==3.5.1"
 
       - name: Seed GUI profile from licensed IDALib profile
         shell: bash
@@ -643,7 +643,7 @@ jobs:
           "$IDALIB_PYTHON" -m pip install --upgrade pip
           "$IDALIB_PYTHON" -m pip install --upgrade \
             "${{ steps.ida.outputs.ida-dir }}/idalib/python"/idapro-*.whl \
-            "smda==4.8.0" "ida-settings==3.5.1" "PySide6" "requests"
+            "smda==4.9.0" "ida-settings==3.5.1" "PySide6" "requests"
 
       - name: Run offline IDALib lifecycle integration test
         shell: bash
