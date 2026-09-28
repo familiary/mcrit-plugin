@@ -1,6 +1,7 @@
 import hashlib
 import os
 import re
+import threading
 import traceback
 from contextlib import contextmanager
 
@@ -181,6 +182,18 @@ class BinjaBackend(Backend):
                 backend._on_main_thread(lambda: on_done(result))
 
         Task(title, False).start()
+
+    def run_request(self, work, on_done):
+        def run():
+            try:
+                result = work()
+            except Exception:
+                logger.log_error(f"MCRIT request failed:\n{traceback.format_exc()}")
+                return
+            self._on_main_thread(lambda: on_done(result))
+
+        # a plain thread: requests need neither the analysis wait nor a progress entry
+        threading.Thread(target=run, daemon=True).start()
 
     def _on_main_thread(self, func):
         binaryninja.execute_on_main_thread(lambda: None if self.closed else func())

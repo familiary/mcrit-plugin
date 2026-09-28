@@ -278,7 +278,10 @@ class IntegrationTest:
         job_ids = []
         original_request = client.requestMatchesForSample
 
+        off_ui_thread = []
+
         def capture_request(*args, **kwargs):
+            off_ui_thread.append(threading.current_thread() is not threading.main_thread())
             job_id = original_request(*args, **kwargs)
             job_ids.append(job_id)
             return job_id
@@ -292,18 +295,21 @@ class IntegrationTest:
 
         client.requestMatchesForSample = capture_request
         main_widget.ResultChooserDialog = RequestDialog
-        try:
-            main_widget.getMatchResultAction.trigger()
-        finally:
+        main_widget.getMatchResultAction.trigger()
+
+        def requested():
             client.requestMatchesForSample = original_request
             main_widget.ResultChooserDialog = original_dialog
-        self.check(bool(job_ids and job_ids[-1]), "Create Matching Job returned a job id")
-        self.job_id = job_ids[-1]
-        self.wait(
-            lambda: client.getResultForJob(self.job_id) is not None,
-            self.select_matching,
-            "matching job finished",
-        )
+            self.check(bool(job_ids[-1]), "Create Matching Job returned a job id")
+            self.check(all(off_ui_thread), "the job request ran off the UI thread")
+            self.job_id = job_ids[-1]
+            self.wait(
+                lambda: client.getResultForJob(self.job_id) is not None,
+                self.select_matching,
+                "matching job finished",
+            )
+
+        self.wait(lambda: bool(job_ids), requested, "Create Matching Job requested a job")
 
     def select_matching(self):
         client = self.session.mcrit_interface.mcrit_client
@@ -339,18 +345,21 @@ class IntegrationTest:
                 return 1
 
         main_widget.ResultChooserDialog = SelectDialog
-        try:
-            main_widget.getMatchResultAction.trigger()
-        finally:
+        main_widget.getMatchResultAction.trigger()
+
+        def loaded():
             main_widget.ResultChooserDialog = original_dialog
-        self.check(
-            self.session.matching_report is not None, "result chooser loaded the MatchingResult"
-        )
-        self.check(
-            main_widget.tabs.currentWidget() is self.session.function_widget,
+            self.check(
+                self.session.matching_report is not None,
+                "result chooser loaded the MatchingResult",
+            )
+            self.step(self.exercise_function_overview)
+
+        self.wait(
+            lambda: main_widget.tabs.currentWidget() is self.session.function_widget,
+            loaded,
             "Function Overview shown with results",
         )
-        self.step(self.exercise_function_overview)
 
     ################################################################################
     # Function Overview tab
@@ -793,7 +802,56 @@ class IntegrationTest:
                 match_right_click,
                 name_table,
             ],
-            self.exercise_block_scope,
+            self.exercise_late_function_answer,
+        )
+
+    def exercise_late_function_answer(self):
+        """A query answered after the cursor moved on must not replace the newer function."""
+        widget = self.session.function_match_widget
+        interface = self.session.mcrit_interface
+        original_query = interface.querySmdaFunctionMatches
+        trace = {}
+
+        def slow_query(report):
+            trace["off_ui_thread"] = threading.current_thread() is not threading.main_thread()
+            time.sleep(1)
+            result = original_query(report)
+            trace["answered"] = time.time()
+            return result
+
+        rendered = []
+        original_show = widget._showFunctionMatches
+
+        def recording_show(smda_function):
+            rendered.append(smda_function.offset)
+            return original_show(smda_function)
+
+        self.session.function_matches.pop(self.target.start, None)
+        interface.querySmdaFunctionMatches = slow_query
+        widget._showFunctionMatches = recording_show
+        self.session.current_function = self.target.start
+        widget.updateViewWithCurrentFunction()
+        self.session.current_function = self.second_target.start
+        widget.updateViewWithCurrentFunction()
+
+        def settled():
+            interface.querySmdaFunctionMatches = original_query
+            del widget._showFunctionMatches
+            self.check(trace["off_ui_thread"], "a Function Scope query runs off the UI thread")
+            self.check(
+                rendered == [self.second_target.start],
+                "a late answer for a function the cursor left does not replace the table",
+            )
+            self.check(
+                self.target.start in self.session.function_matches,
+                "the late answer is still cached for that function",
+            )
+            self.step(self.exercise_block_scope)
+
+        self.wait(
+            lambda: "answered" in trace and time.time() - trace["answered"] > 0.5,
+            settled,
+            "the slow query for the earlier function answered",
         )
 
     ################################################################################
