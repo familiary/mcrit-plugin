@@ -1,5 +1,3 @@
-import json
-import os
 import threading
 import traceback
 
@@ -35,10 +33,6 @@ class McritInterface(object):
             self.mcrit_client.setApitoken(self.config.MCRITWEB_API_TOKEN)
         if self.config.MCRITWEB_USERNAME:
             self.mcrit_client.setUsername(self.config.MCRITWEB_USERNAME)
-        # IDA 6.x Windows workaronud to avoid lost imports
-        self.json = json
-        self.os = os
-        self.os_path = os.path
 
     def _getMcritServerAddress(self):
         return self._mcrit_server
@@ -54,8 +48,13 @@ class McritInterface(object):
             return "request error: %s" % exc
         return "unexpected %s: %s" % (type(exc).__name__, exc)
 
+    @staticmethod
+    def _logTraceback(exc):
+        if not isinstance(exc, requests.exceptions.RequestException):
+            traceback.print_exc()
+
     def _reportFailure(self, operation, exc):
-        traceback.print_exc()
+        self._logTraceback(exc)
         self.parent.local_widget.updateActivityInfo(
             "%s failed (%s)." % (operation, self._describeError(exc))
         )
@@ -105,7 +104,7 @@ class McritInterface(object):
             mcrit_version = self.mcrit_client.getVersion()
             return mcrit_version, None
         except Exception as exc:
-            traceback.print_exc()
+            self._logTraceback(exc)
             return None, exc
 
     def checkConnection(self, async_=False):

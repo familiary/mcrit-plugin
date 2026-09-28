@@ -1,4 +1,4 @@
-"""Minimal non-GUI state container for IDALib integration tests."""
+"""Minimal non-GUI state container for the IDALib and headless integration runs."""
 
 from __future__ import annotations
 
@@ -23,7 +23,7 @@ class HeadlessActivity:
 
 
 class HeadlessMcritContext:
-    """State surface required by MCRIT operations outside the IDA GUI."""
+    """State surface required by MCRIT operations without a GUI."""
 
     def __init__(self, config, backend):
         self.config = config

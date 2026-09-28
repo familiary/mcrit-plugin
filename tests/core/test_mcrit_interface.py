@@ -1,16 +1,10 @@
-"""Tests for McritInterface helpers that don't require IDA at runtime.
-
-The big surface area of McritInterface depends on a live IDA UI, so these
-tests focus on the pure helpers that can be exercised in isolation:
-
-  * Architecture detection in ``_select_smda_backend``.
-  * Construction-time wiring of the request timeout.
-"""
+"""Tests for the McritInterface logic that runs without a disassembler or an MCRIT server."""
 
 from types import SimpleNamespace
 from unittest.mock import MagicMock
 
 import pytest
+import requests
 
 from mcrit_plugin.core.McritInterface import McritInterface
 
@@ -120,6 +114,21 @@ class TestCheckConnectionImpl:
         version, err = interface._check_connection_impl()
         assert version is None
         assert err is boom
+
+    def test_logs_no_traceback_for_an_unreachable_server(self, capsys):
+        interface = _make_interface()
+        interface.mcrit_client.getVersion.side_effect = requests.exceptions.ConnectionError(
+            "refused"
+        )
+        _version, err = interface._check_connection_impl()
+        assert isinstance(err, requests.exceptions.ConnectionError)
+        assert "Traceback" not in capsys.readouterr().err
+
+    def test_logs_the_traceback_for_an_unexpected_error(self, capsys):
+        interface = _make_interface()
+        interface.mcrit_client.getVersion.side_effect = RuntimeError("plugin bug")
+        interface._check_connection_impl()
+        assert "Traceback" in capsys.readouterr().err
 
 
 class TestSampleGroupOnly:

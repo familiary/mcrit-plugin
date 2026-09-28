@@ -19,9 +19,9 @@ Usage is fairly straightforward.::
 """
 
 from .classic import classic_levenshtein
-from .damerau import damerau_levenshtein
 from .recursive import recursive_levenshtein
 from .wf import wf_levenshtein, wfi_levenshtein
+from .damerau import damerau_levenshtein
 
 __author__ = "Daniel Lindsley"
 __version__ = (1, 5, 0, "alpha")

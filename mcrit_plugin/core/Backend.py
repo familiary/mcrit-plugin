@@ -106,7 +106,8 @@ class Backend(ABC):
         """Modal warning."""
 
     def theme_color(self, role, default):
-        """RGB tuple for a ScoreColorProvider.ThemeRole, or None to keep the widget's own color.
+        """RGB tuple for a ScoreColorProvider.ThemeRole; None keeps the widget's own color and is
+        valid only for TEXT_ON_TINT.
 
         Backends that follow a user-selectable theme override this; the default keeps `default`.
         """
