@@ -370,18 +370,40 @@ class IntegrationTest:
         table = widget.table_local_functions
         label_column = len(self.session.config.OVERVIEW_TABLE_COLUMNS) - 1
 
-        def fetch_labels():
+        def fetch_labels(then):
+            interface = self.session.mcrit_interface
+            original_query = interface.queryFunctionEntriesById
+            off_ui_thread = []
+
+            def capture_query(*args, **kwargs):
+                off_ui_thread.append(threading.current_thread() is not threading.main_thread())
+                return original_query(*args, **kwargs)
+
+            def fetched():
+                interface.queryFunctionEntriesById = original_query
+                self.check(
+                    off_ui_thread and all(off_ui_thread),
+                    "Fetch labels for matches ran off the UI thread",
+                )
+                self.check(
+                    table.rowCount() > 0, "Fetch labels for matches populated the Function Overview"
+                )
+                self.check(
+                    any(
+                        entry.function_labels
+                        for entry in (self.session.matched_function_entries or {}).values()
+                    ),
+                    "Fetch labels for matches returned labels from the server",
+                )
+                then()
+
+            interface.queryFunctionEntriesById = capture_query
             widget.b_fetch_labels.click()
             self.check(
-                table.rowCount() > 0, "Fetch labels for matches populated the Function Overview"
+                not widget.b_fetch_labels.isEnabled(),
+                "Fetch labels for matches is disabled while its request runs",
             )
-            self.check(
-                any(
-                    entry.function_labels
-                    for entry in (self.session.matched_function_entries or {}).values()
-                ),
-                "Fetch labels for matches returned labels from the server",
-            )
+            self.wait(widget.b_fetch_labels.isEnabled, fetched, "Fetch labels for matches answered")
 
         def filter_radios():
             baseline = table.rowCount()
@@ -543,19 +565,20 @@ class IntegrationTest:
             )
             self.session.main_widget.tabs.setCurrentIndex(2)
 
-        self.sequence(
-            [
-                fetch_labels,
-                filter_radios,
-                score_spinbox,
-                column_sorting,
-                label_dropdown,
-                right_click_resolves,
-                select_deselect_all,
-                import_labels,
-                table_clicks,
-            ],
-            self.exercise_sample_summary,
+        fetch_labels(
+            lambda: self.sequence(
+                [
+                    filter_radios,
+                    score_spinbox,
+                    column_sorting,
+                    label_dropdown,
+                    right_click_resolves,
+                    select_deselect_all,
+                    import_labels,
+                    table_clicks,
+                ],
+                self.exercise_sample_summary,
+            )
         )
 
     ################################################################################
