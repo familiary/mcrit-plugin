@@ -286,7 +286,9 @@ class BlockMatchWidget(QMainWindow):
         ):
             show(True)
         else:
-            self.cc.backend.run_request(request, show)
+            self.cc.backend.run_request(
+                "MCRIT: querying block matches for function 0x%x" % function_offset, request, show
+            )
 
     def _showBlockMatches(self, pbh):
         block_matches_by_offset = {}

@@ -37,6 +37,6 @@ def test_a_name_set_here_is_not_default(backend):
 def test_requests_run_synchronously_by_default(backend):
     results = []
 
-    backend.run_request(lambda: "answer", results.append)
+    backend.run_request("request", lambda: "answer", results.append)
 
     assert results == ["answer"]

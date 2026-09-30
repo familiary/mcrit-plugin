@@ -279,9 +279,11 @@ class IntegrationTest:
         original_request = client.requestMatchesForSample
 
         off_ui_thread = []
+        running_tasks = []
 
         def capture_request(*args, **kwargs):
             off_ui_thread.append(threading.current_thread() is not threading.main_thread())
+            running_tasks.extend(task.progress for task in binaryninja.BackgroundTask)
             job_id = original_request(*args, **kwargs)
             job_ids.append(job_id)
             return job_id
@@ -302,6 +304,10 @@ class IntegrationTest:
             main_widget.ResultChooserDialog = original_dialog
             self.check(bool(job_ids[-1]), "Create Matching Job returned a job id")
             self.check(all(off_ui_thread), "the job request ran off the UI thread")
+            self.check(
+                "MCRIT: requesting a matching job" in running_tasks,
+                "the job request is listed among Binary Ninja's background tasks",
+            )
             self.job_id = job_ids[-1]
             self.wait(
                 lambda: client.getResultForJob(self.job_id) is not None,

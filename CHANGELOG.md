@@ -19,6 +19,9 @@ Ninja applies to that plugin only.
 - The Function Overview renders large results about ten times faster: it sizes its rows once
   instead of row by row, and a new result or filter click renders the table once instead of two or
   three times.
+- Binary Ninja: MCRIT requests show in the status bar as background tasks named after what they
+  do, such as "MCRIT: fetching labels for 151306 matched functions", like Binary Ninja's own
+  analysis tasks. The plugin's log messages go to the log of the file they concern.
 
 ## [2.0.0] - 2026-09-28
 

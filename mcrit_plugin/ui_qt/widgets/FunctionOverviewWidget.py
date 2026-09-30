@@ -337,6 +337,7 @@ class FunctionOverviewWidget(QMainWindow):
             self._showFetchedLabels()
 
         self.cc.backend.run_request(
+            "MCRIT: fetching labels for %d matched functions" % len(pending_ids),
             lambda: self.parent.mcrit_interface.queryFunctionEntriesById(
                 list(pending_ids), with_label_only=True
             ),

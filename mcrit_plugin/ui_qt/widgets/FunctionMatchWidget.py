@@ -247,7 +247,9 @@ class FunctionMatchWidget(QMainWindow):
         ):
             show(True)
         else:
-            self.cc.backend.run_request(request, show)
+            self.cc.backend.run_request(
+                "MCRIT: querying matches for function 0x%x" % function_offset, request, show
+            )
 
     def _missingMatchedFunctionIds(self, function_offset, score_threshold):
         """Ids of the matches the name table lists whose entries are not cached yet."""

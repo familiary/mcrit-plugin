@@ -1,7 +1,6 @@
 import hashlib
 import os
 import re
-import threading
 import traceback
 from contextlib import contextmanager
 
@@ -43,6 +42,8 @@ class BinjaBackend(Backend):
 
     def __init__(self, bv):
         self.bv = bv
+        # messages go to this file's log, not the global one
+        self.logger = Logger(bv.file.session_id, TITLE)
         self.view_frame = None
         self.cursor_offset = None
         self._input_hashes = None
@@ -174,7 +175,7 @@ class BinjaBackend(Backend):
                     task.progress = title
                     result = work()
                 except Exception:
-                    logger.log_error(f"{title} failed:\n{traceback.format_exc()}")
+                    backend.logger.log_error(f"{title} failed:\n{traceback.format_exc()}")
                     backend._on_main_thread(
                         lambda: backend.show_warning(f"{title} failed, see the log for details.")
                     )
@@ -183,17 +184,20 @@ class BinjaBackend(Backend):
 
         Task(title, False).start()
 
-    def run_request(self, work, on_done):
-        def run():
-            try:
-                result = work()
-            except Exception:
-                logger.log_error(f"MCRIT request failed:\n{traceback.format_exc()}")
-                return
-            self._on_main_thread(lambda: on_done(result))
+    def run_request(self, title, work, on_done):
+        backend = self
 
-        # a plain thread: requests need neither the analysis wait nor a progress entry
-        threading.Thread(target=run, daemon=True).start()
+        class Task(binaryninja.BackgroundTaskThread):
+            def run(task):
+                try:
+                    result = work()
+                except Exception:
+                    backend.logger.log_error(f"{title} failed:\n{traceback.format_exc()}")
+                    return
+                backend._on_main_thread(lambda: on_done(result))
+
+        # no analysis wait, unlike run_background; without cancel, as a request cannot be stopped
+        Task(title, False).start()
 
     def _on_main_thread(self, func):
         binaryninja.execute_on_main_thread(lambda: None if self.closed else func())
