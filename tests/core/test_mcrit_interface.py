@@ -1,5 +1,6 @@
 """Tests for the McritInterface logic that runs without a disassembler or an MCRIT server."""
 
+import threading
 from types import SimpleNamespace
 from unittest.mock import MagicMock
 
@@ -57,6 +58,7 @@ def _make_interface(timeout=10):
     )
     inst.config = inst.parent.config
     inst._mcrit_server = "http://127.0.0.1:8000"
+    inst._cache_lock = threading.Lock()
     inst.mcrit_client = MagicMock()
     return inst
 
