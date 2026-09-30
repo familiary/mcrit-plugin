@@ -14,6 +14,9 @@ Ninja applies to that plugin only.
   matching result run off the UI thread, so a slow or unreachable MCRIT server no longer freezes
   Binary Ninja. A live query answered after the cursor moved to another function is cached but not
   shown. Results already cached show at once. IDA still runs these requests on its main thread.
+- Requests to the MCRIT server reuse their connection instead of opening a new one each time, and
+  Block Scope looks up a function's block hashes eight at a time. Against a remote server, the
+  block lookups for a function with 166 distinct block hashes took 6 seconds instead of 166.
 
 ## [2.0.0] - 2026-09-28
 
