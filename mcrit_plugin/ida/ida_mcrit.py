@@ -116,6 +116,7 @@ class Mcrit4IdaForm(PluginForm, McritSession):
     def release(self):
         """Unhook and drop module references; safe to call more than once."""
         self.released = True
+        self.cc.backend.close()
         if self.view_hook is not None:
             self.view_hook.unhook()
             self.view_hook = None

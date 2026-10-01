@@ -1,6 +1,8 @@
 import os
+import queue
 import re
 import traceback
+from concurrent.futures import ThreadPoolExecutor
 from contextlib import contextmanager
 
 import ida_bytes
@@ -19,6 +21,11 @@ except ImportError:
     ida_hexrays = None
 
 
+# bounds the threads fast cursor moves start; Block Scope parallelises its own lookups
+REQUEST_WORKERS = 4
+DELIVERY_INTERVAL_MS = 20
+
+
 def _address_or_none(ea):
     if ea is None or ea == ida_idaapi.BADADDR:
         return None
@@ -31,6 +38,12 @@ class IdaBackend(Backend):
 
     def __init__(self):
         self._mutation_depth = 0
+        self.closed = False
+        self._executor = None
+        self._deliveries = queue.SimpleQueue()
+        self._pending = 0
+        self._timer = None
+        self._delivering = False
 
     def get_input_md5(self):
         md5 = ida_nalt.retrieve_input_file_md5()
@@ -146,6 +159,64 @@ class IdaBackend(Backend):
             return
         ida_kernwin.hide_wait_box()
         on_done(result)
+
+    def run_request(self, title, work, on_done):
+        """IDA's API is main-thread only: work, the requests, runs on a worker thread and must not
+        call it; a main-thread timer hands each result to on_done."""
+        if self.closed:
+            return
+        if self._executor is None:
+            self._executor = ThreadPoolExecutor(
+                max_workers=REQUEST_WORKERS, thread_name_prefix="mcrit-request"
+            )
+        self._pending += 1
+        self._executor.submit(self._run_request, title, work, on_done)
+        if self._timer is None:
+            self._timer = ida_kernwin.register_timer(DELIVERY_INTERVAL_MS, self._deliver)
+
+    def _run_request(self, title, work, on_done):
+        try:
+            self._deliveries.put((on_done, work()))
+        except Exception:
+            traceback.print_exc()
+            self._deliveries.put((None, title))
+
+    def _deliver(self):
+        # a dialog opened by on_done runs a nested event loop in which this timer fires again;
+        # the other results wait until it closes
+        if self._delivering:
+            return DELIVERY_INTERVAL_MS
+        self._delivering = True
+        try:
+            while not self.closed:
+                try:
+                    on_done, result = self._deliveries.get_nowait()
+                except queue.Empty:
+                    break
+                self._pending -= 1
+                try:
+                    if on_done is None:
+                        self.show_warning("%s failed, see the Output window for details." % result)
+                    else:
+                        on_done(result)
+                except Exception:
+                    traceback.print_exc()
+        finally:
+            self._delivering = False
+        if self.closed or not self._pending:
+            self._timer = None
+            return -1  # unregisters the timer
+        return DELIVERY_INTERVAL_MS
+
+    def close(self):
+        """Drop the results still to come; called when the MCRIT form closes."""
+        self.closed = True
+        if self._executor is not None:
+            self._executor.shutdown(wait=False, cancel_futures=True)
+            self._executor = None
+        if self._timer is not None and not self._delivering:
+            ida_kernwin.unregister_timer(self._timer)
+            self._timer = None
 
     def run_on_ui_thread(self, func):
         result = []

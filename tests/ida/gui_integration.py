@@ -73,6 +73,15 @@ def _process_events(qt_application, rounds=1):
         qt_application.processEvents()
 
 
+def _wait_until(qt_application, condition, message, timeout=30):
+    """Pump Qt until condition() holds; run_request answers arrive on IDA's main thread."""
+    deadline = time.monotonic() + timeout
+    while not condition() and time.monotonic() < deadline:
+        qt_application.processEvents()
+        time.sleep(0.05)
+    _check(condition(), message)
+
+
 def _release_qt_objects(form, qt_application):
     # qexit() calls exit() without returning to Qt's event loop; deferred deletes still queued
     # then run during C++ static destruction and abort IDA (seen with macOS style animations).
@@ -381,22 +390,25 @@ def _check_input_sha256(form):
 
 def _convert(form, qt_application):
     main_widget = form.main_widget
+
+    def expected_family():
+        remote = form.remote_sample_entry
+        return remote.family if remote is not None else "mcrit-plugin-ci"
+
+    # the family chooser opens once the family and sample lists arrive in the background
     with _smda_info_adapter(main_widget):
         main_widget.parseSmdaAction.trigger()
-    _process_events(qt_application, rounds=2)
+        _wait_until(
+            qt_application,
+            lambda: (
+                form.local_smda_report is not None
+                and form.local_smda_report.family == expected_family()
+            ),
+            "the report carries the family from the dialog, or from the known remote sample",
+        )
     report = form.local_smda_report
-    _check(report is not None, "Convert action produced an SMDA report")
     _check(len(list(report.getFunctions())) > 0, "SMDA report contains functions")
     _check(report.smda_version.startswith("MCRIT4IDA"), "report records the IDA producer")
-    _check(
-        report.family
-        == (
-            form.remote_sample_entry.family
-            if form.remote_sample_entry is not None
-            else "mcrit-plugin-ci"
-        ),
-        "the report carries the family from the dialog, or from the known remote sample",
-    )
     _write_report_artifact(report)
     _check(
         main_widget.uploadSmdaAction.isEnabled()
@@ -427,10 +439,16 @@ def _upload_and_match(form, report, qt_application):
     main_widget = form.main_widget
 
     main_widget.uploadSmdaAction.trigger()
-    _check(form.remote_sample_id is not None, "Upload SMDA action returned a sample id")
+    _wait_until(
+        qt_application,
+        lambda: form.remote_sample_id is not None,
+        "Upload SMDA action returned a sample id",
+    )
     _wait_for_functions(client, form.remote_sample_id, qt_application)
-    _check(
-        main_widget.getMatchResultAction.isEnabled(), "Fetch Matching Result enabled after upload"
+    _wait_until(
+        qt_application,
+        main_widget.getMatchResultAction.isEnabled,
+        "Fetch Matching Result enabled after upload",
     )
     interface.querySampleSha256(report.sha256)
     interface.queryAllFamilyEntries()
@@ -450,9 +468,13 @@ def _upload_and_match(form, report, qt_application):
     try:
         with _result_dialog_adapter(main_widget, "request"):
             main_widget.getMatchResultAction.trigger()
+            _wait_until(
+                qt_application,
+                lambda: bool(job_ids and job_ids[-1]),
+                "Create Matching Job returned a job id",
+            )
     finally:
         client.requestMatchesForSample = original_request
-    _check(bool(job_ids and job_ids[-1]), "Create Matching Job returned a job id")
 
     result = _await_result(client, job_ids[-1], qt_application)
     _check(isinstance(result, dict), "matching job finished")
@@ -469,9 +491,14 @@ def _upload_and_match(form, report, qt_application):
 
     with _result_dialog_adapter(main_widget, "select", job_ids[-1]):
         main_widget.getMatchResultAction.trigger()
-    _check(form.matching_report is not None, "result chooser loaded the MatchingResult")
-    _check(
-        main_widget.tabs.currentWidget() is form.function_widget,
+        _wait_until(
+            qt_application,
+            lambda: form.matching_report is not None,
+            "result chooser loaded the MatchingResult",
+        )
+    _wait_until(
+        qt_application,
+        lambda: main_widget.tabs.currentWidget() is form.function_widget,
         "Function Overview shown with results",
     )
     return job_ids[-1]
@@ -500,11 +527,15 @@ def _exercise_overview_widget(form, qt_application):
     )
 
     widget.b_fetch_labels.click()
-    _process_events(qt_application, rounds=2)
-    _check(table.model().rowCount() > 0, "Fetch labels for matches populated the Function Overview")
-    _check(
-        any(entry.function_labels for entry in (form.matched_function_entries or {}).values()),
-        "Fetch labels for matches returned labels from the server",
+    _wait_until(
+        qt_application,
+        lambda: (
+            table.model().rowCount() > 0
+            and any(
+                entry.function_labels for entry in (form.matched_function_entries or {}).values()
+            )
+        ),
+        "Fetch labels for matches populated the Function Overview with server labels",
     )
 
     baseline = table.model().rowCount()
@@ -726,15 +757,17 @@ def _navigate_to(form, offset, qt_application):
         via = "direct refresh, no disassembly view"
     _process_events(qt_application, rounds=2)
     expected = "0x%x" % offset
-    block_label = form.block_match_widget.label_current_function_matches.text()
-    function_label = form.function_match_widget.label_current_function_matches.text()
-    _check(
-        expected in block_label,
-        f"Block Scope header follows the cursor to {expected} via {via} ({block_label!r})",
+    block_widget = form.block_match_widget
+    function_widget = form.function_match_widget
+    _wait_until(
+        qt_application,
+        lambda: expected in block_widget.label_current_function_matches.text(),
+        f"Block Scope header follows the cursor to {expected} via {via}",
     )
-    _check(
-        expected in function_label,
-        f"Function Scope header follows the cursor to {expected} via {via} ({function_label!r})",
+    _wait_until(
+        qt_application,
+        lambda: expected in function_widget.label_current_function_matches.text(),
+        f"Function Scope header follows the cursor to {expected} via {via}",
     )
 
 
@@ -787,8 +820,9 @@ def _exercise_function_widget(form, second_target, qt_application):
     form.main_widget.setTabFocus(widget.name)
 
     widget.b_query_single.click()
-    _process_events(qt_application, rounds=2)
-    _check(matches.rowCount() > 0, "Query current function lists matches for the cursor")
+    _wait_until(
+        qt_application, lambda: matches.rowCount() > 0, "Query current function lists matches"
+    )
     _check(
         "0x%x" % second_target.offset in widget.label_current_function_matches.text(),
         "Function Scope header names the queried function",
@@ -814,6 +848,7 @@ def _exercise_function_widget(form, second_target, qt_application):
 
     with _capture_graph_show() as graphs:
         _double_click(matches, 0, 0)
+        _wait_until(qt_application, lambda: len(graphs) >= 1, "the CFG graph opened")
     _check(len(graphs) == 1, "double clicking a function match opens the CFG graph")
     _check(bool(graphs[0][1] and graphs[0][2]), "the function graph renders text and hints")
 
@@ -835,6 +870,7 @@ def _exercise_function_widget(form, second_target, qt_application):
     label_column = McritTableColumn.columnTypeToIndex(McritTableColumn.FUNCTION_LABEL, name_columns)
     with _capture_graph_show() as graphs:
         _double_click(names, 0, id_column)
+        _wait_until(qt_application, lambda: len(graphs) >= 1, "the CFG graph opened")
     _check(len(graphs) == 1, "double clicking a name's function id opens the CFG graph")
 
     import ida_undo
@@ -868,8 +904,9 @@ def _exercise_block_widget(form, second_target, qt_application):
     form.main_widget.setTabFocus(widget.name)
 
     widget.b_query_single.click()
-    _process_events(qt_application, rounds=2)
-    _check(summary.rowCount() > 0, "Query current basic block lists the blocks")
+    _wait_until(
+        qt_application, lambda: summary.rowCount() > 0, "Query current basic block lists the blocks"
+    )
     _check(
         "0x%x" % second_target.offset in widget.label_current_function_matches.text(),
         "Block Scope header names the queried function",
@@ -927,6 +964,7 @@ def _exercise_block_widget(form, second_target, qt_application):
 
     with _capture_graph_show() as graphs:
         _double_click(matches, 0, 0)
+        _wait_until(qt_application, lambda: len(graphs) >= 1, "the CFG graph opened")
     _check(len(graphs) == 1, "double clicking a block match opens the CFG graph")
     _check(bool(graphs[0][1] and graphs[0][2]), "the block graph renders text and hints")
 

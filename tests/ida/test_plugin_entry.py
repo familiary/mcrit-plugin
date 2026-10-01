@@ -3,6 +3,7 @@
 import importlib
 import sys
 import types
+from unittest.mock import MagicMock
 
 
 class _PluginT:
@@ -69,9 +70,16 @@ def test_reopening_after_close_builds_a_new_form(monkeypatch):
 
     monkeypatch.setattr(module, "show_mcrit_form", show_form)
     plugmod = module.Mcrit4IdaPlugmod()
-    closed = types.SimpleNamespace(view_hook=None, hook_subscribed_widgets=[], released=False)
+    backend = MagicMock()
+    closed = types.SimpleNamespace(
+        view_hook=None,
+        hook_subscribed_widgets=[],
+        released=False,
+        cc=types.SimpleNamespace(backend=backend),
+    )
     module.Mcrit4IdaForm.release(closed)
     assert closed.released
+    backend.close.assert_called_once_with()
 
     plugmod.run(0)
     plugmod.run(0)
