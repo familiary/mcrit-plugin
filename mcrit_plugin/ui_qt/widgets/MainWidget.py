@@ -274,16 +274,18 @@ class MainWidget(QMainWindow):
         self._buildLocalSmdaReport(self._applyConvertedReport, self._convertAndFetchRemote)
 
     def _convertAndFetchRemote(self):
-        local_smda_report = self.getLocalSmdaReport()
-        if self.parent.local_smda_report is None:
-            self.parent.getRemoteSampleInformation()
-        return local_smda_report
+        return self.getLocalSmdaReport()
 
     def _applyConvertedReport(self, local_smda_report):
         if self.parent.local_smda_report is None:
             self.parent.local_smda_report = local_smda_report
-            self.parent.local_widget.updateActivityInfo(
-                "Downloaded all family/sample information from MCRIT"
+            # the lists are needed once matches show up, so convert does not wait for them
+            self.cc.backend.run_request(
+                "MCRIT: downloading family and sample lists",
+                self.parent.getRemoteSampleInformation,
+                lambda _result: self.parent.local_widget.updateActivityInfo(
+                    "Downloaded all family/sample information from MCRIT"
+                ),
             )
         if self.parent.local_smda_report is not None:
             self.exportSmdaAction.setEnabled(True)
@@ -301,15 +303,29 @@ class MainWidget(QMainWindow):
                 )
             # else query for family, version, library instead
             else:
-                dialog = self.SmdaInfoDialog(self)
-                dialog.exec_()
-                smda_info = dialog.getSmdaInfo()
-                self.parent.local_smda_report.family = smda_info["family"]
-                self.parent.local_smda_report.version = smda_info["version"]
-                self.parent.local_smda_report.is_library = smda_info["is_library"]
-            self.parent.block_match_widget.enable()
-            self.parent.function_match_widget.enable()
+                # the dialog offers the families, so they have to be here first
+                self.cc.backend.run_request(
+                    "MCRIT: downloading family and sample lists",
+                    self.parent.getRemoteSampleInformation,
+                    lambda _result: self._askSmdaInfo(),
+                )
+                return
+            self._enableMatchWidgets()
         self.parent.local_widget.update()
+
+    def _askSmdaInfo(self):
+        dialog = self.SmdaInfoDialog(self)
+        dialog.exec_()
+        smda_info = dialog.getSmdaInfo()
+        self.parent.local_smda_report.family = smda_info["family"]
+        self.parent.local_smda_report.version = smda_info["version"]
+        self.parent.local_smda_report.is_library = smda_info["is_library"]
+        self._enableMatchWidgets()
+        self.parent.local_widget.update()
+
+    def _enableMatchWidgets(self):
+        self.parent.block_match_widget.enable()
+        self.parent.function_match_widget.enable()
 
     def _onExportSmdaButtonClicked(self):
         self._buildLocalSmdaReport(self._exportReport)

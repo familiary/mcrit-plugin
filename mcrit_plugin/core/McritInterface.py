@@ -25,6 +25,7 @@ class McritInterface(object):
         self.backend = backend
         self.config = parent.config
         self._cache_lock = threading.Lock()
+        self._remote_info_lock = threading.Lock()
         self._mcrit_server = self.config.MCRIT_SERVER
         self.mcrit_client = McritClient(self.config.MCRIT_SERVER)
         timeout_value = self.config.MCRIT_REQUEST_TIMEOUT
@@ -190,8 +191,12 @@ class McritInterface(object):
         else:
             self.parent.local_widget.updateActivityInfo("Querying jobs.")
         try:
-            # fetch jobs
-            jobs = self.mcrit_client.getQueueData(filter="Matches")
+            # fetch jobs; the server narrows them by the sample id as text, which also matches
+            # other numbers, and older servers do not select by sample_ids, so the exact test
+            # below stays
+            jobs = self.mcrit_client.getQueueData(
+                filter="Matches" if sample_id is None else str(sample_id)
+            )
             if jobs is None:
                 self.parent.local_widget.updateActivityInfo("Job query failed.")
                 return None
@@ -200,10 +205,13 @@ class McritInterface(object):
                 jobs = [
                     job
                     for job in jobs
-                    if "(" + str(sample_id) + ")" in job.parameters
-                    or "(" + str(sample_id) + "," in job.parameters
-                    or "," + str(sample_id) + "," in job.parameters
-                    or "," + str(sample_id) + ")" in job.parameters
+                    if "Matches" in job.parameters
+                    and (
+                        "(" + str(sample_id) + ")" in job.parameters
+                        or "(" + str(sample_id) + "," in job.parameters
+                        or "," + str(sample_id) + "," in job.parameters
+                        or "," + str(sample_id) + ")" in job.parameters
+                    )
                 ]
             if jobs:
                 self.parent.local_widget.updateActivityInfo("Success! Fetched Jobs.")
@@ -246,6 +254,22 @@ class McritInterface(object):
                 self.parent.local_widget.updateActivityInfo("Result query failed.")
         except Exception as exc:
             self._reportFailure("Result query", exc)
+
+    def ensureRemoteInformation(self):
+        """Download the family and sample lists unless the session has them. Callable from several
+        threads: one downloads while the others wait for it instead of repeating it."""
+        with self._remote_info_lock:
+            # the two lists are independent, so they download side by side
+            downloads = []
+            if self.parent.family_infos is None:
+                downloads.append(threading.Thread(target=self.queryAllFamilyEntries, daemon=True))
+            if self.parent.sample_infos is None:
+                downloads.append(threading.Thread(target=self.queryAllSampleEntries, daemon=True))
+            for download in downloads:
+                download.start()
+            for download in downloads:
+                download.join()
+        return self.parent.family_infos is not None and self.parent.sample_infos is not None
 
     def queryAllFamilyEntries(self):
         self.parent.local_widget.updateActivityInfo("Querying for FamilyEntries")

@@ -139,11 +139,7 @@ class BlockMatchWidget(QMainWindow):
 
     def _fetch_remote_cache(self):
         """Request the family and sample lists if they are missing; touches no widget."""
-        if self.parent.family_infos is None:
-            self.parent.mcrit_interface.queryAllFamilyEntries()
-        if self.parent.sample_infos is None:
-            self.parent.mcrit_interface.queryAllSampleEntries()
-        return self.parent.family_infos is not None and self.parent.sample_infos is not None
+        return self.parent.mcrit_interface.ensureRemoteInformation()
 
     def _show_remote_cache_unavailable(self):
         self.clearTable()
