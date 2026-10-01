@@ -120,6 +120,15 @@ class IdaBackend(Backend):
     def get_function_symbols(self):
         return _smda_ida_interface().getFunctionSymbols()
 
+    def get_function_offsets(self):
+        interface = _smda_ida_interface()
+        # smda's exporter skips external functions
+        return {
+            offset
+            for offset in interface.getFunctions()
+            if not interface.isExternalFunction(offset)
+        }
+
     def get_cursor_address(self):
         return _address_or_none(ida_kernwin.get_screen_ea())
 

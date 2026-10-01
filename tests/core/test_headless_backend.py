@@ -15,7 +15,8 @@ def backend():
     disassembly = SimpleNamespace(
         getFunction=lambda address: (
             SimpleNamespace(function_name=functions[address]) if address in functions else None
-        )
+        ),
+        getFunctions=lambda: [SimpleNamespace(offset=address) for address in functions],
     )
     instance._disassembly = lambda: disassembly
     return instance
@@ -40,3 +41,7 @@ def test_requests_run_synchronously_by_default(backend):
     backend.run_request("request", lambda: "answer", results.append)
 
     assert results == ["answer"]
+
+
+def test_function_offsets_are_those_of_the_disassembly(backend):
+    assert backend.get_function_offsets() == {0x10, 0x20, 0x30}

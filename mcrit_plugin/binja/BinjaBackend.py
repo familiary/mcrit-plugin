@@ -101,6 +101,14 @@ class BinjaBackend(Backend):
     def get_function_symbols(self):
         return self._smda_interface().getFunctionSymbols()
 
+    def get_function_offsets(self):
+        interface = self._smda_interface()
+        return {
+            offset
+            for offset in interface.getFunctions()
+            if not interface.isExternalFunction(offset)
+        }
+
     def get_cursor_address(self):
         if self.view_frame is not None:
             return self.view_frame.getCurrentOffset()

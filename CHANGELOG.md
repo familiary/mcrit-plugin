@@ -61,6 +61,9 @@ Ninja applies to that plugin only.
 - IDA: Convert exports through smda's IDAPython backend with cheaper per-instruction reads, also
   when the ida-domain package is installed, which smda would otherwise prefer. The report is
   unchanged; exporting a 3,668-function binary takes 3.3 s instead of 6.9 s.
+- With `use_smda_for_analysis` on, Convert no longer exports the disassembler's own analysis first
+  just to compare function sets: the comparison now reads the disassembler's function list, and
+  the export remains the fallback when SMDA's analysis yields no report.
 
 ### Added
 

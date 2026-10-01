@@ -132,48 +132,13 @@ class MainWidget(QMainWindow):
         self.buildYaraStringAction.triggered.connect(self._onBuildYaraStringButtonClicked)
 
     def getLocalSmdaReport(self):
-        backend_converted_report = self.parent.mcrit_interface.convertToSmda()
-        local_report = backend_converted_report
-        # check of we alternatively want to use SMDA for analysis
-        smda_converted_report = None
+        local_report = None
         if self.parent.config.USE_SMDA_FOR_ANALYSIS:
-            smda_converted_report = self.parent.mcrit_interface.convertToSmdaUsingSmda()
-        if smda_converted_report is not None:
-            backend_report_offsets = [
-                func.offset for func in backend_converted_report.getFunctions()
-            ]
-            smda_report_offsets = [func.offset for func in smda_converted_report.getFunctions()]
-            # output diagnostic information if function sets differ
-            if set(backend_report_offsets) != set(smda_report_offsets):
-                print(
-                    f"[!] SMDA disassembly report function set ({len(smda_report_offsets)}) differs from {self.cc.backend.name} converted report function set ({len(backend_report_offsets)})!"
-                )
-                missing_in_smda = set(backend_report_offsets) - set(smda_report_offsets)
-                missing_in_backend = set(smda_report_offsets) - set(backend_report_offsets)
-                if missing_in_smda:
-                    print(
-                        "    Functions in %s but not in SMDA report (%d): %s"
-                        % (
-                            self.cc.backend.name,
-                            len(missing_in_smda),
-                            ", ".join([f"0x{off:x}" for off in missing_in_smda]),
-                        )
-                    )
-                if missing_in_backend:
-                    print(
-                        "    Functions in SMDA but not in %s report (%d): %s"
-                        % (
-                            self.cc.backend.name,
-                            len(missing_in_backend),
-                            ", ".join([f"0x{off:x}" for off in missing_in_backend]),
-                        )
-                    )
-                print("    Using SMDA converted report.")
-            else:
-                print(
-                    f"[|] SMDA converted report function set matches {self.cc.backend.name} converted report function set."
-                )
-            local_report = smda_converted_report
+            local_report = self.parent.mcrit_interface.convertToSmdaUsingSmda()
+            if local_report is not None:
+                self._printFunctionSetDifference(local_report)
+        if local_report is None:
+            local_report = self.parent.mcrit_interface.convertToSmda()
         if local_report is not None:
             local_report.sha256 = self.cc.backend.get_input_sha256()
             local_report.filename = self.cc.backend.get_input_filename()
@@ -247,6 +212,29 @@ class MainWidget(QMainWindow):
             selection_end=selection_end or current_ea,
         )
         dialog.exec_()
+
+    def _printFunctionSetDifference(self, smda_report):
+        backend_name = self.cc.backend.name
+        backend_offsets = set(self.cc.backend.get_function_offsets())
+        smda_offsets = {function.offset for function in smda_report.getFunctions()}
+        if backend_offsets == smda_offsets:
+            print(
+                f"[|] SMDA converted report function set matches {backend_name} converted report "
+                "function set."
+            )
+            return
+        print(
+            f"[!] SMDA disassembly report function set ({len(smda_offsets)}) differs from "
+            f"{backend_name} converted report function set ({len(backend_offsets)})!"
+        )
+        for label, missing in (
+            (f"in {backend_name} but not in SMDA report", backend_offsets - smda_offsets),
+            (f"in SMDA but not in {backend_name} report", smda_offsets - backend_offsets),
+        ):
+            if missing:
+                offsets = ", ".join(f"0x{offset:x}" for offset in sorted(missing))
+                print(f"    Functions {label} ({len(missing)}): {offsets}")
+        print("    Using SMDA converted report.")
 
     def _buildLocalSmdaReport(self, on_ready):
         """Export the report off the UI thread where supported, then call on_ready(report) on the UI
