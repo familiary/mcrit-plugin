@@ -26,8 +26,9 @@ Ninja applies to that plugin only.
   downloading every job of the server and filtering them in the plugin.
 - Convert no longer waits for the family and sample lists: they download in the background after
   the report is built, side by side instead of one after the other, and one download serves every
-  widget that needs them. The family chooser for
-  an unknown sample opens once they are here.
+  widget that needs them. The family chooser for an unknown sample opens once they are here. On
+  Binary Ninja, Convert also asks whether the server knows the sample in the background, which
+  froze the UI for about 1.5 s against a remote server.
 - The bundled MCRIT client has the interface of MCRIT 1.12.0's client: `sample_group_only` only
   on the cross compare, the raising error modes, a default connect timeout, the job selectors of
   `getQueueData` and the unique-block parameters. The plugin sets its own timeout, so requests
