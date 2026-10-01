@@ -66,6 +66,8 @@ Ninja applies to that plugin only.
 - Each chunk of "Fetch labels for matches" updates the Function Overview from the matches of the
   newly labeled functions instead of all matches again; with 221,000 matches it took up to a second
   per chunk on IDA and now takes a fraction of that.
+- The Function Scope and Block Scope tables size their columns to their first 100 rows instead of
+  up to 1,000, which took most of the time a large table needed to show.
 - IDA: Convert, Upload and Export no longer hold IDA for the whole export. Only reading the database
   runs on IDA's main thread, behind a short wait box; disassembling and hashing, about two thirds
   of the export, run in the background, as on Binary Ninja. The report is unchanged.

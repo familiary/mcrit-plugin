@@ -48,6 +48,9 @@ class FunctionMatchWidget(QMainWindow):
         # upper table
         self.label_function_matches = self.cc.QLabel("Function Matches")
         self.table_function_matches = self.cc.QTableWidget()
+        self.table_function_matches.horizontalHeader().setResizeContentsPrecision(
+            McritTableColumn.FIT_COLUMNS_TO_ROWS
+        )
         self.table_function_matches.doubleClicked.connect(self._onTableFunctionMatchDoubleClicked)
         self.table_function_matches.setContextMenuPolicy(self.cc.QtCore.Qt.CustomContextMenu)
         self.table_function_matches.customContextMenuRequested.connect(
@@ -57,6 +60,9 @@ class FunctionMatchWidget(QMainWindow):
         # lower table
         self.label_function_names = self.cc.QLabel("Names from Matched Functions")
         self.table_function_names = self.cc.QTableWidget()
+        self.table_function_names.horizontalHeader().setResizeContentsPrecision(
+            McritTableColumn.FIT_COLUMNS_TO_ROWS
+        )
         self.table_function_names.doubleClicked.connect(self._onTableFunctionNameDoubleClicked)
         # static links to objects to help IDA
         self.NumberQTableWidgetItem = NumberQTableWidgetItem

@@ -57,11 +57,17 @@ class BlockMatchWidget(QMainWindow):
         # upper table
         self.label_block_summary = self.cc.QLabel("Blocks Summary")
         self.table_block_summary = self.cc.QTableWidget()
+        self.table_block_summary.horizontalHeader().setResizeContentsPrecision(
+            McritTableColumn.FIT_COLUMNS_TO_ROWS
+        )
         self.table_block_summary.clicked.connect(self._onTableBlockSummaryClicked)
         self.table_block_summary.doubleClicked.connect(self._onTableBlockSummaryDoubleClicked)
         # lower table
         self.label_block_matches = self.cc.QLabel("Block Matches for <block_offset>")
         self.table_block_matches = self.cc.QTableWidget()
+        self.table_block_matches.horizontalHeader().setResizeContentsPrecision(
+            McritTableColumn.FIT_COLUMNS_TO_ROWS
+        )
         self.table_block_matches.doubleClicked.connect(self._onTableBlockMatchesDoubleClicked)
         self.table_block_matches.setContextMenuPolicy(self.cc.QtCore.Qt.CustomContextMenu)
         self.table_block_matches.customContextMenuRequested.connect(
