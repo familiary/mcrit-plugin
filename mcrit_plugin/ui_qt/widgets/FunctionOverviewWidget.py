@@ -554,6 +554,8 @@ class FunctionOverviewWidget(QMainWindow):
             self.last_selected_fields = new_selected_fields
 
         self.current_rows = aggregated_matches
+        # the drop-downs only exist when the server has labels for the matches
+        dropdowns = bool(function_labels) and label_score_column_index is not None
         rows = []
         for row, (function_id, function_info) in enumerate(sorted(aggregated_matches.items())):
             label_entries = [
@@ -569,6 +571,9 @@ class FunctionOverviewWidget(QMainWindow):
                 selected_text == "%d|%s" % entry for entry in label_entries
             ):
                 selected_text = "%d|%s" % label_entries[0] if label_entries else "-|-"
+            if not dropdowns:
+                # a plain cell shows "-", which the label import passes over
+                selected_text = "-"
             rows.append(
                 build_row(
                     row,
@@ -580,13 +585,12 @@ class FunctionOverviewWidget(QMainWindow):
             )
 
         table = self.table_local_functions
-        # the drop-downs only exist when the server has labels for the matches
         table_model.reset(
             self.local_function_header_labels,
             self.parent.config.OVERVIEW_TABLE_COLUMNS,
             label_score_column_index,
             rows,
-            bool(function_labels) and label_score_column_index is not None,
+            dropdowns,
         )
         table.setLabelColumn(label_score_column_index)
         if rows:

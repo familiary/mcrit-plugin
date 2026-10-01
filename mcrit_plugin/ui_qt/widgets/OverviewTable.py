@@ -235,6 +235,7 @@ class LabelDelegate(QStyledItemDelegate):
     def __init__(self, view, parent=None):
         super().__init__(parent)
         self.view = view
+        self._tint_style = None
 
     def _isDropdown(self, index):
         return self.view.table_model.isDropdown(index)
@@ -259,6 +260,11 @@ class LabelDelegate(QStyledItemDelegate):
         combo.palette = palette
         widget = option.widget
         style = widget.style() if widget is not None else QtWidgets.QApplication.style()
+        if background is not None:
+            # native styles, such as macOS's, ignore the palette's button brush
+            if self._tint_style is None:
+                self._tint_style = QtShim.get_QStyleFactory().create("Fusion")
+            style = self._tint_style
         style.drawComplexControl(QStyle.CC_ComboBox, combo, painter, widget)
         style.drawControl(QStyle.CE_ComboBoxLabel, combo, painter, widget)
 

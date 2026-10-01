@@ -83,6 +83,16 @@ def test_a_new_result_populates_the_table_once(overview):
     assert widget.table_local_functions.model().rowCount() == 2
 
 
+def test_without_labels_the_label_cells_show_a_dash(overview):
+    widget, _backend, _session = overview
+
+    widget.update()
+
+    model = widget.table_local_functions.model()
+    label_column = model.columnCount() - 1
+    assert [model.index(row, label_column).data() for row in range(model.rowCount())] == ["-", "-"]
+
+
 def test_a_filter_click_populates_the_table_once(overview):
     widget, _backend, _session = overview
     widget.update()

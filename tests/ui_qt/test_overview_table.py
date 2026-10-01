@@ -113,7 +113,8 @@ def test_label_cells_are_painted_with_the_criticality_color(app):
     image = view.viewport().grab().toImage()
 
     center = view.visualRect(view.model().index(0, LABEL_COLUMN)).center()
-    painted = image.pixelColor(center.x() - 40, center.y() - 8)
+    ratio = image.devicePixelRatio()
+    painted = image.pixelColor(int((center.x() - 40) * ratio), int((center.y() - 8) * ratio))
     # the style shades the tint, so only its hue is checked: red well above green and blue
     assert painted.red() > painted.green() + 40
     assert painted.red() > painted.blue() + 40
