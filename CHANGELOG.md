@@ -47,7 +47,8 @@ Ninja applies to that plugin only.
   Binary Ninja, and takes its sample from the sample list already downloaded instead of asking the
   server again. For a 3,955-instruction match against mcrit.malpedia.io, Binary Ninja froze for
   about 3.5 s; the click now returns at once and the graph opens after about 2.1 s.
-- Requests to the MCRIT server reuse their connection instead of opening a new one each time, and
+- Requests to the MCRIT server reuse their connection instead of opening a new one each time, also
+  when many run at once, and
   Block Scope looks up a function's block hashes eight at a time. Against a remote server, the
   block lookups for a function with 166 distinct block hashes took 6 seconds instead of 166.
 - IDA: uploads, Function and Block Scope queries, matching results, label fetches and remote

@@ -15,6 +15,8 @@ from smda.Disassembler import Disassembler
 
 LOGGER = logging.getLogger(__name__)
 
+SESSION_POOL_SIZE = 16
+
 
 class JobTerminatedError(Exception):
     pass
@@ -160,6 +162,11 @@ class McritClient:
         self.timeout = timeout
         # one session keeps connections open; a new TLS handshake per request costs most of a second
         self._session = requests.Session()
+        # urllib3 keeps 10 connections per host and discards the rest; the plugin's request
+        # workers and concurrent block lookups use more
+        adapter = requests.adapters.HTTPAdapter(pool_maxsize=SESSION_POOL_SIZE)
+        self._session.mount("http://", adapter)
+        self._session.mount("https://", adapter)
         if apitoken:
             self.headers.update({"apitoken": apitoken})
         if username:
