@@ -80,3 +80,14 @@ def test_selecting_a_family_lists_its_samples(widget):
 
     assert widget.last_family_selected == "alpha"
     assert _column(widget.table_family_sample_matches, 0) == ["3", "1"]
+
+
+def test_the_best_family_is_shown_after_the_user_sorted_the_table(widget):
+    from PySide6.QtCore import Qt
+
+    widget.populateBestMatchTable()
+    widget.table_best_family_matches.sortByColumn(2, Qt.AscendingOrder)
+
+    widget.populateBestMatchTable()
+
+    assert widget.label_sample_matches_family.text().endswith('"beta" (1)')

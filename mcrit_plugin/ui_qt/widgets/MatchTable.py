@@ -12,6 +12,10 @@ QtCore = QtShim.get_QtCore()
 Qt = QtShim.get_Qt()
 QtWidgets = QtShim.get_QtWidgets()
 QAbstractTableModel = QtCore.QAbstractTableModel
+QItemSelection = QtCore.QItemSelection
+QItemSelectionModel = QtCore.QItemSelectionModel
+# PySide6 scopes the selection flags in an enum class; PyQt5 keeps them on the class
+SelectionFlag = getattr(QItemSelectionModel, "SelectionFlag", QItemSelectionModel)
 QTableView = QtWidgets.QTableView
 
 
@@ -59,8 +63,7 @@ class MatchTableModel(QAbstractTableModel):
     def sort(self, column, order=Qt.AscendingOrder):
         """Sort by the value a column sorts by, not by the text it shows; the view's selection
         follows its rows."""
-        # the view sorts by its header's indicator when sorting is enabled, which starts out
-        # past the last column
+        # the view asks for the header's sort indicator, which is cleared until a click
         if not 0 <= column < len(self.headers):
             return
         self._sort = (column, order)
@@ -121,4 +124,16 @@ class MatchTableView(QTableView):
         self.setEditTriggers(QtWidgets.QAbstractItemView.NoEditTriggers)
         self.horizontalHeader().setResizeContentsPrecision(McritTableColumn.FIT_COLUMNS_TO_ROWS)
         self.setSortingEnabled(True)
+        # rows come in a meaningful order; no arrow claims a column sort until one is clicked
+        self.horizontalHeader().setSortIndicator(-1, Qt.DescendingOrder)
         self.setContextMenuPolicy(Qt.CustomContextMenu)
+
+    def selectEntireRow(self, row):
+        """Highlight a whole row; selectRow does nothing while clicks select single cells."""
+        model = self.table_model
+        selection_model = self.selectionModel()
+        selection_model.setCurrentIndex(model.index(row, 0), SelectionFlag.NoUpdate)
+        selection_model.select(
+            QItemSelection(model.index(row, 0), model.index(row, model.columnCount() - 1)),
+            SelectionFlag.ClearAndSelect,
+        )

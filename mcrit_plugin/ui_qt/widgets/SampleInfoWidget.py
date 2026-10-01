@@ -133,6 +133,8 @@ class SampleInfoWidget(QMainWindow):
             "Score",
             "Percent",
         ]
+        # rows are in byte score order until the model applies the user's sort to them
+        best_family = rows[0].entry if rows else ""
         self._fill(
             self.table_best_family_matches,
             self.best_family_matches_header_labels,
@@ -144,7 +146,7 @@ class SampleInfoWidget(QMainWindow):
         if self.last_family_selected in families_to_samples:
             selected_family = self.last_family_selected
         else:
-            selected_family = rows[0].entry if rows else ""
+            selected_family = best_family
         self._updateLabelSampleMatches("All Sample Matches within Family: %s" % selected_family)
         self.populateFamilyMatchTable(selected_family)
 

@@ -52,8 +52,8 @@ def test_numbers_sort_by_value_and_the_choice_survives_a_refill(app):
     view.sortByColumn(0, Qt.AscendingOrder)
     assert _column(view, 0) == ["9", "50", "100"], "as text, 100 would sort before 9"
 
-    view.table_model.reset(["Score", "Family"], _rows([7, 70, 700]))
-    assert _column(view, 0) == ["7", "70", "700"]
+    view.table_model.reset(["Score", "Family"], _rows([700, 7, 70]))
+    assert _column(view, 0) == ["7", "70", "700"], "a refill keeps the clicked sort"
 
 
 def test_the_selection_follows_its_row_when_sorting(app):
@@ -95,3 +95,28 @@ def test_a_filled_row_is_found_after_sorting(app):
 
     assert view.table_model.positionOf(1) == 2
     assert view.table_model.positionOf(7) is None
+
+
+def test_no_sort_arrow_until_a_header_is_clicked(app):
+    view = MatchTableView()
+    view.table_model.reset(["Score", "Family"], _rows([90, 100]))
+
+    assert view.horizontalHeader().sortIndicatorSection() == -1
+
+
+def test_cells_take_the_tables_alignment(app):
+    view = MatchTableView()
+    view.table_model.reset(["Score", "Family"], _rows([90]), alignment=Qt.AlignHCenter)
+
+    assert view.model().index(0, 0).data(Qt.TextAlignmentRole) == int(Qt.AlignHCenter)
+
+
+def test_a_whole_row_is_highlighted_although_clicks_select_cells(app):
+    view = MatchTableView()
+    view.table_model.reset(["Score", "Family"], _rows([90, 100, 85]))
+
+    view.selectEntireRow(1)
+
+    selected = view.selectionModel().selectedIndexes()
+    assert sorted((index.row(), index.column()) for index in selected) == [(1, 0), (1, 1)]
+    assert view.currentIndex().row() == 1

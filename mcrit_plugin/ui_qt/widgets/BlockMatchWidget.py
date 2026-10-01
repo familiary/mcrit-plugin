@@ -491,7 +491,7 @@ class BlockMatchWidget(QMainWindow):
         model.reset(self._headers(column_types), rows)
         if not rows:
             return
-        self.table_block_matches.selectRow(model.positionOf(preselect_row))
+        self.table_block_matches.selectEntireRow(model.positionOf(preselect_row))
         self.table_block_matches.resizeColumnsToContents()
         self.table_block_matches.horizontalHeader().setStretchLastSection(True)
 
