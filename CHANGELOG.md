@@ -20,8 +20,8 @@ Ninja applies to that plugin only.
   instead of row by row, and a new result or filter click renders the table once instead of two or
   three times.
 - Binary Ninja: MCRIT requests show in the status bar as background tasks named after what they
-  do, such as "MCRIT: fetching labels for 151306 matched functions", like Binary Ninja's own
-  analysis tasks. The plugin's log messages go to the log of the file they concern.
+  do, such as "MCRIT: fetching labels for 2000 of 151306 matched functions", like Binary Ninja's
+  own analysis tasks. The plugin's log messages go to the log of the file they concern.
 - Choosing a matching job asks the server for the jobs that mention the sample, instead of
   downloading every job of the server and filtering them in the plugin.
 - Convert no longer waits for the family and sample lists: they download in the background after
@@ -33,6 +33,16 @@ Ninja applies to that plugin only.
   on the cross compare, the raising error modes, a default connect timeout, the job selectors of
   `getQueueData` and the unique-block parameters. The plugin sets its own timeout, so requests
   behave as before.
+- "Fetch labels for matches" asks the server for 2,000 functions first, then 50,000 at a time, best
+  matches first, and shows the labels of each chunk as it arrives instead of after the last one. A
+  failed chunk stops the fetch; the functions not yet fetched are requested again by the next
+  click.
+- The Function Overview keeps its rows in a table model and paints the label drop-downs, instead of
+  creating a combo box for every row. A filter click on a synthetic result of 20,000 functions takes about
+  one second instead of two minutes, and a drop-down opens when its cell is clicked.
+  The matches of a result are grouped by function once and each threshold and filter is aggregated
+  once, so with 221,000 matches over 705 functions clicking through the filters takes about 0.15 s
+  instead of 3 to 4 s.
 
 ## [2.0.0] - 2026-09-28
 
