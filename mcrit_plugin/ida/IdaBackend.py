@@ -32,6 +32,46 @@ def _address_or_none(ea):
     return ea
 
 
+def _smda_ida_interface():
+    """smda's IDA interface, set up on first use with the reads below.
+
+    smda selects its ida_domain backend whenever that package is importable, and its per-call
+    wrappers make the export about twice as slow inside IDA as smda's IDAPython backend.
+    """
+    from smda.ida.IdaInterface import IdaInterface
+
+    if IdaInterface.instance is not None:
+        return IdaInterface()
+
+    import ida_xref
+    from smda.ida.IdaIdapythonInterface import Ida85Interface
+
+    class FastIdaInterface(Ida85Interface):
+        # one item lookup and raw xref walks instead of a decode and an iterator per instruction;
+        # the report is unchanged
+        def getInstructionBytes(self, offset):
+            return ida_bytes.get_bytes(offset, ida_bytes.get_item_size(offset))
+
+        def getCodeInRefs(self, offset):
+            refs = []
+            ref = ida_xref.get_first_cref_to(offset)
+            while ref != ida_idaapi.BADADDR:
+                refs.append((ref, offset))
+                ref = ida_xref.get_next_cref_to(offset, ref)
+            return refs
+
+        def getCodeOutRefs(self, offset):
+            refs = []
+            ref = ida_xref.get_first_cref_from(offset)
+            while ref != ida_idaapi.BADADDR:
+                refs.append((offset, ref))
+                ref = ida_xref.get_next_cref_from(offset, ref)
+            return refs
+
+    IdaInterface.instance = FastIdaInterface()
+    return IdaInterface()
+
+
 class IdaBackend(Backend):
     name = "IDA"
     plugin_name = "MCRIT4IDA"
@@ -61,15 +101,13 @@ class IdaBackend(Backend):
 
     def export_smda_report(self):
         from smda.Disassembler import Disassembler
-        from smda.ida.IdaInterface import IdaInterface
 
-        return Disassembler(backend="IDA").disassembleBuffer(IdaInterface().getBinary(), 0)
+        return Disassembler(backend="IDA").disassembleBuffer(_smda_ida_interface().getBinary(), 0)
 
     def get_binary_info(self):
         from smda.common.BinaryInfo import BinaryInfo
-        from smda.ida.IdaInterface import IdaInterface
 
-        ida_interface = IdaInterface()
+        ida_interface = _smda_ida_interface()
         binary_info = BinaryInfo(ida_interface.getBinary())
         if not binary_info.architecture:
             binary_info.architecture = ida_interface.getArchitecture()
@@ -80,9 +118,7 @@ class IdaBackend(Backend):
         return binary_info
 
     def get_function_symbols(self):
-        from smda.ida.IdaInterface import IdaInterface
-
-        return IdaInterface().getFunctionSymbols()
+        return _smda_ida_interface().getFunctionSymbols()
 
     def get_cursor_address(self):
         return _address_or_none(ida_kernwin.get_screen_ea())
