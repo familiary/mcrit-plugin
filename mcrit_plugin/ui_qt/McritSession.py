@@ -1,3 +1,4 @@
+import copy
 import time
 
 
@@ -74,8 +75,10 @@ class McritSession:
             return None
         if self._outline_source is not self.local_smda_report:
             self._outline_source = self.local_smda_report
-            self.local_smda_report_outline = self.local_smda_report.toDict()
-            self.local_smda_report_outline["xcfg"] = {}
+            # serializing the functions only to drop them took most of a second for 2,000 functions
+            without_functions = copy.copy(self.local_smda_report)
+            without_functions.xcfg = {}
+            self.local_smda_report_outline = without_functions.toDict()
         return SmdaReport.fromDict(dict(self.local_smda_report_outline))
 
     def getRemoteSampleInformation(self):
