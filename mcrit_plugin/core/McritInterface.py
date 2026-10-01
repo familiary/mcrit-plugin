@@ -24,6 +24,7 @@ class McritInterface(object):
         self.parent = parent
         self.backend = backend
         self.config = parent.config
+        self._cache_lock = threading.Lock()
         self._mcrit_server = self.config.MCRIT_SERVER
         self.mcrit_client = McritClient(self.config.MCRIT_SERVER)
         timeout_value = self.config.MCRIT_REQUEST_TIMEOUT
@@ -175,7 +176,6 @@ class McritInterface(object):
                     )
                 self.parent.remote_sample_entry = sample_entry
                 self.parent.remote_sample_id = sample_entry.sample_id
-                self.parent.local_widget.update()
             else:
                 self.parent.local_widget.updateActivityInfo("Upload failed.")
         except Exception as exc:
@@ -308,9 +308,11 @@ class McritInterface(object):
         if function_entries is None:
             return None
         if function_entries:
-            if self.parent.matched_function_entries is None:
-                self.parent.matched_function_entries = {}
-            self.parent.matched_function_entries.update(function_entries)
+            # requests run on worker threads while the UI iterates the cache: swap in a new dict
+            with self._cache_lock:
+                merged = dict(self.parent.matched_function_entries or {})
+                merged.update(function_entries)
+                self.parent.matched_function_entries = merged
         return function_entries
 
     def queryPicHashMatches(self, pichash):
@@ -371,6 +373,29 @@ class McritInterface(object):
             return self.mcrit_client.getSampleById(sample_id)
         except Exception as exc:
             self._reportFailure("querySampleEntryById", exc)
+
+    def queryRemoteFunction(self, function_id):
+        """(function entry with its CFG, its SmdaFunction, its sample entry), or None after reporting
+        why; touches no widget, so it can run off the UI thread. The sample entry comes from the
+        downloaded sample list when that has it."""
+        function_entry = self.queryFunctionEntryById(function_id)
+        if function_entry is None:
+            self.parent.local_widget.updateActivityInfo(
+                f"Failed to fetch function entry {function_id}."
+            )
+            return None
+        sample_infos = self.parent.sample_infos
+        sample_entry = (
+            sample_infos.get(function_entry.sample_id) if isinstance(sample_infos, dict) else None
+        )
+        if sample_entry is None:
+            sample_entry = self.querySampleEntryById(function_entry.sample_id)
+        if sample_entry is None:
+            self.parent.local_widget.updateActivityInfo(
+                f"Failed to fetch sample entry {function_entry.sample_id}."
+            )
+            return None
+        return function_entry, function_entry.toSmdaFunction(), sample_entry
 
     def getMatchesForPicBlockHash(self, picblockhash):
         try:
