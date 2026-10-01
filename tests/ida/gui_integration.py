@@ -698,41 +698,45 @@ def _exercise_sample_widget(form, qt_application):
         "setTabFocus reaches the Sample Match Summary tab",
     )
     _check(
-        families.rowCount() > 0,
+        families.model().rowCount() > 0,
         "Sample Match Summary lists best matches once a result is loaded",
     )
 
-    baseline = families.rowCount()
+    baseline = families.model().rowCount()
     widget.cb_filter_library.setChecked(True)
     _check(
-        families.rowCount() <= baseline,
+        families.model().rowCount() <= baseline,
         "Sample Match Summary library filter does not widen the table",
     )
     widget.cb_filter_library.setChecked(False)
     _check(
-        families.rowCount() == baseline, "Sample Match Summary library filter restores the table"
+        families.model().rowCount() == baseline,
+        "Sample Match Summary library filter restores the table",
     )
 
-    family = families.item(0, 2).text()
+    family = families.model().index(0, 2).data()
     _single_click(families, 0, 2)
     _check(widget.last_family_selected == family, "clicking a family row selects that family")
     _check(
         f'"{family}"' in widget.label_sample_matches_family.text(),
         "the sample table header names the selected family",
     )
-    _check(samples.rowCount() > 0, "the selected family lists its sample matches")
+    _check(samples.model().rowCount() > 0, "the selected family lists its sample matches")
 
-    rows = families.rowCount()
-    for column in range(families.columnCount()):
+    rows = families.model().rowCount()
+    for column in range(families.model().columnCount()):
         families.sortByColumn(column, _qt_order(form, descending=True))
         _check(
-            families.rowCount() == rows,
+            families.model().rowCount() == rows,
             f"Sample Match Summary keeps all rows sorting column {column}",
         )
 
-    before = families.rowCount()
+    before = families.model().rowCount()
     _double_click(families, 0, 2)
-    _check(families.rowCount() == before, "double clicking a family row leaves the table untouched")
+    _check(
+        families.model().rowCount() == before,
+        "double clicking a family row leaves the table untouched",
+    )
 
 
 ################################################################################

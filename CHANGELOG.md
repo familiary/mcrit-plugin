@@ -73,6 +73,9 @@ Ninja applies to that plugin only.
 - Block Scope's block summary and block match tables are table models too. Their offset and hash
   columns sort by value instead of as text, which put 0x10 before 0x9, and the clicks no longer
   depend on which columns are configured.
+- The Sample Match Summary's tables are table models too, and no longer measure the height of each
+  row: for a result with 4,071 matched samples, showing them took 235 ms and clicking a family with
+  1,956 samples 194 ms, and both now take a few milliseconds.
 - The Function Scope and Block Scope tables size their columns to their first 100 rows instead of
   up to 1,000, which took most of the time a large table needed to show.
 - IDA: Convert, Upload and Export no longer hold IDA for the whole export. Only reading the database

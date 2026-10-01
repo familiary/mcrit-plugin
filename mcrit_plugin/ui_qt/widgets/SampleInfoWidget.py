@@ -1,5 +1,5 @@
 import mcrit_plugin.ui_qt.QtShim as QtShim
-from mcrit_plugin.ui_qt.widgets.NumberQTableWidgetItem import NumberQTableWidgetItem
+from mcrit_plugin.ui_qt.widgets.MatchTable import MatchRow, MatchTableView
 
 QMainWindow = QtShim.get_QMainWindow()
 
@@ -25,7 +25,7 @@ class SampleInfoWidget(QMainWindow):
         self.hline.setFrameShadow(self.cc.QFrameShadow.Sunken)
         # upper table
         self.label_best_matches = self.cc.QLabel("Best Matches per Family")
-        self.table_best_family_matches = self.cc.QTableWidget()
+        self.table_best_family_matches = MatchTableView()
         self.table_best_family_matches.selectionModel().selectionChanged.connect(
             self._onTableBestFamilySelectionChanged
         )
@@ -34,9 +34,8 @@ class SampleInfoWidget(QMainWindow):
         self.label_sample_matches_family = self.cc.QLabel(
             "All Sample Matches within Family: <family_name>"
         )
-        self.table_family_sample_matches = self.cc.QTableWidget()
+        self.table_family_sample_matches = MatchTableView()
         # static links to objects to help IDA
-        self.NumberQTableWidgetItem = NumberQTableWidgetItem
         self._QtShim = QtShim
         self._createGui()
 
@@ -98,15 +97,30 @@ class SampleInfoWidget(QMainWindow):
         }
 
     def populateBestMatchTable(self, *_args):
-        """
-        Populate the function table with information from the last scan of I{SemanticIdentifier}.
-        """
-        header_view = self._QtShim.get_QHeaderView()
-        qt = self._QtShim.get_Qt()
-
+        """Fill the upper table with the best matching sample of each family."""
         self._matching_data = self._aggregatedMatchingData()
         matching_data = self._matching_data
-        self.table_best_family_matches.setSortingEnabled(False)
+        families_to_samples = {}
+        for sample_entry in matching_data.values():
+            family = sample_entry["family"] or ""
+            families_to_samples[family] = families_to_samples.get(family, 0) + 1
+        self._updateLabelBestMatches("Best Matches per Family (%d)" % len(families_to_samples))
+        rows = []
+        families_covered = set()
+        for sample_id, sample_entry in sorted(
+            matching_data.items(), key=lambda x: x[1]["bytescore"], reverse=True
+        ):
+            family = sample_entry["family"] or ""
+            if family in families_covered:
+                continue
+            families_covered.add(family)
+            cells = [
+                (sample_id, sample_id),
+                (families_to_samples[family], families_to_samples[family]),
+                (family, family),
+                (sample_entry["version"] or "", sample_entry["version"] or ""),
+            ] + self._scoreCells(sample_entry)
+            rows.append(self._row(len(rows), family, cells))
         self.best_family_matches_header_labels = [
             "ID",
             "Samples",
@@ -119,83 +133,40 @@ class SampleInfoWidget(QMainWindow):
             "Score",
             "Percent",
         ]
-        self.table_best_family_matches.clear()
-        self.table_best_family_matches.setColumnCount(len(self.best_family_matches_header_labels))
-        self.table_best_family_matches.setHorizontalHeaderLabels(
-            self.best_family_matches_header_labels
+        self._fill(
+            self.table_best_family_matches,
+            self.best_family_matches_header_labels,
+            rows,
+            alignment=self._QtShim.get_Qt().AlignHCenter,
         )
-        # Identify number of table entries and prepare addresses to display
-        families_to_samples = {}
-        for sample_id, sample_entry in matching_data.items():
-            if sample_entry["family"] not in families_to_samples:
-                families_to_samples[sample_entry["family"]] = 0
-            families_to_samples[sample_entry["family"]] += 1
-        self._updateLabelBestMatches("Best Matches per Family (%d)" % len(families_to_samples))
-        self.table_best_family_matches.setRowCount(len(families_to_samples))
-        self.table_best_family_matches.resizeRowToContents(0)
-        row = 0
-        families_covered = set([])
-        best_family = ""
-        for sample_id, sample_entry in sorted(
-            matching_data.items(), key=lambda x: x[1]["bytescore"], reverse=True
-        ):
-            if sample_entry["family"] in families_covered:
-                continue
-            if not best_family:
-                best_family = sample_entry["family"]
-            families_covered.add(sample_entry["family"])
-            for column, column_name in enumerate(self.best_family_matches_header_labels):
-                tmp_item = None
-                if column == 0:
-                    tmp_item = self.NumberQTableWidgetItem("%d" % sample_id)
-                elif column == 1:
-                    tmp_item = self.NumberQTableWidgetItem(
-                        "%d" % families_to_samples[sample_entry["family"]]
-                    )
-                elif column == 2:
-                    tmp_item = self.cc.QTableWidgetItem(sample_entry["family"])
-                elif column == 3:
-                    tmp_item = self.cc.QTableWidgetItem(sample_entry["version"])
-                elif column == 4:
-                    tmp_item = self.NumberQTableWidgetItem("%d" % sample_entry["pichash_matches"])
-                elif column == 5:
-                    tmp_item = self.NumberQTableWidgetItem("%d" % sample_entry["minhash_matches"])
-                elif column == 6:
-                    tmp_item = self.NumberQTableWidgetItem("%d" % sample_entry["combined_matches"])
-                elif column == 7:
-                    tmp_item = self.NumberQTableWidgetItem("%d" % sample_entry["library_matches"])
-                elif column == 8:
-                    tmp_item = self.NumberQTableWidgetItem("%d" % sample_entry["bytescore"])
-                elif column == 9:
-                    tmp_item = self.NumberQTableWidgetItem("%5.2f" % sample_entry["percent"])
-                tmp_item.setFlags(tmp_item.flags() & ~self.cc.QtCore.Qt.ItemIsEditable)
-                tmp_item.setTextAlignment(qt.AlignHCenter)
-                self.table_best_family_matches.setItem(row, column, tmp_item)
-            self.table_best_family_matches.resizeRowToContents(row)
-            row += 1
-        self.table_best_family_matches.setSelectionMode(self.cc.QAbstractItemView.SingleSelection)
-        self.table_best_family_matches.resizeColumnsToContents()
-        self.table_best_family_matches.setSortingEnabled(True)
-        header = self.table_best_family_matches.horizontalHeader()
-        for header_id in range(0, len(self.best_family_matches_header_labels), 1):
-            header.setSectionResizeMode(header_id, header_view.Stretch)
         # propagate family selection to family match table
         # a family picked for an earlier result may have no matches in this one
         if self.last_family_selected in families_to_samples:
             selected_family = self.last_family_selected
         else:
-            selected_family = best_family
+            selected_family = rows[0].entry if rows else ""
         self._updateLabelSampleMatches("All Sample Matches within Family: %s" % selected_family)
         self.populateFamilyMatchTable(selected_family)
 
     def populateFamilyMatchTable(self, family):
-        """
-        Populate the function table with information from the last scan of I{SemanticIdentifier}.
-        """
+        """Fill the lower table with the matched samples of one family."""
         if self._matching_data is None:
             self._matching_data = self._aggregatedMatchingData()
-        matching_data = self._matching_data
-        self.table_family_sample_matches.setSortingEnabled(False)
+        rows = []
+        for sample_id, sample_entry in sorted(
+            self._matching_data.items(), key=lambda x: x[1]["bytescore"], reverse=True
+        ):
+            if (sample_entry["family"] or "") != family:
+                continue
+            cells = [
+                (sample_id, sample_id),
+                (sample_entry["sha256"] or "", sample_entry["sha256"] or ""),
+                (sample_entry["version"] or "", sample_entry["version"] or ""),
+            ] + self._scoreCells(sample_entry)
+            rows.append(self._row(len(rows), sample_id, cells))
+        self._updateLabelSampleMatches(
+            'All Sample Matches within Family: "%s" (%d)' % (family, len(rows))
+        )
         self.family_sample_matches_header_labels = [
             "ID",
             "SHA256",
@@ -207,69 +178,48 @@ class SampleInfoWidget(QMainWindow):
             "Score",
             "Percent",
         ]
-        self.table_family_sample_matches.clear()
-        self.table_family_sample_matches.setColumnCount(
-            len(self.family_sample_matches_header_labels)
+        self._fill(self.table_family_sample_matches, self.family_sample_matches_header_labels, rows)
+
+    @staticmethod
+    def _scoreCells(sample_entry):
+        """The match counts, byte score and percentage of a sample, as (value, sort value)."""
+        cells = [
+            (sample_entry[key], sample_entry[key])
+            for key in (
+                "pichash_matches",
+                "minhash_matches",
+                "combined_matches",
+                "library_matches",
+                "bytescore",
+            )
+        ]
+        return cells + [("%5.2f" % sample_entry["percent"], sample_entry["percent"])]
+
+    @staticmethod
+    def _row(source_row, entry, cells):
+        return MatchRow(
+            source_row,
+            entry,
+            [value if isinstance(value, str) else "%d" % value for value, _key in cells],
+            [key for _value, key in cells],
         )
-        self.table_family_sample_matches.setHorizontalHeaderLabels(
-            self.family_sample_matches_header_labels
-        )
-        # Identify number of table entries and prepare addresses to display
-        num_entries = len(
-            set([v["sample_id"] for k, v in matching_data.items() if v["family"] == family])
-        )
-        self._updateLabelSampleMatches(
-            'All Sample Matches within Family: "%s" (%d)' % (family, num_entries)
-        )
-        self.table_family_sample_matches.setRowCount(num_entries)
-        self.table_family_sample_matches.resizeRowToContents(0)
-        row = 0
-        for sample_id, sample_entry in sorted(
-            matching_data.items(), key=lambda x: x[1]["bytescore"], reverse=True
-        ):
-            if sample_entry["family"] != family:
-                continue
-            for column, column_name in enumerate(self.family_sample_matches_header_labels):
-                tmp_item = None
-                if column == 0:
-                    tmp_item = self.NumberQTableWidgetItem("%d" % sample_id)
-                elif column == 1:
-                    tmp_item = self.cc.QTableWidgetItem("%s" % sample_entry["sha256"])
-                elif column == 2:
-                    tmp_item = self.cc.QTableWidgetItem(sample_entry["version"])
-                elif column == 3:
-                    tmp_item = self.NumberQTableWidgetItem("%d" % sample_entry["pichash_matches"])
-                elif column == 4:
-                    tmp_item = self.NumberQTableWidgetItem("%d" % sample_entry["minhash_matches"])
-                elif column == 5:
-                    tmp_item = self.NumberQTableWidgetItem("%d" % sample_entry["combined_matches"])
-                elif column == 6:
-                    tmp_item = self.NumberQTableWidgetItem("%d" % sample_entry["library_matches"])
-                elif column == 7:
-                    tmp_item = self.NumberQTableWidgetItem("%d" % sample_entry["bytescore"])
-                elif column == 8:
-                    tmp_item = self.NumberQTableWidgetItem("%5.2f" % sample_entry["percent"])
-                tmp_item.setFlags(tmp_item.flags() & ~self.cc.QtCore.Qt.ItemIsEditable)
-                self.table_family_sample_matches.setItem(row, column, tmp_item)
-            self.table_family_sample_matches.resizeRowToContents(row)
-            row += 1
-        self.table_family_sample_matches.setSelectionMode(self.cc.QAbstractItemView.SingleSelection)
-        self.table_family_sample_matches.resizeColumnsToContents()
-        self.table_family_sample_matches.setSortingEnabled(True)
-        header_view = self._QtShim.get_QHeaderView()
-        header = self.table_family_sample_matches.horizontalHeader()
-        for header_id in range(0, len(self.family_sample_matches_header_labels), 1):
-            header.setSectionResizeMode(header_id, header_view.Stretch)
+
+    def _fill(self, table, headers, rows, alignment=None):
+        table.table_model.reset(headers, rows, alignment=alignment)
+        # every column stretches, so nothing is sized to its contents
+        header = table.horizontalHeader()
+        for header_id in range(len(headers)):
+            header.setSectionResizeMode(header_id, self._QtShim.get_QHeaderView().Stretch)
 
     ################################################################################
     # Buttons and Actions
     ################################################################################
 
     def _onTableBestFamilySelectionChanged(self, selected, deselected):
-        if not self.table_best_family_matches.selectedItems():
+        indexes = self.table_best_family_matches.selectionModel().selectedIndexes()
+        if not indexes:
             return
-        selected_row = self.table_best_family_matches.selectedItems()[0].row()
-        family = self.table_best_family_matches.item(selected_row, 2).text()
+        family = self.table_best_family_matches.table_model.entryAt(indexes[0].row())
         self.last_family_selected = family
         self.populateFamilyMatchTable(family)
 

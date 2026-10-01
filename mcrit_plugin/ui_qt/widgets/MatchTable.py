@@ -1,5 +1,5 @@
-"""The tables of Function Scope and Block Scope: a model holding one row per match or block, and the
-view showing it.
+"""The tables of Function Scope, Block Scope and Sample Info: a model holding one row per match,
+block, label, family or sample, and the view showing it.
 
 A QTableWidget needed an item per cell, each colored on its own, so a function with hundreds of
 matches took about half a second to show. The model computes a row's texts once and the view asks
@@ -16,7 +16,8 @@ QTableView = QtWidgets.QTableView
 
 
 class MatchRow:
-    """What a row shows, a match or a block, with the text and the sort value of each column."""
+    """What a row shows, a match, block, label, family or sample, with the text and the sort value of
+    each column."""
 
     __slots__ = ("source_row", "entry", "texts", "sort_keys", "background")
 
@@ -35,14 +36,16 @@ class MatchTableModel(QAbstractTableModel):
         self.headers = []
         self.rows = []
         self.foreground = None
+        self.alignment = None
         # rows stay in the order they were filled in until a header is clicked
         self._sort = None
 
-    def reset(self, headers, rows, foreground=None):
+    def reset(self, headers, rows, foreground=None, alignment=None):
         self.beginResetModel()
         self.headers = headers
         self.rows = rows
         self.foreground = foreground
+        self.alignment = None if alignment is None else int(alignment)
         if self._sort is not None:
             self._sortRows(*self._sort)
         self.endResetModel()
@@ -88,6 +91,8 @@ class MatchTableModel(QAbstractTableModel):
         row = self.rows[index.row()]
         if role == Qt.DisplayRole:
             return row.texts[index.column()]
+        if role == Qt.TextAlignmentRole:
+            return self.alignment
         if role == Qt.BackgroundRole:
             return row.background
         if role == Qt.ForegroundRole and row.background is not None:

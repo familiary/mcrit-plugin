@@ -649,25 +649,25 @@ class IntegrationTest:
                 "setTabFocus reaches the Sample Match Summary tab",
             )
             self.check(
-                families.rowCount() > 0,
+                families.model().rowCount() > 0,
                 "Sample Match Summary lists best matches once a result is loaded",
             )
 
         def filter_checkbox():
-            baseline = families.rowCount()
+            baseline = families.model().rowCount()
             widget.cb_filter_library.setChecked(True)
             self.check(
-                families.rowCount() <= baseline,
+                families.model().rowCount() <= baseline,
                 "Sample Match Summary library filter does not widen the table",
             )
             widget.cb_filter_library.setChecked(False)
             self.check(
-                families.rowCount() == baseline,
+                families.model().rowCount() == baseline,
                 "Sample Match Summary library filter restores the table",
             )
 
         def family_selection():
-            family = families.item(0, 2).text()
+            family = families.model().index(0, 2).data()
             self.single_click(families, 0, 2)
             self.check(
                 widget.last_family_selected == family,
@@ -677,22 +677,24 @@ class IntegrationTest:
                 f'"{family}"' in widget.label_sample_matches_family.text(),
                 "the sample table header names the selected family",
             )
-            self.check(samples.rowCount() > 0, "the selected family lists its sample matches")
+            self.check(
+                samples.model().rowCount() > 0, "the selected family lists its sample matches"
+            )
 
         def sorting():
-            rows = families.rowCount()
-            for column in range(families.columnCount()):
+            rows = families.model().rowCount()
+            for column in range(families.model().columnCount()):
                 families.sortByColumn(column, self.session.cc.QtCore.Qt.DescendingOrder)
                 self.check(
-                    families.rowCount() == rows,
+                    families.model().rowCount() == rows,
                     f"Sample Match Summary keeps all rows sorting column {column}",
                 )
 
         def double_click_is_inert():
-            before = families.rowCount()
+            before = families.model().rowCount()
             self.double_click(families, 0, 2)
             self.check(
-                families.rowCount() == before,
+                families.model().rowCount() == before,
                 "double clicking a family row leaves the table untouched",
             )
 
