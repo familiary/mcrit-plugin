@@ -57,7 +57,8 @@ Ninja applies to that plugin only.
 - Convert asks the server whether it knows the sample after the export instead of during it, so on
   IDA the wait box no longer waits for the server.
 - A Function or Block Scope query that is still queued when the cursor has moved to another
-  function is skipped instead of sent.
+  function is skipped instead of sent, and Block Scope stops looking up a function's block hashes
+  once the cursor has left it.
 - IDA: Convert exports through smda's IDAPython backend with cheaper per-instruction reads, also
   when the ida-domain package is installed, which smda would otherwise prefer. The report is
   unchanged; exporting a 3,668-function binary takes 3.3 s instead of 6.9 s.

@@ -241,7 +241,10 @@ class BlockMatchWidget(QMainWindow):
                 return None
             if not self._fetch_remote_cache():
                 return False
-            self._lookupBlockHashes([entry["hash"] for entry in pbh])
+            self._lookupBlockHashes(
+                [entry["hash"] for entry in pbh],
+                stop=lambda: self.parent.current_function != function_offset,
+            )
             return True
 
         def show(remote_cache_ready):
@@ -271,8 +274,10 @@ class BlockMatchWidget(QMainWindow):
                 "MCRIT: querying block matches for function 0x%x" % function_offset, request, show
             )
 
-    def _lookupBlockHashes(self, hashes):
-        """Query the uncached hashes concurrently; MCRIT answers one block hash per request."""
+    def _lookupBlockHashes(self, hashes, stop=None):
+        """Query the uncached hashes concurrently; MCRIT answers one block hash per request.
+
+        Lookups not yet started are skipped once stop() is true; they stay uncached."""
         missing = [h for h in dict.fromkeys(hashes) if h not in self.parent.blockhash_matches]
         if not missing:
             return
@@ -280,7 +285,7 @@ class BlockMatchWidget(QMainWindow):
 
         def lookup(block_hash):
             # after a failure the remaining lookups would each wait out the same timeout
-            if failed.is_set():
+            if failed.is_set() or (stop is not None and stop()):
                 return None
             matches = self.parent.mcrit_interface.getMatchesForPicBlockHash(block_hash)
             if matches is None:

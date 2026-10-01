@@ -67,3 +67,19 @@ def test_a_failed_lookup_stays_uncached_and_stops_the_rest(monkeypatch):
 
     assert queried == [1, 2]
     assert widget.parent.blockhash_matches == {1: [1]}
+
+
+def test_lookups_stop_once_the_cursor_left(monkeypatch):
+    monkeypatch.setattr(block_match_module, "BLOCK_QUERY_WORKERS", 1)
+    queried = []
+
+    def lookup(block_hash):
+        queried.append(block_hash)
+        return [block_hash]
+
+    widget = _widget(lookup)
+
+    widget._lookupBlockHashes([1, 2, 3, 4], stop=lambda: len(queried) >= 2)
+
+    assert queried == [1, 2]
+    assert widget.parent.blockhash_matches == {1: [1], 2: [2]}, "skipped hashes stay uncached"
