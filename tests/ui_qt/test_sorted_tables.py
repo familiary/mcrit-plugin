@@ -85,3 +85,13 @@ def test_hex_offsets_sort_by_value(cc):
     _sort_descending(table)
 
     assert [table.item(row, 0).text() for row in range(3)] == ["0x1000", "0x80", "0x9"]
+
+
+def test_text_that_is_no_number_sorts_without_raising(cc):
+    table = QtWidgets.QTableWidget(4, 1)
+    for row, text in enumerate(["3", "", "unknown", "10"]):
+        table.setItem(row, 0, NumberQTableWidgetItem(text))
+
+    _sort_descending(table)
+
+    assert sorted(table.item(row, 0).text() for row in range(4)) == ["", "10", "3", "unknown"]
