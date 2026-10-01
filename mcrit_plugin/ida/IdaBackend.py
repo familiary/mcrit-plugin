@@ -1,6 +1,8 @@
+import functools
 import os
 import queue
 import re
+import threading
 import traceback
 from concurrent.futures import ThreadPoolExecutor
 from contextlib import contextmanager
@@ -30,6 +32,35 @@ def _address_or_none(ea):
     if ea is None or ea == ida_idaapi.BADADDR:
         return None
     return ea
+
+
+def _on_main_thread(method):
+    """IDA's API is main-thread only: called on a worker, e.g. inside run_background's work, the
+    method runs on the main thread while the worker waits."""
+
+    @functools.wraps(method)
+    def wrapper(self, *args, **kwargs):
+        if threading.current_thread() is threading.main_thread():
+            return method(self, *args, **kwargs)
+        outcome = []
+
+        def call():
+            try:
+                outcome.append((method(self, *args, **kwargs), None))
+            except Exception as exc:
+                outcome.append((None, exc))
+            return 1  # execute_sync requires an int return value
+
+        # MFF_READ: IDA runs it once the database is safe to read
+        ida_kernwin.execute_sync(call, ida_kernwin.MFF_READ)
+        if not outcome:
+            raise RuntimeError("IDA did not run %s on its main thread" % method.__name__)
+        result, error = outcome[0]
+        if error is not None:
+            raise error
+        return result
+
+    return wrapper
 
 
 def _smda_ida_interface():
@@ -85,25 +116,52 @@ class IdaBackend(Backend):
         self._timer = None
         self._delivering = False
 
+    @_on_main_thread
     def get_input_md5(self):
         md5 = ida_nalt.retrieve_input_file_md5()
         return md5.hex() if md5 is not None else None
 
+    @_on_main_thread
     def get_input_sha256(self):
         sha256 = ida_nalt.retrieve_input_file_sha256()
         return sha256.hex() if sha256 is not None else None
 
+    @_on_main_thread
     def get_input_filename(self):
         return os.path.basename(ida_nalt.get_root_filename())
 
+    @_on_main_thread
     def get_input_size(self):
         return ida_nalt.retrieve_input_file_size()
 
     def export_smda_report(self):
+        # only reading the database needs IDA's main thread; disassembling and hashing, most of
+        # the export, then run on the calling thread
+        disassembler, snapshot = self._read_export_snapshot()
+        return disassembler.disassembleBuffer(snapshot.getBinary(), 0)
+
+    @_on_main_thread
+    def _read_export_snapshot(self):
         from smda.Disassembler import Disassembler
 
-        return Disassembler(backend="IDA").disassembleBuffer(_smda_ida_interface().getBinary(), 0)
+        from mcrit_plugin.ida.SmdaInterfaceSnapshot import SmdaInterfaceSnapshot
 
+        show_wait_box = ida_kernwin.is_idaq()
+        if show_wait_box:
+            ida_kernwin.show_wait_box("HIDECANCEL\nMCRIT: reading the database")
+        try:
+            # first, so smda's IDA facade holds this interface rather than its own choice
+            interface = _smda_ida_interface()
+            # IdaExporter reads the bitness and architecture from IDA when it is created
+            disassembler = Disassembler(backend="IDA")
+            snapshot = SmdaInterfaceSnapshot(interface)
+        finally:
+            if show_wait_box:
+                ida_kernwin.hide_wait_box()
+        disassembler.disassembler.ida_interface = snapshot
+        return disassembler, snapshot
+
+    @_on_main_thread
     def get_binary_info(self):
         from smda.common.BinaryInfo import BinaryInfo
 
@@ -117,9 +175,11 @@ class IdaBackend(Backend):
             binary_info.bitness = ida_interface.getBitness()
         return binary_info
 
+    @_on_main_thread
     def get_function_symbols(self):
         return _smda_ida_interface().getFunctionSymbols()
 
+    @_on_main_thread
     def get_function_offsets(self):
         interface = _smda_ida_interface()
         # smda's exporter skips external functions
@@ -193,17 +253,9 @@ class IdaBackend(Backend):
             self._mutation_depth -= 1
 
     def run_background(self, title, work, on_done):
-        """IDA's API is main-thread only, so work runs synchronously behind a wait box."""
-        ida_kernwin.show_wait_box("HIDECANCEL\n%s" % title)
-        try:
-            result = work()
-        except Exception:
-            ida_kernwin.hide_wait_box()
-            traceback.print_exc()
-            self.show_warning("%s failed, see the Output window for details." % title)
-            return
-        ida_kernwin.hide_wait_box()
-        on_done(result)
+        """work runs on a worker thread like a request; the methods it calls that read the
+        database run on the main thread."""
+        self.run_request(title, work, on_done)
 
     def run_request(self, title, work, on_done):
         """IDA's API is main-thread only: work, the requests, runs on a worker thread and must not

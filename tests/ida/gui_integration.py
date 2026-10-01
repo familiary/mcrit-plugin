@@ -993,21 +993,23 @@ def _exercise_export(form, qt_application):
         if artifact_dir is not None
         else Path(tempfile.gettempdir()) / "mcrit-ida-integration.smda"
     )
+    export_path.unlink(missing_ok=True)
     form.cc.backend.ask_save_file = lambda default_name, prompt: str(export_path)
     try:
         form.main_widget.exportSmdaAction.trigger()
+        # the report is exported off the main thread; the save dialog opens once it is built
+        _wait_until(
+            qt_application,
+            lambda: "exported to" in form.local_widget.label_mcrit_activity_info.text(),
+            "Export SMDA report reports the path in the activity info",
+        )
     finally:
         del form.cc.backend.ask_save_file
-    _process_events(qt_application, rounds=2)
     _check(
         export_path.is_file() and export_path.stat().st_size > 0,
         "Export SMDA report wrote the report to the chosen path",
     )
     json.loads(export_path.read_text(encoding="utf-8"))
-    _check(
-        "exported to" in form.local_widget.label_mcrit_activity_info.text(),
-        "Export SMDA report reports the path in the activity info",
-    )
     if artifact_dir is None:
         export_path.unlink(missing_ok=True)
 

@@ -57,16 +57,21 @@ def _finish_work(instance):
     instance._executor = None
 
 
-def test_run_background_delivers_the_result_after_the_wait_box(backend):
+def test_run_background_runs_work_on_a_worker_like_a_request(backend):
     instance, kernwin = backend
     on_done = MagicMock()
+    worker = []
 
-    instance.run_background("Export", lambda: "report", on_done)
+    def work():
+        worker.append(threading.current_thread())
+        return "report"
 
-    kernwin.show_wait_box.assert_called_once_with("HIDECANCEL\nExport")
-    kernwin.hide_wait_box.assert_called_once_with()
+    instance.run_background("Export", work, on_done)
+    _finish_work(instance)
+    kernwin.timers.fire()
+
+    assert worker[0] is not threading.current_thread()
     on_done.assert_called_once_with("report")
-    kernwin.warning.assert_not_called()
 
 
 def test_run_background_reports_a_failure_instead_of_raising(backend):
@@ -77,10 +82,68 @@ def test_run_background_reports_a_failure_instead_of_raising(backend):
         raise RuntimeError("no code")
 
     instance.run_background("Export", work, on_done)
+    _finish_work(instance)
+    kernwin.timers.fire()
 
-    kernwin.hide_wait_box.assert_called_once_with()
     kernwin.warning.assert_called_once_with("Export failed, see the Output window for details.")
     on_done.assert_not_called()
+
+
+def _call_on_worker(func):
+    outcome = []
+
+    def run():
+        try:
+            outcome.append(("result", func()))
+        except Exception as exc:
+            outcome.append(("error", exc))
+
+    thread = threading.Thread(target=run)
+    thread.start()
+    thread.join(5)
+    return outcome[0]
+
+
+def test_database_reads_on_a_worker_run_on_the_main_thread(backend):
+    instance, kernwin = backend
+    kernwin.MFF_READ = 2
+    ran_on = []
+
+    def execute_sync(call, flags):
+        assert flags == kernwin.MFF_READ
+        ran_on.append("main")  # the stub runs it in place, standing in for IDA's main thread
+        return call()
+
+    kernwin.execute_sync = execute_sync
+    sys.modules["ida_nalt"].get_root_filename = lambda: "/samples/query.exe"
+
+    assert _call_on_worker(instance.get_input_filename) == ("result", "query.exe")
+    assert ran_on == ["main"]
+    assert instance.get_input_filename() == "query.exe", "the main thread calls directly"
+    assert ran_on == ["main"]
+
+
+def test_a_database_read_that_raises_on_the_main_thread_raises_on_the_worker(backend):
+    instance, kernwin = backend
+    kernwin.MFF_READ = 2
+    kernwin.execute_sync = lambda call, flags: call()
+
+    def broken():
+        raise ValueError("no database")
+
+    sys.modules["ida_nalt"].get_root_filename = broken
+
+    kind, error = _call_on_worker(instance.get_input_filename)
+    assert kind == "error" and str(error) == "no database"
+
+
+def test_a_database_read_ida_did_not_run_fails_instead_of_returning_none(backend):
+    instance, kernwin = backend
+    kernwin.MFF_READ = 2
+    kernwin.execute_sync = lambda call, flags: -1
+
+    kind, error = _call_on_worker(instance.get_input_filename)
+    assert kind == "error" and "did not run get_input_filename" in str(error)
 
 
 @pytest.mark.parametrize("answer, expected", [(1, True), (0, False)])
