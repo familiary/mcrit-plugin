@@ -80,7 +80,7 @@ def test_a_new_result_populates_the_table_once(overview):
 
     assert len(calls) == 1
     assert widget.sb_minhash_threshold.value() == 80
-    assert widget.table_local_functions.rowCount() == 2
+    assert widget.table_local_functions.model().rowCount() == 2
 
 
 def test_a_filter_click_populates_the_table_once(overview):

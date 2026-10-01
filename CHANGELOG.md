@@ -26,6 +26,9 @@ Ninja applies to that plugin only.
   matches first, and shows the labels of each chunk as it arrives instead of after the last one. A
   failed chunk stops the fetch; the functions not yet fetched are requested again by the next
   click.
+- The Function Overview keeps its rows in a table model and paints the label drop-downs, instead of
+  creating a combo box for every row. A filter click on a synthetic result of 20,000 functions takes about
+  one second instead of two minutes, and a drop-down opens when its cell is clicked.
 
 ## [2.0.0] - 2026-09-28
 

@@ -97,11 +97,17 @@ class IntegrationTest:
         log(f"PASS {what}")
 
     def double_click(self, table, row, column):
-        table.setCurrentCell(row, column)
+        self.select_cell(table, row, column)
         table.doubleClicked.emit(table.model().index(row, column))
 
+    def select_cell(self, table, row, column):
+        if hasattr(table, "setCurrentCell"):
+            table.setCurrentCell(row, column)
+        else:  # the Function Overview's table view
+            table.setCurrentIndex(table.model().index(row, column))
+
     def single_click(self, table, row, column):
-        table.setCurrentCell(row, column)
+        self.select_cell(table, row, column)
         table.clicked.emit(table.model().index(row, column))
 
     def count_graphs(self):
@@ -392,7 +398,8 @@ class IntegrationTest:
                     "Fetch labels for matches ran off the UI thread",
                 )
                 self.check(
-                    table.rowCount() > 0, "Fetch labels for matches populated the Function Overview"
+                    table.model().rowCount() > 0,
+                    "Fetch labels for matches populated the Function Overview",
                 )
                 self.check(
                     any(
@@ -412,70 +419,78 @@ class IntegrationTest:
             self.wait(widget.b_fetch_labels.isEnabled, fetched, "Fetch labels for matches answered")
 
         def filter_radios():
-            baseline = table.rowCount()
+            baseline = table.model().rowCount()
             widget.rb_filter_labels.setChecked(True)
             self.check(
-                table.rowCount() <= baseline, "filter 'labels' does not widen the Function Overview"
+                table.model().rowCount() <= baseline,
+                "filter 'labels' does not widen the Function Overview",
             )
             widget.rb_filter_applicable.setChecked(True)
-            applicable = table.rowCount()
+            applicable = table.model().rowCount()
             widget.rb_filter_conflicted.setChecked(True)
             self.check(
-                table.rowCount() <= applicable,
+                table.model().rowCount() <= applicable,
                 "filter 'conflicted' is a subset of filter 'applicable'",
             )
             widget.rb_filter_none.setChecked(True)
             self.check(
-                table.rowCount() == baseline, "filter 'none' restores the full Function Overview"
+                table.model().rowCount() == baseline,
+                "filter 'none' restores the full Function Overview",
             )
 
         def score_spinbox():
             spinbox = widget.sb_minhash_threshold
-            baseline = table.rowCount()
+            baseline = table.model().rowCount()
             spinbox.setValue(spinbox.maximum())
             self.check(
-                table.rowCount() <= baseline,
+                table.model().rowCount() <= baseline,
                 "Function Overview min-score spinbox narrows the table",
             )
             spinbox.setValue(spinbox.minimum())
             self.check(
-                table.rowCount() == baseline,
+                table.model().rowCount() == baseline,
                 "Function Overview min-score spinbox restores the table",
             )
 
         def column_sorting():
-            rows = table.rowCount()
-            for column in range(table.columnCount()):
+            rows = table.model().rowCount()
+            for column in range(table.model().columnCount()):
                 table.sortByColumn(column, self.session.cc.QtCore.Qt.AscendingOrder)
                 self.check(
-                    table.rowCount() == rows,
+                    table.model().rowCount() == rows,
                     f"Function Overview keeps all rows sorting column {column} ascending",
                 )
                 table.sortByColumn(column, self.session.cc.QtCore.Qt.DescendingOrder)
                 self.check(
-                    table.rowCount() == rows,
+                    table.model().rowCount() == rows,
                     f"Function Overview keeps all rows sorting column {column} descending",
                 )
             table.sortByColumn(0, self.session.cc.QtCore.Qt.AscendingOrder)
-            offsets = [int(table.item(row, 0).text(), 16) for row in range(rows)]
+            offsets = [int(table.model().index(row, 0).data(), 16) for row in range(rows)]
             self.check(offsets == sorted(offsets), "Function Overview sorts offsets ascending")
 
         def label_dropdown():
-            delegate = table.itemDelegateForColumn(label_column)
+            model = table.table_model
             self.check(
-                hasattr(delegate, "getEditorForRow"), "Function Overview installed label dropdowns"
+                model.isDropdown(model.index(0, label_column)),
+                "Function Overview shows label dropdowns",
             )
-            editor = delegate.getEditorForRow(widget._populatedRow(0))
-            self.check(editor is not None, "label dropdown editor exists for the first row")
-            self.check(editor.count() > 1, "label dropdown offers a label and the '-|-' opt-out")
-            editor.setCurrentIndex(0)
-            editor.activated.emit(0)
             self.check(
-                editor.hasUserMadeSelection(), "label dropdown records an explicit user selection"
+                len(model.rows[0].choices) > 1,
+                "label dropdown offers a label and the '-|-' opt-out",
+            )
+            # a pick lands in the row's own model entry, whatever order the rows are shown in
+            self.check(
+                table.model().setData(table.model().index(0, label_column), 0),
+                "label dropdown accepts an explicit user selection",
+            )
+            self.check(
+                widget.getSelectedLabel(0, label_column) == model.rows[0].choices[0],
+                "label dropdown shows the entry that was picked",
             )
 
         def right_click_resolves():
-            offset = int(table.item(0, 0).text(), 16)
+            offset = int(table.model().index(0, 0).data(), 16)
             # the dropdowns report the row they were filled into, which sorting may have moved
             widget._handleRightClickOnRow(widget._populatedRow(0), label_column)
             self.check(
@@ -493,7 +508,7 @@ class IntegrationTest:
             self.check(
                 all(
                     widget.getSelectedLabel(row, label_column) == "-|-"
-                    for row in range(table.rowCount())
+                    for row in range(table.model().rowCount())
                 ),
                 "(de)select all sets every label dropdown to the opt-out entry",
             )
@@ -501,7 +516,7 @@ class IntegrationTest:
             # a dropdown whose matches carry no label on the server only offers the opt-out entry
             rows_with_labels = [
                 row
-                for row in range(table.rowCount())
+                for row in range(table.model().rowCount())
                 if len(widget.function_name_mapping[(widget._populatedRow(row), label_column)]) > 1
             ]
             self.check(
@@ -516,7 +531,10 @@ class IntegrationTest:
 
         def import_labels():
             backend = self.session.cc.backend
-            offsets = [int(table.item(row, 0).text(), 16) for row in range(table.rowCount())]
+            offsets = [
+                int(table.model().index(row, 0).data(), 16)
+                for row in range(table.model().rowCount())
+            ]
             importable = [offset for offset in offsets if backend.has_default_function_name(offset)]
             self.check(bool(importable), "Function Overview lists functions without a custom name")
             before = {offset: backend.get_function_name(offset) for offset in importable}
@@ -553,10 +571,10 @@ class IntegrationTest:
             )
 
         def table_clicks():
-            offset = int(table.item(0, 0).text(), 16)
+            offset = int(table.model().index(0, 0).data(), 16)
             self.single_click(table, 0, 0)
             self.check(
-                table.currentRow() == 0,
+                table.currentIndex().row() == 0,
                 "clicking a Function Overview row selects it",
             )
             self.double_click(table, 0, 0)

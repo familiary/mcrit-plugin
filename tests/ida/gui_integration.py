@@ -93,13 +93,20 @@ def _emit_table_signal(table, signal_name, row=0, column=0):
     getattr(table, signal_name).emit(index)
 
 
+def _select_cell(table, row, column):
+    if hasattr(table, "setCurrentCell"):
+        table.setCurrentCell(row, column)
+    else:  # the Function Overview's table view
+        table.setCurrentIndex(table.model().index(row, column))
+
+
 def _single_click(table, row, column):
-    table.setCurrentCell(row, column)
+    _select_cell(table, row, column)
     _emit_table_signal(table, "clicked", row, column)
 
 
 def _double_click(table, row, column):
-    table.setCurrentCell(row, column)
+    _select_cell(table, row, column)
     _emit_table_signal(table, "doubleClicked", row, column)
 
 
@@ -494,54 +501,74 @@ def _exercise_overview_widget(form, qt_application):
 
     widget.b_fetch_labels.click()
     _process_events(qt_application, rounds=2)
-    _check(table.rowCount() > 0, "Fetch labels for matches populated the Function Overview")
+    _check(table.model().rowCount() > 0, "Fetch labels for matches populated the Function Overview")
     _check(
         any(entry.function_labels for entry in (form.matched_function_entries or {}).values()),
         "Fetch labels for matches returned labels from the server",
     )
 
-    baseline = table.rowCount()
+    baseline = table.model().rowCount()
     widget.rb_filter_labels.setChecked(True)
-    _check(table.rowCount() <= baseline, "filter 'labels' does not widen the Function Overview")
+    _check(
+        table.model().rowCount() <= baseline, "filter 'labels' does not widen the Function Overview"
+    )
     widget.rb_filter_applicable.setChecked(True)
-    applicable = table.rowCount()
+    applicable = table.model().rowCount()
     widget.rb_filter_conflicted.setChecked(True)
-    _check(table.rowCount() <= applicable, "filter 'conflicted' is a subset of filter 'applicable'")
+    _check(
+        table.model().rowCount() <= applicable,
+        "filter 'conflicted' is a subset of filter 'applicable'",
+    )
     widget.rb_filter_none.setChecked(True)
-    _check(table.rowCount() == baseline, "filter 'none' restores the full Function Overview")
+    _check(
+        table.model().rowCount() == baseline, "filter 'none' restores the full Function Overview"
+    )
 
     spinbox = widget.sb_minhash_threshold
     spinbox.setValue(spinbox.maximum())
-    _check(table.rowCount() <= baseline, "Function Overview min-score spinbox narrows the table")
+    _check(
+        table.model().rowCount() <= baseline,
+        "Function Overview min-score spinbox narrows the table",
+    )
     spinbox.setValue(spinbox.minimum())
-    _check(table.rowCount() == baseline, "Function Overview min-score spinbox restores the table")
+    _check(
+        table.model().rowCount() == baseline,
+        "Function Overview min-score spinbox restores the table",
+    )
 
-    rows = table.rowCount()
-    for column in range(table.columnCount()):
+    rows = table.model().rowCount()
+    for column in range(table.model().columnCount()):
         table.sortByColumn(column, _qt_order(form))
         _check(
-            table.rowCount() == rows,
+            table.model().rowCount() == rows,
             f"Function Overview keeps all rows sorting column {column} ascending",
         )
         table.sortByColumn(column, _qt_order(form, descending=True))
         _check(
-            table.rowCount() == rows,
+            table.model().rowCount() == rows,
             f"Function Overview keeps all rows sorting column {column} descending",
         )
     table.sortByColumn(offset_column, _qt_order(form))
-    offsets = [int(table.item(row, offset_column).text(), 16) for row in range(rows)]
+    offsets = [int(table.model().index(row, offset_column).data(), 16) for row in range(rows)]
     _check(offsets == sorted(offsets), "Function Overview sorts offsets ascending")
 
-    delegate = table.itemDelegateForColumn(label_column)
-    _check(hasattr(delegate, "getEditorForRow"), "Function Overview installed label dropdowns")
-    editor = delegate.getEditorForRow(widget._populatedRow(0))
-    _check(editor is not None, "label dropdown editor exists for the first row")
-    _check(editor.count() > 1, "label dropdown offers a label and the '-|-' opt-out")
-    editor.setCurrentIndex(0)
-    editor.activated.emit(0)
-    _check(editor.hasUserMadeSelection(), "label dropdown records an explicit user selection")
+    model = table.table_model
+    _check(
+        model.isDropdown(model.index(0, label_column)),
+        "Function Overview shows label dropdowns",
+    )
+    _check(len(model.rows[0].choices) > 1, "label dropdown offers a label and the '-|-' opt-out")
+    # a pick lands in the row's own model entry, whatever order the rows are shown in
+    _check(
+        table.model().setData(table.model().index(0, label_column), 0),
+        "label dropdown accepts an explicit user selection",
+    )
+    _check(
+        widget.getSelectedLabel(0, label_column) == model.rows[0].choices[0],
+        "label dropdown shows the entry that was picked",
+    )
 
-    offset = int(table.item(0, offset_column).text(), 16)
+    offset = int(table.model().index(0, offset_column).data(), 16)
     # the dropdowns report the row they were filled into, which sorting may have moved
     widget._handleRightClickOnRow(widget._populatedRow(0), label_column)
     _check(
@@ -556,7 +583,10 @@ def _exercise_overview_widget(form, qt_application):
 
     widget.b_select_deselect_all.click()
     _check(
-        all(widget.getSelectedLabel(row, label_column) == "-|-" for row in range(table.rowCount())),
+        all(
+            widget.getSelectedLabel(row, label_column) == "-|-"
+            for row in range(table.model().rowCount())
+        ),
         "(de)select all sets every label dropdown to the opt-out entry",
     )
     widget.b_select_deselect_all.click()
@@ -565,7 +595,7 @@ def _exercise_overview_widget(form, qt_application):
     # a row whose matches carry no label has nothing but the opt-out entry to offer
     labelled_rows = [
         row
-        for row in range(table.rowCount())
+        for row in range(table.model().rowCount())
         if delegate.getEditorForRow(widget._populatedRow(row)).count() > 1
     ]
     _check(
@@ -575,7 +605,10 @@ def _exercise_overview_widget(form, qt_application):
     )
 
     backend = form.cc.backend
-    offsets = [int(table.item(row, offset_column).text(), 16) for row in range(table.rowCount())]
+    offsets = [
+        int(table.model().index(row, offset_column).data(), 16)
+        for row in range(table.model().rowCount())
+    ]
     importable = [offset for offset in offsets if backend.has_default_function_name(offset)]
     _check(bool(importable), "Function Overview lists functions without a custom name")
     before = {offset: backend.get_function_name(offset) for offset in importable}
@@ -608,7 +641,7 @@ def _exercise_overview_widget(form, qt_application):
         "Import labels is undoable in one step",
     )
 
-    offset = int(table.item(0, offset_column).text(), 16)
+    offset = int(table.model().index(0, offset_column).data(), 16)
     _expect_jump(
         form,
         lambda: _double_click(table, 0, offset_column),
