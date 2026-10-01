@@ -799,7 +799,7 @@ def _exercise_navigation(form, report, qt_application):
     _navigate_to(form, target.offset, qt_application)
     _navigate_to(form, second_target.offset, qt_application)
     _check(
-        form.function_match_widget.table_function_matches.rowCount() > 0,
+        form.function_match_widget.table_function_matches.model().rowCount() > 0,
         "the second function queried successfully and lists matches",
     )
     return target, second_target
@@ -820,30 +820,39 @@ def _exercise_function_widget(form, second_target, qt_application):
 
     widget.b_query_single.click()
     _wait_until(
-        qt_application, lambda: matches.rowCount() > 0, "Query current function lists matches"
+        qt_application,
+        lambda: matches.model().rowCount() > 0,
+        "Query current function lists matches",
     )
     _check(
         "0x%x" % second_target.offset in widget.label_current_function_matches.text(),
         "Function Scope header names the queried function",
     )
 
-    baseline = matches.rowCount()
+    baseline = matches.model().rowCount()
     widget.sb_score_threshold.setValue(100)
-    _check(matches.rowCount() <= baseline, "Function Scope min-score spinbox narrows matches")
+    _check(
+        matches.model().rowCount() <= baseline, "Function Scope min-score spinbox narrows matches"
+    )
     widget.sb_score_threshold.setValue(widget.sb_score_threshold.minimum())
-    _check(matches.rowCount() == baseline, "Function Scope min-score spinbox restores matches")
+    _check(
+        matches.model().rowCount() == baseline, "Function Scope min-score spinbox restores matches"
+    )
 
-    baseline = matches.rowCount()
+    baseline = matches.model().rowCount()
     widget.cb_filter_library.setChecked(False)
     widget.cb_filter_library.click()
     _check(
         widget.cb_filter_library.isChecked(), "Function Scope library filter checkbox toggles on"
     )
     _check(
-        matches.rowCount() <= baseline, "Function Scope library filter does not widen the matches"
+        matches.model().rowCount() <= baseline,
+        "Function Scope library filter does not widen the matches",
     )
     widget.cb_filter_library.click()
-    _check(matches.rowCount() == baseline, "Function Scope library filter restores the matches")
+    _check(
+        matches.model().rowCount() == baseline, "Function Scope library filter restores the matches"
+    )
 
     with _capture_graph_show() as graphs:
         _double_click(matches, 0, 0)
@@ -855,8 +864,8 @@ def _exercise_function_widget(form, second_target, qt_application):
     sha256_column = McritTableColumn.columnTypeToIndex(McritTableColumn.SHA256, columns)
     sample_column = McritTableColumn.columnTypeToIndex(McritTableColumn.SAMPLE_ID, columns)
     _check(sha256_column is not None, "Function Scope has a SHA256 column")
-    matches.setCurrentCell(0, sha256_column)
-    sample_id = int(matches.item(0, sample_column).text())
+    _select_cell(matches, 0, sha256_column)
+    sample_id = int(matches.model().index(0, sample_column).data())
     matches.customContextMenuRequested.emit(form.cc.QtCore.QPoint(0, 0))
     _check(
         form.cc.QApplication.clipboard().text() == form.sample_infos[sample_id].sha256,

@@ -66,6 +66,9 @@ Ninja applies to that plugin only.
 - Each chunk of "Fetch labels for matches" updates the Function Overview from the matches of the
   newly labeled functions instead of all matches again; with 221,000 matches it took up to a second
   per chunk on IDA and now takes a fraction of that.
+- Function Scope keeps its matches in a table model instead of an item per cell, so a function
+  with 884 matches shows in about 0.2 s instead of 0.5 s on IDA. Double clicking a match and copying
+  its sample's SHA256 no longer need the function id or sample id columns to be configured.
 - The Function Scope and Block Scope tables size their columns to their first 100 rows instead of
   up to 1,000, which took most of the time a large table needed to show.
 - IDA: Convert, Upload and Export no longer hold IDA for the whole export. Only reading the database

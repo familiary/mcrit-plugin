@@ -760,7 +760,7 @@ class IntegrationTest:
     def after_second_navigation(self):
         widget = self.session.function_match_widget
         self.check(
-            widget.table_function_matches.rowCount() > 0,
+            widget.table_function_matches.model().rowCount() > 0,
             "the second function queried successfully and lists matches",
         )
         self.step(self.exercise_function_scope)
@@ -778,7 +778,8 @@ class IntegrationTest:
         def query_button():
             widget.b_query_single.click()
             self.check(
-                matches.rowCount() > 0, "Query current function lists matches for the cursor"
+                matches.model().rowCount() > 0,
+                "Query current function lists matches for the cursor",
             )
             self.check(
                 "0x%x" % self.second_target.start in widget.label_current_function_matches.text(),
@@ -786,18 +787,20 @@ class IntegrationTest:
             )
 
         def score_spinbox():
-            baseline = matches.rowCount()
+            baseline = matches.model().rowCount()
             widget.sb_score_threshold.setValue(100)
             self.check(
-                matches.rowCount() <= baseline, "Function Scope min-score spinbox narrows matches"
+                matches.model().rowCount() <= baseline,
+                "Function Scope min-score spinbox narrows matches",
             )
             widget.sb_score_threshold.setValue(widget.sb_score_threshold.minimum())
             self.check(
-                matches.rowCount() == baseline, "Function Scope min-score spinbox restores matches"
+                matches.model().rowCount() == baseline,
+                "Function Scope min-score spinbox restores matches",
             )
 
         def library_filter():
-            baseline = matches.rowCount()
+            baseline = matches.model().rowCount()
             widget.cb_filter_library.setChecked(False)
             widget.cb_filter_library.click()
             self.check(
@@ -805,12 +808,12 @@ class IntegrationTest:
                 "Function Scope library filter checkbox toggles on",
             )
             self.check(
-                matches.rowCount() <= baseline,
+                matches.model().rowCount() <= baseline,
                 "Function Scope library filter does not widen the matches",
             )
             widget.cb_filter_library.click()
             self.check(
-                matches.rowCount() == baseline,
+                matches.model().rowCount() == baseline,
                 "Function Scope library filter restores the matches",
             )
 
@@ -829,8 +832,8 @@ class IntegrationTest:
 
             sha256_column = McritTableColumn.columnTypeToIndex(McritTableColumn.SHA256, columns)
             sample_column = McritTableColumn.columnTypeToIndex(McritTableColumn.SAMPLE_ID, columns)
-            matches.setCurrentCell(0, sha256_column)
-            sample_id = int(matches.item(0, sample_column).text())
+            self.select_cell(matches, 0, sha256_column)
+            sample_id = int(matches.model().index(0, sample_column).data())
             matches.customContextMenuRequested.emit(QPoint(0, 0))
             expected = self.session.sample_infos[sample_id].sha256
             self.check(
@@ -1180,7 +1183,7 @@ class IntegrationTest:
                 "YARA rule copied" in activity.text()
             ),
             "MCRIT\\Query Current Function": lambda: (
-                self.session.function_match_widget.table_function_matches.rowCount() > 0
+                self.session.function_match_widget.table_function_matches.model().rowCount() > 0
             ),
             "MCRIT\\Query Current Block": lambda: (
                 self.session.block_match_widget.table_block_summary.rowCount() > 0
