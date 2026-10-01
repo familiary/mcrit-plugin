@@ -267,3 +267,16 @@ def test_an_on_done_that_raises_does_not_stop_later_results(backend):
     kernwin.timers.fire()
 
     later.assert_called_once_with(2)
+
+
+def test_a_database_read_queued_before_the_form_closed_does_not_run(backend):
+    instance, kernwin = backend
+    kernwin.MFF_READ = 2
+    instance.closed = True
+    kernwin.execute_sync = lambda call, flags: call()
+    sys.modules["ida_nalt"].get_root_filename = MagicMock(return_value="/samples/query.exe")
+
+    kind, error = _call_on_worker(instance.get_input_filename)
+
+    assert kind == "error" and "closed" in str(error)
+    sys.modules["ida_nalt"].get_root_filename.assert_not_called()

@@ -46,6 +46,9 @@ def _on_main_thread(method):
 
         def call():
             try:
+                # the form closed while this waited; the database may be gone with it
+                if self.closed:
+                    raise RuntimeError("the MCRIT form was closed")
                 outcome.append((method(self, *args, **kwargs), None))
             except Exception as exc:
                 outcome.append((None, exc))
