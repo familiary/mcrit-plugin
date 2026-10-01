@@ -22,6 +22,9 @@ Ninja applies to that plugin only.
 - Binary Ninja: MCRIT requests show in the status bar as background tasks named after what they
   do, such as "MCRIT: fetching labels for 151306 matched functions", like Binary Ninja's own
   analysis tasks. The plugin's log messages go to the log of the file they concern.
+- "Fetch labels for matches" asks the server in chunks of 2,000 functions, best matches first, and
+  shows the labels of each chunk as it arrives instead of after the last one. A failed chunk stops
+  the fetch; the functions not yet fetched are requested again by the next click.
 
 ## [2.0.0] - 2026-09-28
 

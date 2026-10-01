@@ -112,3 +112,62 @@ def test_labels_are_fetched_through_the_request_runner(overview):
     widget.fetchLabels()
 
     assert backend.pending == []
+
+
+def _chunked(monkeypatch, overview):
+    import mcrit_plugin.ui_qt.widgets.FunctionOverviewWidget as module
+
+    monkeypatch.setattr(module, "LABEL_CHUNK_SIZE", 1)
+    widget, backend, session = overview
+    queried = []
+    session.mcrit_interface.queryFunctionEntriesById = lambda ids, with_label_only: (
+        queried.append(list(ids)) or {}
+    )
+    return widget, backend, queried, module
+
+
+def test_labels_are_fetched_in_chunks_best_match_first(monkeypatch, overview):
+    widget, backend, queried, _module = _chunked(monkeypatch, overview)
+    calls = _count_populates(widget)
+
+    widget.b_fetch_labels.click()
+    work, on_done = backend.pending.pop()
+    on_done(work())
+
+    assert queried == [[20]]
+    assert not widget.b_fetch_labels.isEnabled()
+    assert len(calls) == 1  # the first chunk is shown at once
+    work, on_done = backend.pending.pop()
+    on_done(work())
+    assert queried == [[20], [10]]
+    assert widget.b_fetch_labels.isEnabled()
+    assert backend.pending == []
+
+
+def test_chunks_between_renders_do_not_repopulate_the_table(monkeypatch, overview):
+    widget, backend, queried, _module = _chunked(monkeypatch, overview)
+    widget.b_fetch_labels.click()
+    calls = _count_populates(widget)
+    widget._label_last_render = float("inf")  # a render just happened
+
+    work, on_done = backend.pending.pop()
+    on_done(work())
+
+    assert calls == []
+    work, on_done = backend.pending.pop()
+    on_done(work())
+    assert len(calls) == 1  # the last chunk always renders
+
+
+def test_a_failed_chunk_stops_the_fetch_and_is_retried_later(monkeypatch, overview):
+    widget, backend, _queried, _module = _chunked(monkeypatch, overview)
+    widget._label_requested_ids = set()
+    widget.parent.mcrit_interface.queryFunctionEntriesById = lambda ids, with_label_only: None
+
+    widget.b_fetch_labels.click()
+    work, on_done = backend.pending.pop()
+    on_done(work())
+
+    assert backend.pending == []
+    assert widget.b_fetch_labels.isEnabled()
+    assert widget._label_requested_ids == set()
