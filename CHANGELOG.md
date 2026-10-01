@@ -26,6 +26,12 @@ Ninja applies to that plugin only.
   Binary Ninja, and takes its sample from the sample list already downloaded instead of asking the
   server again. For a 3,955-instruction match against mcrit.malpedia.io, Binary Ninja froze for
   about 3.5 s; the click now returns at once and the graph opens after about 2.1 s.
+### Added
+
+- Binary Ninja: opening a matched function's graph, or a block match's function, now also tints the
+  matched basic blocks of the local function in Binary Ninja's own graph and linear views, through
+  the "MCRIT Matches" render layer (on by default; switch it off in the view's render layer menu).
+  The tint stays until another graph is opened or "MCRIT\Clear Match Coloring" is run.
 
 ## [2.0.0] - 2026-09-28
 
