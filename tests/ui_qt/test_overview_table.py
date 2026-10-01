@@ -45,7 +45,9 @@ def _info(offset, families=1, library=False, criticality=0):
 def _fill(view, infos, dropdowns=True):
     view.sortByColumn(0, Qt.AscendingOrder)
     rows = [
-        build_row(n, info, COLUMNS, ["95|name_%x" % info["offset"], "-|-"], 0)
+        build_row(
+            n, info, COLUMNS, [(95, "name_%x" % info["offset"])], "95|name_%x" % info["offset"]
+        )
         for n, info in enumerate(infos)
     ]
     view.table_model.reset(

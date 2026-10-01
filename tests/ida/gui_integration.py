@@ -590,13 +590,9 @@ def _exercise_overview_widget(form, qt_application):
         "(de)select all sets every label dropdown to the opt-out entry",
     )
     widget.b_select_deselect_all.click()
-    # the table was filled again, with a new delegate
-    delegate = table.itemDelegateForColumn(label_column)
     # a row whose matches carry no label has nothing but the opt-out entry to offer
     labelled_rows = [
-        row
-        for row in range(table.model().rowCount())
-        if delegate.getEditorForRow(widget._populatedRow(row)).count() > 1
+        row for row in range(table.model().rowCount()) if table.table_model.rows[row].label_entries
     ]
     _check(
         bool(labelled_rows)

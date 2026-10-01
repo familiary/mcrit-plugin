@@ -45,26 +45,40 @@ NUMERIC_COLUMNS = (
 class OverviewRow:
     """One local function with its matches aggregated."""
 
-    __slots__ = ("source_row", "offset", "texts", "sort_keys", "choices", "selected", "criticality")
+    __slots__ = (
+        "source_row",
+        "offset",
+        "texts",
+        "sort_keys",
+        "label_entries",
+        "selected_text",
+        "criticality",
+    )
 
-    def __init__(self, source_row, offset, texts, sort_keys, choices, selected, criticality):
+    def __init__(
+        self, source_row, offset, texts, sort_keys, label_entries, selected_text, criticality
+    ):
         # the position the row was filled in at, which sorting leaves alone
         self.source_row = source_row
         self.offset = offset
-        # per column the text shown, and the value sorted by; the label column's come from choices
+        # per column the text shown, and the value sorted by; the label column's come from the
+        # selected label
         self.texts = texts
         self.sort_keys = sort_keys
-        # the entries of the label drop-down, "score|label" strings ending in the opt-out "-|-"
-        self.choices = choices
-        self.selected = selected
+        # (score, label) of the labels of the matches, best first, and the "score|label" entry
+        # selected, or the opt-out "-|-"
+        self.label_entries = label_entries
+        self.selected_text = selected_text
         self.criticality = criticality
 
     @property
-    def selected_text(self):
-        return self.choices[self.selected] if self.choices else "-"
+    def choices(self):
+        """The entries of the label drop-down, ending in the opt-out. Rows number in the
+        hundreds of labels, and only the row being edited needs its entries as strings."""
+        return ["%d|%s" % (score, label) for score, label in self.label_entries] + ["-|-"]
 
 
-def build_row(source_row, info, column_types, choices, selected):
+def build_row(source_row, info, column_types, label_entries, selected_text):
     """The row of one aggregated function, see FunctionOverviewWidget.populateFunctionTable."""
     texts = []
     sort_keys = []
@@ -85,7 +99,13 @@ def build_row(source_row, info, column_types, choices, selected):
         texts.append(text)
         sort_keys.append(key)
     return OverviewRow(
-        source_row, info["offset"], texts, sort_keys, choices, selected, info.get("criticality", 0)
+        source_row,
+        info["offset"],
+        texts,
+        sort_keys,
+        label_entries,
+        selected_text,
+        info.get("criticality", 0),
     )
 
 
@@ -156,11 +176,7 @@ class OverviewTableModel(QAbstractTableModel):
         return flags
 
     def isDropdown(self, index):
-        return (
-            self.dropdowns
-            and index.column() == self.label_column
-            and bool(self.rows[index.row()].choices)
-        )
+        return self.dropdowns and index.column() == self.label_column
 
     def criticalityColors(self, criticality):
         """The background and text color of a drop-down with this criticality, or None."""
@@ -190,7 +206,7 @@ class OverviewTableModel(QAbstractTableModel):
         if role == SORT_ROLE:
             return row.selected_text if is_label else row.sort_keys[column]
         if role == SELECTED_ROLE and is_label:
-            return row.selected
+            return row.choices.index(row.selected_text)
         if is_label and self.isDropdown(index) and role in (Qt.BackgroundRole, Qt.ForegroundRole):
             colors = self.criticalityColors(row.criticality)
             if colors is not None:
@@ -201,13 +217,14 @@ class OverviewTableModel(QAbstractTableModel):
         if role != Qt.EditRole or not index.isValid() or not self.isDropdown(index):
             return False
         row = self.rows[index.row()]
-        if isinstance(value, str):
-            if value not in row.choices:
+        choices = row.choices
+        if not isinstance(value, str):
+            if not 0 <= value < len(choices):
                 return False
-            value = row.choices.index(value)
-        if not 0 <= value < len(row.choices):
+            value = choices[value]
+        elif value not in choices:
             return False
-        row.selected = value
+        row.selected_text = value
         self.dataChanged.emit(index, index)
         return True
 
@@ -285,6 +302,8 @@ class OverviewTableView(QTableView):
         self.setModel(self.table_model)
         self.setSelectionBehavior(QtWidgets.QAbstractItemView.SelectRows)
         self.setSelectionMode(QtWidgets.QAbstractItemView.SingleSelection)
+        # sizing a column to its contents asks for every cell otherwise, up to 1000 rows deep
+        self.horizontalHeader().setResizeContentsPrecision(50)
         self.setEditTriggers(QtWidgets.QAbstractItemView.NoEditTriggers)
         self.setSortingEnabled(True)
         self.setContextMenuPolicy(Qt.CustomContextMenu)

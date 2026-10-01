@@ -517,7 +517,7 @@ class IntegrationTest:
             rows_with_labels = [
                 row
                 for row in range(table.model().rowCount())
-                if len(widget.function_name_mapping[(widget._populatedRow(row), label_column)]) > 1
+                if table.table_model.rows[row].label_entries
             ]
             self.check(
                 bool(rows_with_labels), "(de)select all has at least one labelled row to restore"

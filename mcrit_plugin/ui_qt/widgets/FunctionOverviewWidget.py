@@ -21,6 +21,11 @@ class FunctionOverviewWidget(QMainWindow):
         self.last_selected_fields = {}  # offset -> selected label string
         self._label_requested_ids = set()
         self._label_fetch_generation = 0
+        self._grouped_report = None
+        self._labeled_source = None
+        self._labeled = ({}, 0)
+        self._grouped_matches = {}
+        self._aggregates = {}
         self._label_last_render = 0.0
         self._score_range_job_id = None
         self.resolved_function_labels = {}  # offset -> resolved label string
@@ -101,7 +106,6 @@ class FunctionOverviewWidget(QMainWindow):
             self._onTableFunctionsRightClicked
         )
         # cache for function_names
-        self.function_name_mapping = None
         self.current_rows = []
         # static link to the shim to help IDA
         self._QtShim = QtShim
@@ -285,7 +289,7 @@ class FunctionOverviewWidget(QMainWindow):
                 "No label column configured; cannot import labels."
             )
             return
-        if not self.function_name_mapping:
+        if not self.table_local_functions.table_model.rows:
             self.parent.local_widget.updateActivityInfo("No labels loaded. Fetch labels first.")
             return
         num_names_applied = 0
@@ -369,6 +373,103 @@ class FunctionOverviewWidget(QMainWindow):
                 criticality += 1
         return criticality
 
+    @staticmethod
+    def _sortedLabels(function_info):
+        """The labels of an aggregate, best first, sorted once for as long as the aggregate lives."""
+        if "sorted_labels" not in function_info:
+            function_info["sorted_labels"] = sorted(function_info["labels"], reverse=True)
+        return function_info["sorted_labels"]
+
+    def _labeledEntries(self):
+        """The matched function entries that carry labels and the number of those labels. The
+        cache of entries is replaced, never changed in place, so one pass serves until it is."""
+        entries = self.parent.matched_function_entries
+        if self._labeled_source is not entries or self._labeled_source is None:
+            labeled = {}
+            num_labels = 0
+            for function_id, function_entry in (entries or {}).items():
+                if function_entry.function_labels:
+                    labeled[function_id] = function_entry
+                    num_labels += len(function_entry.function_labels)
+            self._labeled_source = entries
+            self._labeled = (labeled, num_labels)
+        return self._labeled
+
+    def _groupMatches(self, match_report):
+        """The matches of a result by local function, as tuples of what the aggregation reads.
+        Grouping takes a pass over all matches, so a result is grouped once."""
+        if self._grouped_report is not match_report:
+            offsets = {}
+            grouped = {}
+            for function_match in match_report.function_matches:
+                function_id = function_match.function_id
+                if function_id not in grouped:
+                    grouped[function_id] = []
+                    offsets[function_id] = function_match.offset
+                grouped[function_id].append(
+                    (
+                        function_match.matched_score,
+                        function_match.matched_family_id,
+                        function_match.matched_sample_id,
+                        function_match.matched_function_id,
+                        function_match.match_is_library,
+                    )
+                )
+            self._grouped_matches = {
+                function_id: (offsets[function_id], matches)
+                for function_id, matches in grouped.items()
+            }
+            self._grouped_report = match_report
+            self._aggregates = {}
+        return self._grouped_matches
+
+    def _aggregateMatches(self, match_report, threshold_value, filtered, labeled_entries):
+        """Per local function the families, samples, functions, library matches and labels of its
+        matches at or above the threshold, and with a label if filtered.
+
+        Returns the aggregates by function id, the number of matches and the functions they come
+        from, and the number of functions with any match. Results are kept per threshold and
+        filter until the result or the labels change, since clicking through the filters asks for
+        the same ones again.
+        """
+        grouped = self._groupMatches(match_report)
+        key = (threshold_value, filtered)
+        cached = self._aggregates.get(key)
+        if cached is not None and cached[0] is labeled_entries:
+            return cached[1:] + (len(grouped),)
+        aggregated_matches = {}
+        matches_beyond_filters = 0
+        for function_id, (offset, matches) in grouped.items():
+            selected = [match for match in matches if match[0] >= threshold_value]
+            if filtered:
+                selected = [match for match in selected if match[3] in labeled_entries]
+            if not selected:
+                continue
+            matches_beyond_filters += len(selected)
+            labels = set()
+            for score, _family, _sample, matched_function_id, _library in selected:
+                entry = labeled_entries.get(matched_function_id)
+                if entry is not None:
+                    for label in entry.function_labels:
+                        labels.add(
+                            (int(score), label.function_label, label.username, label.timestamp)
+                        )
+            aggregated_matches[function_id] = {
+                "offset": offset,
+                "families": {match[1] for match in selected},
+                "samples": {match[2] for match in selected},
+                "functions": {match[3] for match in selected},
+                "library_matches": {match[3] for match in selected if match[4]},
+                "labels": labels,
+            }
+        result = (
+            aggregated_matches,
+            matches_beyond_filters,
+            set(aggregated_matches),
+        )
+        self._aggregates[key] = (labeled_entries,) + result
+        return result + (len(grouped),)
+
     def populateFunctionTable(self, track_selection=True):
         """
         Populate the function table with information about matches of local functions.
@@ -381,76 +482,21 @@ class FunctionOverviewWidget(QMainWindow):
         self.ensureSpinBoxRange(match_report)
         threshold_value = self.sb_minhash_threshold.value()
 
-        # count matched functions with labels
-        function_entries_with_labels = {}
-        if self.parent.matched_function_entries:
-            for function_id, function_entry in self.parent.matched_function_entries.items():
-                if function_entry.function_labels:
-                    function_entries_with_labels[function_id] = function_entry
+        function_entries_with_labels, num_labels = self._labeledEntries()
+        function_labels = [None] * num_labels  # only counted
 
-        # count labels
-        function_labels = []
-        for function_id, entry in function_entries_with_labels.items():
-            for label in entry.function_labels:
-                function_labels.append(label)
-
-        # count matched functions
-        matched_function_ids_per_function_id = {}
-        matches_beyond_filters = 0
-        functions_beyond_filters = set()
-        aggregated_matches = {}
-        for function_match in match_report.function_matches:
-            if function_match.function_id not in matched_function_ids_per_function_id:
-                matched_function_ids_per_function_id[function_match.function_id] = []
-            if (
-                function_match.matched_function_id
-                not in matched_function_ids_per_function_id[function_match.function_id]
-            ):
-                matched_function_ids_per_function_id[function_match.function_id].append(
-                    function_match.matched_function_id
-                )
-            if function_match.matched_score >= threshold_value:
-                if (
-                    self.getSelectedFilter() != "none"
-                    and function_match.matched_function_id not in function_entries_with_labels
-                ):
-                    continue
-                matches_beyond_filters += 1
-                functions_beyond_filters.add(function_match.function_id)
-                if function_match.function_id not in aggregated_matches:
-                    aggregated_matches[function_match.function_id] = {
-                        "offset": function_match.offset,
-                        "families": set(),
-                        "samples": set(),
-                        "functions": set(),
-                        "library_matches": set(),
-                        "labels": set(),
-                    }
-                aggregated_matches[function_match.function_id]["families"].add(
-                    function_match.matched_family_id
-                )
-                aggregated_matches[function_match.function_id]["samples"].add(
-                    function_match.matched_sample_id
-                )
-                aggregated_matches[function_match.function_id]["functions"].add(
-                    function_match.matched_function_id
-                )
-                if function_match.match_is_library:
-                    aggregated_matches[function_match.function_id]["library_matches"].add(
-                        function_match.matched_function_id
-                    )
-                if function_match.matched_function_id in function_entries_with_labels:
-                    for label in function_entries_with_labels[
-                        function_match.matched_function_id
-                    ].function_labels:
-                        aggregated_matches[function_match.function_id]["labels"].add(
-                            (
-                                int(function_match.matched_score),
-                                label.function_label,
-                                label.username,
-                                label.timestamp,
-                            )
-                        )
+        # aggregate the matches of each local function
+        (
+            aggregated_matches,
+            matches_beyond_filters,
+            functions_beyond_filters,
+            num_matched_functions,
+        ) = self._aggregateMatches(
+            match_report,
+            threshold_value,
+            self.getSelectedFilter() != "none",
+            function_entries_with_labels,
+        )
 
         # count filtered functions again
         filtered_list = {}
@@ -460,7 +506,7 @@ class FunctionOverviewWidget(QMainWindow):
         for function_id, function_info in sorted(aggregated_matches.items()):
             is_custom_name = not self.cc.backend.has_default_function_name(function_info["offset"])
             criticality = self._calculateLabelCriticality(
-                list(sorted(function_info["labels"], reverse=True)),
+                self._sortedLabels(function_info),
                 has_function_name=is_custom_name,
                 is_resolved=function_info["offset"] in self.resolved_function_labels,
             )
@@ -482,7 +528,7 @@ class FunctionOverviewWidget(QMainWindow):
             function_labels = crit_function_labels
 
         # Update summary
-        update_text = f"Showing {len(functions_beyond_filters)} functions with {matches_beyond_filters} matches and {len(function_labels)} labels ({len(matched_function_ids_per_function_id) - len(functions_beyond_filters)} functions and {len(match_report.function_matches) - matches_beyond_filters} matches filtered)"
+        update_text = f"Showing {len(functions_beyond_filters)} functions with {matches_beyond_filters} matches and {len(function_labels)} labels ({num_matched_functions - len(functions_beyond_filters)} functions and {len(match_report.function_matches) - matches_beyond_filters} matches filtered)"
         self.label_local_functions.setText(update_text)
 
         label_score_column_index = McritTableColumn.columnTypeToIndex(
@@ -508,36 +554,28 @@ class FunctionOverviewWidget(QMainWindow):
             self.last_selected_fields = new_selected_fields
 
         self.current_rows = aggregated_matches
-        self.function_name_mapping = {}
-        self.row_criticality_mapping = {}
         rows = []
         for row, (function_id, function_info) in enumerate(sorted(aggregated_matches.items())):
-            # set label based on stored selection if available
-            rows_labels = []
-            preselected_label = self.last_selected_fields.get(function_info["offset"], None)
-            if function_info["offset"] in self.resolved_function_labels:
-                preselected_label = self.resolved_function_labels[function_info["offset"]]
-            label_assigned = False
-            for label_entry in sorted(function_info["labels"], reverse=True):
-                formatted_label_entry = f"{label_entry[0]}|{label_entry[1]}"
-                if formatted_label_entry == preselected_label and not label_assigned:
-                    rows_labels.append({"text": formatted_label_entry, "preselected": True})
-                    label_assigned = True
-                else:
-                    rows_labels.append({"text": formatted_label_entry, "preselected": False})
-            rows_labels.append({"text": "-|-", "preselected": preselected_label == "-|-"})
-            choices = [entry["text"] for entry in rows_labels]
-            selected = next((n for n, entry in enumerate(rows_labels) if entry["preselected"]), 0)
-            if label_score_column_index is not None:
-                self.function_name_mapping[(row, label_score_column_index)] = rows_labels
-            self.row_criticality_mapping[row] = function_info.get("criticality", 0)
+            label_entries = [
+                (label_entry[0], label_entry[1])
+                for label_entry in self._sortedLabels(function_info)
+            ]
+            # the label stored for this offset or resolved by the user stays selected as long as
+            # the function still has it, else the best label does
+            selected_text = self.resolved_function_labels.get(
+                function_info["offset"], self.last_selected_fields.get(function_info["offset"])
+            )
+            if selected_text != "-|-" and not any(
+                selected_text == "%d|%s" % entry for entry in label_entries
+            ):
+                selected_text = "%d|%s" % label_entries[0] if label_entries else "-|-"
             rows.append(
                 build_row(
                     row,
                     function_info,
                     self.parent.config.OVERVIEW_TABLE_COLUMNS,
-                    choices,
-                    selected,
+                    label_entries,
+                    selected_text,
                 )
             )
 
