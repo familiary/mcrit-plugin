@@ -54,6 +54,8 @@ Ninja applies to that plugin only.
   graphs run on worker threads too, so a slow or unreachable MCRIT server no longer freezes IDA.
   Answers that arrive after the MCRIT form was closed are dropped, and a failed request is reported
   in a warning.
+- Convert asks the server whether it knows the sample after the export instead of during it, so on
+  IDA the wait box no longer waits for the server.
 - A Function or Block Scope query that is still queued when the cursor has moved to another
   function is skipped instead of sent.
 

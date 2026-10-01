@@ -248,8 +248,9 @@ class MainWidget(QMainWindow):
         )
         dialog.exec_()
 
-    def _buildLocalSmdaReport(self, on_ready, work=None):
-        """Run work off the UI thread where supported, then call on_ready(report) on the UI thread."""
+    def _buildLocalSmdaReport(self, on_ready):
+        """Export the report off the UI thread where supported, then call on_ready(report) on the UI
+        thread."""
         if self._building:
             self.parent.local_widget.updateActivityInfo(
                 "An SMDA report is still being built; try again when it is done."
@@ -259,7 +260,7 @@ class MainWidget(QMainWindow):
 
         def build():
             try:
-                return (work or self.getLocalSmdaReport)()
+                return self.getLocalSmdaReport()
             except Exception:
                 self._building = False
                 raise
@@ -271,13 +272,24 @@ class MainWidget(QMainWindow):
         self.cc.backend.run_background("MCRIT: exporting SMDA report", build, done)
 
     def _onConvertSmdaButtonClicked(self):
-        self._buildLocalSmdaReport(self._applyConvertedReport, self._convertAndFetchRemote)
+        self._buildLocalSmdaReport(self._lookUpConvertedSample)
 
-    def _convertAndFetchRemote(self):
-        local_smda_report = self.getLocalSmdaReport()
-        if local_smda_report is not None:
-            self.parent.mcrit_interface.querySampleSha256(local_smda_report.sha256)
-        return local_smda_report
+    def _lookUpConvertedSample(self, local_smda_report):
+        if local_smda_report is None:
+            self._applyConvertedReport(None)
+            return
+        # IDA exports on its main thread, so the request must not be part of the export
+        self._building = True
+
+        def done(_result):
+            self._building = False
+            self._applyConvertedReport(local_smda_report)
+
+        self.cc.backend.run_request(
+            "MCRIT: looking up the converted sample",
+            lambda: self.parent.mcrit_interface.querySampleSha256(local_smda_report.sha256),
+            done,
+        )
 
     def _applyConvertedReport(self, local_smda_report):
         if self.parent.local_smda_report is None:
