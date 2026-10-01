@@ -5,8 +5,10 @@ import mcrit_plugin.ui_qt.QtShim as QtShim
 from mcrit_plugin.core.ScoreColorProvider import ScoreColorProvider, ThemeRole
 from mcrit_plugin.ui_qt.widgets.NumberQTableWidgetItem import NumberQTableWidgetItem
 
-# ids per label request, and the least time between two table renders while chunks arrive
-LABEL_CHUNK_SIZE = 2000
+# ids in the first label request and in each later one, and the least time between two table
+# renders while chunks arrive; each request adds a fixed server cost, so only the first is small
+LABEL_FIRST_CHUNK_SIZE = 2000
+LABEL_CHUNK_SIZE = 50000
 LABEL_RENDER_INTERVAL = 2.0
 
 QMainWindow = QtShim.get_QMainWindow()
@@ -339,10 +341,9 @@ class FunctionOverviewWidget(QMainWindow):
         # the server needs about a minute for a large result: ask for the best matches first and
         # show each chunk's labels as it arrives instead of after the last one
         pending_ids.sort(key=lambda fid: best_scores[fid], reverse=True)
-        chunks = [
-            pending_ids[start : start + LABEL_CHUNK_SIZE]
-            for start in range(0, len(pending_ids), LABEL_CHUNK_SIZE)
-        ]
+        chunks = [pending_ids[:LABEL_FIRST_CHUNK_SIZE]]
+        for start in range(LABEL_FIRST_CHUNK_SIZE, len(pending_ids), LABEL_CHUNK_SIZE):
+            chunks.append(pending_ids[start : start + LABEL_CHUNK_SIZE])
         self._label_fetch_generation += 1
         self.b_fetch_labels.setEnabled(False)
         self._fetchLabelChunk(self._label_fetch_generation, chunks, 0, len(pending_ids), 0)

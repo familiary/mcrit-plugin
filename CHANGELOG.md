@@ -20,11 +20,12 @@ Ninja applies to that plugin only.
   instead of row by row, and a new result or filter click renders the table once instead of two or
   three times.
 - Binary Ninja: MCRIT requests show in the status bar as background tasks named after what they
-  do, such as "MCRIT: fetching labels for 151306 matched functions", like Binary Ninja's own
-  analysis tasks. The plugin's log messages go to the log of the file they concern.
-- "Fetch labels for matches" asks the server in chunks of 2,000 functions, best matches first, and
-  shows the labels of each chunk as it arrives instead of after the last one. A failed chunk stops
-  the fetch; the functions not yet fetched are requested again by the next click.
+  do, such as "MCRIT: fetching labels for 2000 of 151306 matched functions", like Binary Ninja's
+  own analysis tasks. The plugin's log messages go to the log of the file they concern.
+- "Fetch labels for matches" asks the server for 2,000 functions first, then 50,000 at a time, best
+  matches first, and shows the labels of each chunk as it arrives instead of after the last one. A
+  failed chunk stops the fetch; the functions not yet fetched are requested again by the next
+  click.
 
 ## [2.0.0] - 2026-09-28
 

@@ -117,6 +117,7 @@ def test_labels_are_fetched_through_the_request_runner(overview):
 def _chunked(monkeypatch, overview):
     import mcrit_plugin.ui_qt.widgets.FunctionOverviewWidget as module
 
+    monkeypatch.setattr(module, "LABEL_FIRST_CHUNK_SIZE", 1)
     monkeypatch.setattr(module, "LABEL_CHUNK_SIZE", 1)
     widget, backend, session = overview
     queried = []
@@ -171,3 +172,19 @@ def test_a_failed_chunk_stops_the_fetch_and_is_retried_later(monkeypatch, overvi
     assert backend.pending == []
     assert widget.b_fetch_labels.isEnabled()
     assert widget._label_requested_ids == set()
+
+
+def test_later_chunks_are_larger_than_the_first(monkeypatch, overview):
+    widget, backend, queried, module = _chunked(monkeypatch, overview)
+    monkeypatch.setattr(module, "LABEL_CHUNK_SIZE", 5)
+    widget.parent.getMatchingReport().function_matches.extend(
+        _match(10 + n, 100 + n, 10 + n) for n in range(6)
+    )
+
+    widget.b_fetch_labels.click()
+    while backend.pending:
+        work, on_done = backend.pending.pop()
+        on_done(work())
+
+    assert [len(ids) for ids in queried] == [1, 5, 2]
+    assert queried[0] == [20]
