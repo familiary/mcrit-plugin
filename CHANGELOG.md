@@ -53,7 +53,7 @@ Ninja applies to that plugin only.
 - IDA: uploads, Function and Block Scope queries, matching results, label fetches and remote
   graphs run on worker threads too, so a slow or unreachable MCRIT server no longer freezes IDA.
   Answers that arrive after the MCRIT form was closed are dropped, and a failed request is reported
-  in a warning.
+  in a warning. Live queries wait until the cursor has rested for 150 ms, as on Binary Ninja.
 - Convert asks the server whether it knows the sample after the export instead of during it, so on
   IDA the wait box no longer waits for the server.
 - A Function or Block Scope query that is still queued when the cursor has moved to another
