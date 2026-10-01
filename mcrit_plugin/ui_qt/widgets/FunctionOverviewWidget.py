@@ -1,7 +1,15 @@
+import time
+
 import mcrit_plugin.core.McritTableColumn as McritTableColumn
 import mcrit_plugin.ui_qt.QtShim as QtShim
 from mcrit_plugin.core.ScoreColorProvider import ScoreColorProvider, ThemeRole
 from mcrit_plugin.ui_qt.widgets.NumberQTableWidgetItem import NumberQTableWidgetItem
+
+# ids in the first label request and in each later one, and the least time between two table
+# renders while chunks arrive; each request adds a fixed server cost, so only the first is small
+LABEL_FIRST_CHUNK_SIZE = 2000
+LABEL_CHUNK_SIZE = 50000
+LABEL_RENDER_INTERVAL = 2.0
 
 QMainWindow = QtShim.get_QMainWindow()
 QStyledItemDelegate = QtShim.get_QStyledItemDelegate()
@@ -204,6 +212,8 @@ class FunctionOverviewWidget(QMainWindow):
         print("[|] loading FunctionOverviewWidget")
         self.last_selected_fields = {}  # offset -> selected label string
         self._label_requested_ids = set()
+        self._label_fetch_generation = 0
+        self._label_last_render = 0.0
         self._score_range_job_id = None
         self.resolved_function_labels = {}  # offset -> resolved label string
         self.parent = parent
@@ -245,10 +255,10 @@ class FunctionOverviewWidget(QMainWindow):
             self.rb_filter_none.setChecked(True)
 
         # Connect radio buttons to populate function
-        self.rb_filter_none.toggled.connect(self.update)
-        self.rb_filter_labels.toggled.connect(self.update)
-        self.rb_filter_applicable.toggled.connect(self.update)
-        self.rb_filter_conflicted.toggled.connect(self.update)
+        self.rb_filter_none.toggled.connect(self._onFilterToggled)
+        self.rb_filter_labels.toggled.connect(self._onFilterToggled)
+        self.rb_filter_applicable.toggled.connect(self._onFilterToggled)
+        self.rb_filter_conflicted.toggled.connect(self._onFilterToggled)
 
         # Create horizontal layout for button container
         self.button_container = self.cc.QWidget()
@@ -313,21 +323,63 @@ class FunctionOverviewWidget(QMainWindow):
         match_report = self.parent.getMatchingReport()
         if match_report is None:
             return
-        matched_function_ids = set()
+        best_scores = {}
         for function_match in match_report.function_matches:
-            matched_function_ids.add(function_match.matched_function_id)
-        print("Number of matched remote functions: ", len(matched_function_ids))
+            function_id = function_match.matched_function_id
+            best_scores[function_id] = max(
+                best_scores.get(function_id, 0), function_match.matched_score
+            )
+        print("Number of matched remote functions: ", len(best_scores))
         if force:
             self._label_requested_ids = set()
         # with_label_only answers nothing for unlabeled functions, so the cache alone cannot tell
         # a pending id from one already known to be unlabeled
-        pending_ids = matched_function_ids - self._label_requested_ids
-        if pending_ids:
-            fetched = self.parent.mcrit_interface.queryFunctionEntriesById(
-                list(pending_ids), with_label_only=True
-            )
-            if fetched is not None:
-                self._label_requested_ids |= pending_ids
+        pending_ids = [fid for fid in best_scores if fid not in self._label_requested_ids]
+        if not pending_ids:
+            self._showFetchedLabels()
+            return
+        # the server needs about a minute for a large result: ask for the best matches first and
+        # show each chunk's labels as it arrives instead of after the last one
+        pending_ids.sort(key=lambda fid: best_scores[fid], reverse=True)
+        chunks = [pending_ids[:LABEL_FIRST_CHUNK_SIZE]]
+        for start in range(LABEL_FIRST_CHUNK_SIZE, len(pending_ids), LABEL_CHUNK_SIZE):
+            chunks.append(pending_ids[start : start + LABEL_CHUNK_SIZE])
+        self._label_fetch_generation += 1
+        self.b_fetch_labels.setEnabled(False)
+        self._fetchLabelChunk(self._label_fetch_generation, chunks, 0, len(pending_ids), 0)
+
+    def _fetchLabelChunk(self, generation, chunks, index, total, requested):
+        self.parent.local_widget.updateActivityInfo(
+            "Fetching labels: %d of %d matched functions..." % (requested, total)
+        )
+
+        def done(fetched):
+            if generation != self._label_fetch_generation:
+                return
+            last = index + 1 == len(chunks)
+            if fetched is None:
+                last = True
+            else:
+                self._label_requested_ids.update(chunks[index])
+            if last or time.monotonic() - self._label_last_render >= LABEL_RENDER_INTERVAL:
+                self._label_last_render = time.monotonic()
+                self._showFetchedLabels()
+            if last:
+                self.b_fetch_labels.setEnabled(True)
+            else:
+                self._fetchLabelChunk(
+                    generation, chunks, index + 1, total, requested + len(chunks[index])
+                )
+
+        self.cc.backend.run_request(
+            "MCRIT: fetching labels for %d of %d matched functions" % (len(chunks[index]), total),
+            lambda: self.parent.mcrit_interface.queryFunctionEntriesById(
+                chunks[index], with_label_only=True
+            ),
+            done,
+        )
+
+    def _showFetchedLabels(self):
         function_entries_with_labels = {}
         if self.parent.matched_function_entries:
             for function_id, function_entry in self.parent.matched_function_entries.items():
@@ -342,6 +394,11 @@ class FunctionOverviewWidget(QMainWindow):
 
     def update(self):
         self.populateFunctionTable()
+
+    def _onFilterToggled(self, checked):
+        # the button losing its check emits toggled as well
+        if checked:
+            self.update()
 
     def handleSpinThresholdChange(self):
         self.update()
@@ -490,10 +547,13 @@ class FunctionOverviewWidget(QMainWindow):
             config_adjusted_lower_value = max(
                 self.parent.config.OVERVIEW_MIN_SCORE, self.global_minimum_match_value
             )
+            # the caller populates the table with the new value; signals would populate it again
+            self.sb_minhash_threshold.blockSignals(True)
             self.sb_minhash_threshold.setRange(
                 config_adjusted_lower_value, self.global_maximum_match_value
             )
             self.sb_minhash_threshold.setValue(config_adjusted_lower_value)
+            self.sb_minhash_threshold.blockSignals(False)
 
     def _calculateLabelCriticality(self, label_list, has_function_name=False, is_resolved=False):
         criticality = 0
@@ -712,7 +772,6 @@ class FunctionOverviewWidget(QMainWindow):
         self.table_local_functions.setHorizontalHeaderLabels(self.local_function_header_labels)
         # Identify number of table entries and prepare addresses to display
         self.table_local_functions.setRowCount(len(aggregated_matches))
-        self.table_local_functions.resizeRowToContents(0)
         row = 0
         self.function_name_mapping = {}
         self.row_criticality_mapping = {}
@@ -744,8 +803,13 @@ class FunctionOverviewWidget(QMainWindow):
                     tmp_item.setTextAlignment(qt.AlignHCenter)
                     tmp_item.setData(self.cc.QtCore.Qt.UserRole, row)
                     self.table_local_functions.setItem(row, column, tmp_item)
-                self.table_local_functions.resizeRowToContents(row)
                 row += 1
+            if row:
+                # sizing each row to its contents takes seconds on large results
+                self.table_local_functions.resizeRowToContents(0)
+                self.table_local_functions.verticalHeader().setDefaultSectionSize(
+                    self.table_local_functions.rowHeight(0)
+                )
             # we need to set up rendering delegates for function names only if we have names at all
             if function_labels:
                 # Set the delegate to create dropdown menus in the second column
