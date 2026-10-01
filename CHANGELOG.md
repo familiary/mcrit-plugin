@@ -8,6 +8,31 @@ Ninja applies to that plugin only.
 
 ## [Unreleased]
 
+### Changed
+
+- Binary Ninja: uploading the report, Function Scope and Block Scope queries, and fetching a
+  matching result run off the UI thread, so a slow or unreachable MCRIT server no longer freezes
+  Binary Ninja. A live query answered after the cursor moved to another function is cached but not
+  shown. Results already cached show at once. IDA still runs these requests on its main thread.
+- Binary Ninja: "Fetch labels for matches" also runs off the UI thread; on a result with 150,000
+  matched functions it froze Binary Ninja for about a minute.
+- The Function Overview renders large results about ten times faster: it sizes its rows once
+  instead of row by row, and a new result or filter click renders the table once instead of two or
+  three times.
+- Binary Ninja: MCRIT requests show in the status bar as background tasks named after what they
+  do, such as "MCRIT: fetching labels for 151306 matched functions", like Binary Ninja's own
+  analysis tasks. The plugin's log messages go to the log of the file they concern.
+- Opening the graph of a function or block match fetches the remote function off the UI thread on
+  Binary Ninja, and takes its sample from the sample list already downloaded instead of asking the
+  server again. For a 3,955-instruction match against mcrit.malpedia.io, Binary Ninja froze for
+  about 3.5 s; the click now returns at once and the graph opens after about 2.1 s.
+### Added
+
+- Binary Ninja: opening a matched function's graph, or a block match's function, now also tints the
+  matched basic blocks of the local function in Binary Ninja's own graph and linear views, through
+  the "MCRIT Matches" render layer (on by default; switch it off in the view's render layer menu).
+  The tint stays until another graph is opened or "MCRIT\Clear Match Coloring" is run.
+
 ## [2.0.0] - 2026-09-28
 
 ### Added

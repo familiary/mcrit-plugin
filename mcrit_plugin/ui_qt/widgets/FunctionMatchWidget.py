@@ -135,18 +135,19 @@ class FunctionMatchWidget(QMainWindow):
             return family_infos.get(family_id)
         return None
 
-    def _ensure_remote_cache(self):
+    def _fetch_remote_cache(self):
+        """Request the family and sample lists if they are missing; touches no widget."""
         if self.parent.family_infos is None:
             self.parent.mcrit_interface.queryAllFamilyEntries()
         if self.parent.sample_infos is None:
             self.parent.mcrit_interface.queryAllSampleEntries()
-        if self.parent.family_infos is None or self.parent.sample_infos is None:
-            self.clearTable()
-            self.label_current_function_matches.setText(
-                "Remote family/sample info unavailable. Check server connection."
-            )
-            return False
-        return True
+        return self.parent.family_infos is not None and self.parent.sample_infos is not None
+
+    def _show_remote_cache_unavailable(self):
+        self.clearTable()
+        self.label_current_function_matches.setText(
+            "Remote family/sample info unavailable. Check server connection."
+        )
 
     def updateCurrentFunction(self, view):
         function_start = self.cc.backend.get_current_function(view)
@@ -208,15 +209,65 @@ class FunctionMatchWidget(QMainWindow):
                 "Can only query functions with more than 10 instructions."
             )
             return
-        if not self._ensure_remote_cache():
-            return
+        function_offset = self.parent.current_function
+        score_threshold = int(self.sb_score_threshold.value())
+        outline = None
+        if function_offset not in self.parent.function_matches:
+            outline = self.parent.getLocalSmdaReportOutline()
+            outline.xcfg = {smda_function.offset: smda_function}
+            self.label_current_function_matches.setText(
+                "Querying matches for function 0x%x..." % function_offset
+            )
+
+        def request():
+            if not self._fetch_remote_cache():
+                return False
+            if outline is not None:
+                self.parent.mcrit_interface.querySmdaFunctionMatches(outline)
+            missing_ids = self._missingMatchedFunctionIds(function_offset, score_threshold)
+            if missing_ids:
+                self.parent.mcrit_interface.queryFunctionEntriesById(missing_ids)
+            return True
+
+        def show(remote_cache_ready):
+            # a live query answered after the cursor moved on; its result stays cached
+            if self.parent.current_function != function_offset:
+                return
+            if not remote_cache_ready:
+                self._show_remote_cache_unavailable()
+                return
+            self._showFunctionMatches(smda_function)
+
+        # with everything cached, e.g. after a filter change, no request delays the table
+        if (
+            outline is None
+            and self.parent.family_infos is not None
+            and self.parent.sample_infos is not None
+            and not self._missingMatchedFunctionIds(function_offset, score_threshold)
+        ):
+            show(True)
+        else:
+            self.cc.backend.run_request(
+                "MCRIT: querying matches for function 0x%x" % function_offset, request, show
+            )
+
+    def _missingMatchedFunctionIds(self, function_offset, score_threshold):
+        """Ids of the matches the name table lists whose entries are not cached yet."""
+        match_report_dict = self.parent.function_matches.get(function_offset)
+        if not match_report_dict:
+            return []
+        match_report = MatchingResult.fromDict(match_report_dict)
+        match_report.filterToFunctionScore(score_threshold)
+        cached_entries = self.parent.matched_function_entries or {}
+        return [
+            match.matched_function_id
+            for match in match_report.filtered_function_matches
+            if match.matched_function_id not in cached_entries
+        ]
+
+    def _showFunctionMatches(self, smda_function):
         self.current_function_offset = self.parent.current_function
         match_report = None
-        single_function_smda_report = self.parent.getLocalSmdaReportOutline()
-        single_function_smda_report.xcfg = {smda_function.offset: smda_function}
-        # check if pichash match data is already available in local cache
-        if smda_function.offset not in self.parent.function_matches:
-            self.parent.mcrit_interface.querySmdaFunctionMatches(single_function_smda_report)
         if smda_function.offset in self.parent.function_matches:
             match_report = MatchingResult.fromDict(
                 self.parent.function_matches[smda_function.offset]
@@ -382,10 +433,6 @@ class FunctionMatchWidget(QMainWindow):
             match.matched_function_id: match for match in match_report.filtered_function_matches
         }
         cached_entries = self.parent.matched_function_entries or {}
-        missing_ids = [fid for fid in function_matches_by_id if fid not in cached_entries]
-        if missing_ids:
-            self.parent.mcrit_interface.queryFunctionEntriesById(missing_ids)
-        cached_entries = self.parent.matched_function_entries or {}
         matched_entries = {}
         for function_id in function_matches_by_id.keys():
             matched_entry = cached_entries.get(function_id)
@@ -454,31 +501,12 @@ class FunctionMatchWidget(QMainWindow):
                 )
                 return
             smda_report_a = self.parent.local_smda_report
-            function_entry_b = self.parent.mcrit_interface.queryFunctionEntryById(
-                remote_function_id
-            )
-            if function_entry_b is None:
-                self.parent.local_widget.updateActivityInfo(
-                    f"Failed to fetch function entry {remote_function_id}."
-                )
-                return
-            smda_function_b = function_entry_b.toSmdaFunction()
-            sample_entry_b = self.parent.mcrit_interface.querySampleEntryById(
-                function_entry_b.sample_id
-            )
-            if sample_entry_b is None:
-                self.parent.local_widget.updateActivityInfo(
-                    f"Failed to fetch sample entry {function_entry_b.sample_id}."
-                )
-                return
-            fcm = FunctionCfgMatcher(
-                smda_report_a, smda_function_a, sample_entry_b, smda_function_b
-            )
-            coloring = fcm.getColoredMatches()
-            coloring = {int(k[6:], 16): int(v[1:], 16) for k, v in coloring["b"].items()}
-            self.cc.backend.show_function_graph(
-                self, sample_entry_b, function_entry_b, smda_function_b, coloring
-            )
+            self._showMatchGraph(smda_report_a, smda_function_a, remote_function_id)
+
+    @staticmethod
+    def _blockColoring(node_colors):
+        """Block offset -> 0xRRGGBB from the matcher's "Node0x<offset>" -> "#RRGGBB" mapping."""
+        return {int(k[6:], 16): int(v[1:], 16) for k, v in node_colors.items()}
 
     def _onTableFunctionNameDoubleClicked(self, mi):
         """
@@ -503,37 +531,41 @@ class FunctionMatchWidget(QMainWindow):
             remote_function_id = int(
                 self.table_function_names.item(mi.row(), function_id_column_index).text()
             )
-            function_entry_b = self.parent.mcrit_interface.queryFunctionEntryById(
-                remote_function_id
-            )
-            if function_entry_b is None:
-                self.parent.local_widget.updateActivityInfo(
-                    f"Failed to fetch function entry {remote_function_id}."
-                )
-                return
-            smda_function_b = function_entry_b.toSmdaFunction()
-            sample_entry_b = self.parent.mcrit_interface.querySampleEntryById(
-                function_entry_b.sample_id
-            )
-            if sample_entry_b is None:
-                self.parent.local_widget.updateActivityInfo(
-                    f"Failed to fetch sample entry {function_entry_b.sample_id}."
-                )
-                return
-            fcm = FunctionCfgMatcher(
-                smda_report_a, smda_function_a, sample_entry_b, smda_function_b
-            )
-            coloring = fcm.getColoredMatches()
-            coloring = {int(k[6:], 16): int(v[1:], 16) for k, v in coloring["b"].items()}
-            self.cc.backend.show_function_graph(
-                self, sample_entry_b, function_entry_b, smda_function_b, coloring
-            )
+            self._showMatchGraph(smda_report_a, smda_function_a, remote_function_id)
         elif function_label_column_index is not None and mi.column() == function_label_column_index:
             function_name = self.table_function_names.item(
                 mi.row(), function_label_column_index
             ).text()
             with self.cc.backend.mutation("Apply MCRIT label"):
                 self.cc.backend.set_function_name(self.last_viewed, function_name)
+
+    def _showMatchGraph(self, smda_report_a, smda_function_a, remote_function_id):
+        """Fetch the remote function off the UI thread, then match it and show its graph."""
+        self.parent.local_widget.updateActivityInfo(
+            f"Fetching function {remote_function_id} for the graph viewer..."
+        )
+
+        def show(remote):
+            if remote is None:
+                return
+            function_entry_b, smda_function_b, sample_entry_b = remote
+            fcm = FunctionCfgMatcher(
+                smda_report_a, smda_function_a, sample_entry_b, smda_function_b
+            )
+            colorings = fcm.getColoredMatches()
+            self.cc.backend.show_local_match_coloring(
+                smda_function_a, self._blockColoring(colorings["a"])
+            )
+            coloring = self._blockColoring(colorings["b"])
+            self.cc.backend.show_function_graph(
+                self, sample_entry_b, function_entry_b, smda_function_b, coloring
+            )
+
+        self.cc.backend.run_request(
+            "MCRIT: fetching remote function %d" % remote_function_id,
+            lambda: self.parent.mcrit_interface.queryRemoteFunction(remote_function_id),
+            show,
+        )
 
     def _onTableFunctionMatchRightClicked(self, position):
         """

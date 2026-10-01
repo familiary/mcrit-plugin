@@ -245,10 +245,10 @@ class FunctionOverviewWidget(QMainWindow):
             self.rb_filter_none.setChecked(True)
 
         # Connect radio buttons to populate function
-        self.rb_filter_none.toggled.connect(self.update)
-        self.rb_filter_labels.toggled.connect(self.update)
-        self.rb_filter_applicable.toggled.connect(self.update)
-        self.rb_filter_conflicted.toggled.connect(self.update)
+        self.rb_filter_none.toggled.connect(self._onFilterToggled)
+        self.rb_filter_labels.toggled.connect(self._onFilterToggled)
+        self.rb_filter_applicable.toggled.connect(self._onFilterToggled)
+        self.rb_filter_conflicted.toggled.connect(self._onFilterToggled)
 
         # Create horizontal layout for button container
         self.button_container = self.cc.QWidget()
@@ -322,12 +322,29 @@ class FunctionOverviewWidget(QMainWindow):
         # with_label_only answers nothing for unlabeled functions, so the cache alone cannot tell
         # a pending id from one already known to be unlabeled
         pending_ids = matched_function_ids - self._label_requested_ids
-        if pending_ids:
-            fetched = self.parent.mcrit_interface.queryFunctionEntriesById(
-                list(pending_ids), with_label_only=True
-            )
+        if not pending_ids:
+            self._showFetchedLabels()
+            return
+        self.b_fetch_labels.setEnabled(False)
+        self.parent.local_widget.updateActivityInfo(
+            "Fetching labels for %d matched functions..." % len(pending_ids)
+        )
+
+        def done(fetched):
+            self.b_fetch_labels.setEnabled(True)
             if fetched is not None:
                 self._label_requested_ids |= pending_ids
+            self._showFetchedLabels()
+
+        self.cc.backend.run_request(
+            "MCRIT: fetching labels for %d matched functions" % len(pending_ids),
+            lambda: self.parent.mcrit_interface.queryFunctionEntriesById(
+                list(pending_ids), with_label_only=True
+            ),
+            done,
+        )
+
+    def _showFetchedLabels(self):
         function_entries_with_labels = {}
         if self.parent.matched_function_entries:
             for function_id, function_entry in self.parent.matched_function_entries.items():
@@ -342,6 +359,11 @@ class FunctionOverviewWidget(QMainWindow):
 
     def update(self):
         self.populateFunctionTable()
+
+    def _onFilterToggled(self, checked):
+        # the button losing its check emits toggled as well
+        if checked:
+            self.update()
 
     def handleSpinThresholdChange(self):
         self.update()
@@ -490,10 +512,13 @@ class FunctionOverviewWidget(QMainWindow):
             config_adjusted_lower_value = max(
                 self.parent.config.OVERVIEW_MIN_SCORE, self.global_minimum_match_value
             )
+            # the caller populates the table with the new value; signals would populate it again
+            self.sb_minhash_threshold.blockSignals(True)
             self.sb_minhash_threshold.setRange(
                 config_adjusted_lower_value, self.global_maximum_match_value
             )
             self.sb_minhash_threshold.setValue(config_adjusted_lower_value)
+            self.sb_minhash_threshold.blockSignals(False)
 
     def _calculateLabelCriticality(self, label_list, has_function_name=False, is_resolved=False):
         criticality = 0
@@ -712,7 +737,6 @@ class FunctionOverviewWidget(QMainWindow):
         self.table_local_functions.setHorizontalHeaderLabels(self.local_function_header_labels)
         # Identify number of table entries and prepare addresses to display
         self.table_local_functions.setRowCount(len(aggregated_matches))
-        self.table_local_functions.resizeRowToContents(0)
         row = 0
         self.function_name_mapping = {}
         self.row_criticality_mapping = {}
@@ -744,8 +768,13 @@ class FunctionOverviewWidget(QMainWindow):
                     tmp_item.setTextAlignment(qt.AlignHCenter)
                     tmp_item.setData(self.cc.QtCore.Qt.UserRole, row)
                     self.table_local_functions.setItem(row, column, tmp_item)
-                self.table_local_functions.resizeRowToContents(row)
                 row += 1
+            if row:
+                # sizing each row to its contents takes seconds on large results
+                self.table_local_functions.resizeRowToContents(0)
+                self.table_local_functions.verticalHeader().setDefaultSectionSize(
+                    self.table_local_functions.rowHeight(0)
+                )
             # we need to set up rendering delegates for function names only if we have names at all
             if function_labels:
                 # Set the delegate to create dropdown menus in the second column
