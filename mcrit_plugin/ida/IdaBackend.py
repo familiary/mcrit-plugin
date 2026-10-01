@@ -4,7 +4,6 @@ import queue
 import re
 import threading
 import traceback
-from concurrent.futures import ThreadPoolExecutor
 from contextlib import contextmanager
 
 import ida_bytes
@@ -113,7 +112,8 @@ class IdaBackend(Backend):
     def __init__(self):
         self._mutation_depth = 0
         self.closed = False
-        self._executor = None
+        self._requests = queue.SimpleQueue()
+        self._workers = []
         self._deliveries = queue.SimpleQueue()
         self._pending = 0
         self._timer = None
@@ -265,21 +265,33 @@ class IdaBackend(Backend):
         call it; a main-thread timer hands each result to on_done."""
         if self.closed:
             return
-        if self._executor is None:
-            self._executor = ThreadPoolExecutor(
-                max_workers=REQUEST_WORKERS, thread_name_prefix="mcrit-request"
-            )
+        if not self._workers:
+            # daemon threads: the interpreter joins a ThreadPoolExecutor's threads at exit, so
+            # quitting IDA during a slow request would wait for it
+            for number in range(REQUEST_WORKERS):
+                worker = threading.Thread(
+                    target=self._work, name="mcrit-request-%d" % number, daemon=True
+                )
+                worker.start()
+                self._workers.append(worker)
         self._pending += 1
-        self._executor.submit(self._run_request, title, work, on_done)
+        self._requests.put((title, work, on_done))
         if self._timer is None:
             self._timer = ida_kernwin.register_timer(DELIVERY_INTERVAL_MS, self._deliver)
 
-    def _run_request(self, title, work, on_done):
-        try:
-            self._deliveries.put((on_done, work()))
-        except Exception:
-            traceback.print_exc()
-            self._deliveries.put((None, title))
+    def _work(self):
+        while True:
+            request = self._requests.get()
+            if request is None:
+                return
+            if self.closed:
+                continue
+            title, work, on_done = request
+            try:
+                self._deliveries.put((on_done, work()))
+            except Exception:
+                traceback.print_exc()
+                self._deliveries.put((None, title))
 
     def _deliver(self):
         # a dialog opened by on_done runs a nested event loop in which this timer fires again;
@@ -311,9 +323,9 @@ class IdaBackend(Backend):
     def close(self):
         """Drop the results still to come; called when the MCRIT form closes."""
         self.closed = True
-        if self._executor is not None:
-            self._executor.shutdown(wait=False, cancel_futures=True)
-            self._executor = None
+        for _worker in self._workers:
+            self._requests.put(None)
+        self._workers = []
         if self._timer is not None and not self._delivering:
             ida_kernwin.unregister_timer(self._timer)
             self._timer = None

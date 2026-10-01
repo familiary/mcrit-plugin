@@ -4,6 +4,7 @@ thread."""
 import importlib
 import sys
 import threading
+import time
 import types
 from unittest.mock import MagicMock
 
@@ -52,9 +53,11 @@ def backend(monkeypatch):
 
 
 def _finish_work(instance):
-    """Wait until the workers have queued their results, as if the requests had answered."""
-    instance._executor.shutdown(wait=True)
-    instance._executor = None
+    """Wait until the workers have queued every pending result, as if the requests had answered."""
+    deadline = time.monotonic() + 5
+    while instance._deliveries.qsize() < instance._pending and time.monotonic() < deadline:
+        time.sleep(0.005)
+    assert instance._deliveries.qsize() == instance._pending
 
 
 def test_run_background_runs_work_on_a_worker_like_a_request(backend):
@@ -244,14 +247,26 @@ def test_close_drops_pending_results_and_stops_the_timer(backend):
     on_done = MagicMock()
 
     instance.run_request("Query", lambda: "late", on_done)
-    executor = instance._executor
-    executor.shutdown(wait=True)
+    workers = list(instance._workers)
+    _finish_work(instance)
     instance.close()
 
     assert kernwin.timers.unregistered
     on_done.assert_not_called()
+    for worker in workers:
+        worker.join(5)
+    assert not any(worker.is_alive() for worker in workers), "close stops the workers"
     instance.run_request("Query", lambda: "after", on_done)
-    assert instance._executor is None, "a closed backend starts no requests"
+    assert instance._workers == [], "a closed backend starts no requests"
+
+
+def test_workers_do_not_hold_up_the_interpreter_at_exit(backend):
+    instance, _kernwin = backend
+
+    instance.run_request("Query", lambda: "answer", MagicMock())
+
+    assert instance._workers and all(worker.daemon for worker in instance._workers)
+    instance.close()
 
 
 def test_an_on_done_that_raises_does_not_stop_later_results(backend):
