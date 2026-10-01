@@ -1,4 +1,5 @@
-"""Function Scope's table of matches: a model holding one row per match, and the view showing it.
+"""The tables of Function Scope and Block Scope: a model holding one row per match or block, and the
+view showing it.
 
 A QTableWidget needed an item per cell, each colored on its own, so a function with hundreds of
 matches took about half a second to show. The model computes a row's texts once and the view asks
@@ -15,14 +16,14 @@ QTableView = QtWidgets.QTableView
 
 
 class MatchRow:
-    """One match with the text and the sort value of each column."""
+    """What a row shows, a match or a block, with the text and the sort value of each column."""
 
-    __slots__ = ("source_row", "match", "texts", "sort_keys", "background")
+    __slots__ = ("source_row", "entry", "texts", "sort_keys", "background")
 
-    def __init__(self, source_row, match, texts, sort_keys, background):
+    def __init__(self, source_row, entry, texts, sort_keys, background=None):
         # the position the row was filled in at, which sorting leaves alone
         self.source_row = source_row
-        self.match = match
+        self.entry = entry
         self.texts = texts
         self.sort_keys = sort_keys
         self.background = background
@@ -89,13 +90,21 @@ class MatchTableModel(QAbstractTableModel):
             return row.texts[index.column()]
         if role == Qt.BackgroundRole:
             return row.background
-        if role == Qt.ForegroundRole:
+        if role == Qt.ForegroundRole and row.background is not None:
+            # the text color suits the tints; an untinted row keeps the style's
             return self.foreground
         return None
 
-    def matchAt(self, row):
-        """The match shown in a row of the view."""
-        return self.rows[row].match
+    def entryAt(self, row):
+        """The match or block shown in a row of the view."""
+        return self.rows[row].entry
+
+    def positionOf(self, source_row):
+        """Where the row filled in at source_row is shown, after any sorting."""
+        for position, row in enumerate(self.rows):
+            if row.source_row == source_row:
+                return position
+        return None
 
 
 class MatchTableView(QTableView):

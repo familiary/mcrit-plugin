@@ -69,6 +69,9 @@ Ninja applies to that plugin only.
 - Function Scope keeps its matches in a table model instead of an item per cell, so a function
   with 884 matches shows in about 0.2 s instead of 0.5 s on IDA. Double clicking a match and copying
   its sample's SHA256 no longer need the function id or sample id columns to be configured.
+- Block Scope's block summary and block match tables are table models too. Their offset and hash
+  columns sort by value instead of as text, which put 0x10 before 0x9, and the clicks no longer
+  depend on which columns are configured.
 - The Function Scope and Block Scope tables size their columns to their first 100 rows instead of
   up to 1,000, which took most of the time a large table needed to show.
 - IDA: Convert, Upload and Export no longer hold IDA for the whole export. Only reading the database

@@ -913,31 +913,37 @@ def _exercise_block_widget(form, second_target, qt_application):
 
     widget.b_query_single.click()
     _wait_until(
-        qt_application, lambda: summary.rowCount() > 0, "Query current basic block lists the blocks"
+        qt_application,
+        lambda: summary.model().rowCount() > 0,
+        "Query current basic block lists the blocks",
     )
     _check(
         "0x%x" % second_target.offset in widget.label_current_function_matches.text(),
         "Block Scope header names the queried function",
     )
 
-    baseline = summary.rowCount()
+    baseline = summary.model().rowCount()
     widget.sb_blocksize_threshold.setValue(widget.sb_blocksize_threshold.maximum())
-    _check(summary.rowCount() <= baseline, "Block Scope min-size spinbox narrows the block summary")
+    _check(
+        summary.model().rowCount() <= baseline,
+        "Block Scope min-size spinbox narrows the block summary",
+    )
     widget.sb_blocksize_threshold.setValue(4)
     _check(
-        summary.rowCount() == baseline, "Block Scope min-size spinbox restores the block summary"
+        summary.model().rowCount() == baseline,
+        "Block Scope min-size spinbox restores the block summary",
     )
 
-    baseline = summary.rowCount()
+    baseline = summary.model().rowCount()
     widget.cb_filter_library.setChecked(False)
     widget.cb_filter_library.click()
     _check(widget.cb_filter_library.isChecked(), "Block Scope library filter checkbox toggles on")
     _check(
-        summary.rowCount() <= baseline,
+        summary.model().rowCount() <= baseline,
         "Block Scope library filter does not widen the block summary",
     )
     widget.cb_filter_library.click()
-    _check(summary.rowCount() == baseline, "Block Scope library filter restores the blocks")
+    _check(summary.model().rowCount() == baseline, "Block Scope library filter restores the blocks")
 
     offset_column = McritTableColumn.columnTypeToIndex(
         McritTableColumn.OFFSET, form.config.BLOCK_SUMMARY_TABLE_COLUMNS
@@ -948,20 +954,20 @@ def _exercise_block_widget(form, second_target, qt_application):
     matched_row = next(
         (
             row
-            for row in range(summary.rowCount())
-            if int(summary.item(row, functions_column).text()) > 0
+            for row in range(summary.model().rowCount())
+            if int(summary.model().index(row, functions_column).data()) > 0
         ),
         None,
     )
     _check(matched_row is not None, "at least one block of the function has matches")
-    offset = int(summary.item(matched_row, offset_column).text(), 16)
+    offset = int(summary.model().index(matched_row, offset_column).data(), 16)
     _single_click(summary, matched_row, offset_column)
     _check(form.current_block == offset, "clicking a block summary row selects that block")
     _check(
         "0x%x" % offset in widget.label_block_matches.text(),
         "the block matches header names the selected block",
     )
-    _check(matches.rowCount() > 0, "the selected block lists its matches")
+    _check(matches.model().rowCount() > 0, "the selected block lists its matches")
 
     _expect_jump(
         form,
@@ -981,7 +987,7 @@ def _exercise_block_widget(form, second_target, qt_application):
     )
     clipboard = form.cc.QApplication.clipboard()
     before = clipboard.text()
-    matches.setCurrentCell(0, 0)
+    _select_cell(matches, 0, 0)
     matches.customContextMenuRequested.emit(form.cc.QtCore.QPoint(0, 0))
     _check(
         sha256_column is None and clipboard.text() == before,

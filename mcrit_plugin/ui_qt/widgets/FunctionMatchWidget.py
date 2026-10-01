@@ -472,7 +472,7 @@ class FunctionMatchWidget(QMainWindow):
 
     def _onTableFunctionMatchDoubleClicked(self, mi):
         """Open the graph of the double clicked match against the current function."""
-        match = self.table_function_matches.table_model.matchAt(mi.row())
+        match = self.table_function_matches.table_model.entryAt(mi.row())
         smda_function_a = self.parent.local_smda_report.getFunction(self.current_function_offset)
         if smda_function_a is None:
             self.parent.local_widget.updateActivityInfo(
@@ -559,7 +559,7 @@ class FunctionMatchWidget(QMainWindow):
             or index.column() != sha256_column_index
         ):
             return
-        match = self.table_function_matches.table_model.matchAt(index.row())
+        match = self.table_function_matches.table_model.entryAt(index.row())
         sample_info = self._get_sample_entry(match.matched_sample_id)
         sample_sha256 = self._get_entry_field(sample_info, "sha256")
         if sample_sha256:

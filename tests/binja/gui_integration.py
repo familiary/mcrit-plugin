@@ -940,27 +940,27 @@ class IntegrationTest:
 
         def query_button():
             widget.b_query_single.click()
-            self.check(summary.rowCount() > 0, "Query current basic block lists the blocks")
+            self.check(summary.model().rowCount() > 0, "Query current basic block lists the blocks")
             self.check(
                 "0x%x" % self.second_target.start in widget.label_current_function_matches.text(),
                 "Block Scope header names the queried function",
             )
 
         def size_spinbox():
-            baseline = summary.rowCount()
+            baseline = summary.model().rowCount()
             widget.sb_blocksize_threshold.setValue(widget.sb_blocksize_threshold.maximum())
             self.check(
-                summary.rowCount() <= baseline,
+                summary.model().rowCount() <= baseline,
                 "Block Scope min-size spinbox narrows the block summary",
             )
             widget.sb_blocksize_threshold.setValue(4)
             self.check(
-                summary.rowCount() == baseline,
+                summary.model().rowCount() == baseline,
                 "Block Scope min-size spinbox restores the block summary",
             )
 
         def library_filter():
-            baseline = summary.rowCount()
+            baseline = summary.model().rowCount()
             widget.cb_filter_library.setChecked(False)
             widget.cb_filter_library.click()
             self.check(
@@ -968,22 +968,27 @@ class IntegrationTest:
                 "Block Scope library filter checkbox toggles on",
             )
             self.check(
-                summary.rowCount() <= baseline,
+                summary.model().rowCount() <= baseline,
                 "Block Scope library filter does not widen the block summary",
             )
             widget.cb_filter_library.click()
             self.check(
-                summary.rowCount() == baseline, "Block Scope library filter restores the blocks"
+                summary.model().rowCount() == baseline,
+                "Block Scope library filter restores the blocks",
             )
 
         def summary_click():
             matched_row = next(
-                (row for row in range(summary.rowCount()) if int(summary.item(row, 5).text()) > 0),
+                (
+                    row
+                    for row in range(summary.model().rowCount())
+                    if int(summary.model().index(row, 5).data()) > 0
+                ),
                 None,
             )
             self.check(matched_row is not None, "at least one block of the function has matches")
             self.summary_row = matched_row
-            offset = int(summary.item(matched_row, 0).text(), 16)
+            offset = int(summary.model().index(matched_row, 0).data(), 16)
             self.single_click(summary, matched_row, 0)
             self.check(
                 self.session.current_block == offset,
@@ -993,10 +998,10 @@ class IntegrationTest:
                 "0x%x" % offset in widget.label_block_matches.text(),
                 "the block matches header names the selected block",
             )
-            self.check(matches.rowCount() > 0, "the selected block lists its matches")
+            self.check(matches.model().rowCount() > 0, "the selected block lists its matches")
 
         def summary_double_click():
-            offset = int(summary.item(self.summary_row, 0).text(), 16)
+            offset = int(summary.model().index(self.summary_row, 0).data(), 16)
             self.double_click(summary, self.summary_row, 0)
             self.check(
                 self.session.cc.backend.get_cursor_address() == offset,
@@ -1013,7 +1018,7 @@ class IntegrationTest:
             sha256_column = McritTableColumn.columnTypeToIndex(McritTableColumn.SHA256, columns)
             clipboard = self.session.cc.QApplication.clipboard()
             before = clipboard.text()
-            matches.setCurrentCell(0, 0)
+            self.select_cell(matches, 0, 0)
             matches.customContextMenuRequested.emit(QPoint(0, 0))
             self.check(
                 sha256_column is None and clipboard.text() == before,
@@ -1186,7 +1191,7 @@ class IntegrationTest:
                 self.session.function_match_widget.table_function_matches.model().rowCount() > 0
             ),
             "MCRIT\\Query Current Block": lambda: (
-                self.session.block_match_widget.table_block_summary.rowCount() > 0
+                self.session.block_match_widget.table_block_summary.model().rowCount() > 0
             ),
             "MCRIT\\Clear Match Coloring": lambda: (
                 not MatchRenderLayer._ranges.get(self.bv.file.session_id)
