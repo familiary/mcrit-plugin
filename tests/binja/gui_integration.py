@@ -97,11 +97,17 @@ class IntegrationTest:
         log(f"PASS {what}")
 
     def double_click(self, table, row, column):
-        table.setCurrentCell(row, column)
+        self.select_cell(table, row, column)
         table.doubleClicked.emit(table.model().index(row, column))
 
+    def select_cell(self, table, row, column):
+        if hasattr(table, "setCurrentCell"):
+            table.setCurrentCell(row, column)
+        else:  # the Function Overview's table view
+            table.setCurrentIndex(table.model().index(row, column))
+
     def single_click(self, table, row, column):
-        table.setCurrentCell(row, column)
+        self.select_cell(table, row, column)
         table.clicked.emit(table.model().index(row, column))
 
     def count_graphs(self):
@@ -278,7 +284,12 @@ class IntegrationTest:
         job_ids = []
         original_request = client.requestMatchesForSample
 
+        off_ui_thread = []
+        running_tasks = []
+
         def capture_request(*args, **kwargs):
+            off_ui_thread.append(threading.current_thread() is not threading.main_thread())
+            running_tasks.extend(task.progress for task in binaryninja.BackgroundTask)
             job_id = original_request(*args, **kwargs)
             job_ids.append(job_id)
             return job_id
@@ -292,18 +303,25 @@ class IntegrationTest:
 
         client.requestMatchesForSample = capture_request
         main_widget.ResultChooserDialog = RequestDialog
-        try:
-            main_widget.getMatchResultAction.trigger()
-        finally:
+        main_widget.getMatchResultAction.trigger()
+
+        def requested():
             client.requestMatchesForSample = original_request
             main_widget.ResultChooserDialog = original_dialog
-        self.check(bool(job_ids and job_ids[-1]), "Create Matching Job returned a job id")
-        self.job_id = job_ids[-1]
-        self.wait(
-            lambda: client.getResultForJob(self.job_id) is not None,
-            self.select_matching,
-            "matching job finished",
-        )
+            self.check(bool(job_ids[-1]), "Create Matching Job returned a job id")
+            self.check(all(off_ui_thread), "the job request ran off the UI thread")
+            self.check(
+                "MCRIT: requesting a matching job" in running_tasks,
+                "the job request is listed among Binary Ninja's background tasks",
+            )
+            self.job_id = job_ids[-1]
+            self.wait(
+                lambda: client.getResultForJob(self.job_id) is not None,
+                self.select_matching,
+                "matching job finished",
+            )
+
+        self.wait(lambda: bool(job_ids), requested, "Create Matching Job requested a job")
 
     def select_matching(self):
         client = self.session.mcrit_interface.mcrit_client
@@ -339,18 +357,21 @@ class IntegrationTest:
                 return 1
 
         main_widget.ResultChooserDialog = SelectDialog
-        try:
-            main_widget.getMatchResultAction.trigger()
-        finally:
+        main_widget.getMatchResultAction.trigger()
+
+        def loaded():
             main_widget.ResultChooserDialog = original_dialog
-        self.check(
-            self.session.matching_report is not None, "result chooser loaded the MatchingResult"
-        )
-        self.check(
-            main_widget.tabs.currentWidget() is self.session.function_widget,
+            self.check(
+                self.session.matching_report is not None,
+                "result chooser loaded the MatchingResult",
+            )
+            self.step(self.exercise_function_overview)
+
+        self.wait(
+            lambda: main_widget.tabs.currentWidget() is self.session.function_widget,
+            loaded,
             "Function Overview shown with results",
         )
-        self.step(self.exercise_function_overview)
 
     ################################################################################
     # Function Overview tab
@@ -361,84 +382,115 @@ class IntegrationTest:
         table = widget.table_local_functions
         label_column = len(self.session.config.OVERVIEW_TABLE_COLUMNS) - 1
 
-        def fetch_labels():
+        def fetch_labels(then):
+            interface = self.session.mcrit_interface
+            original_query = interface.queryFunctionEntriesById
+            off_ui_thread = []
+
+            def capture_query(*args, **kwargs):
+                off_ui_thread.append(threading.current_thread() is not threading.main_thread())
+                return original_query(*args, **kwargs)
+
+            def fetched():
+                interface.queryFunctionEntriesById = original_query
+                self.check(
+                    off_ui_thread and all(off_ui_thread),
+                    "Fetch labels for matches ran off the UI thread",
+                )
+                self.check(
+                    table.model().rowCount() > 0,
+                    "Fetch labels for matches populated the Function Overview",
+                )
+                self.check(
+                    any(
+                        entry.function_labels
+                        for entry in (self.session.matched_function_entries or {}).values()
+                    ),
+                    "Fetch labels for matches returned labels from the server",
+                )
+                then()
+
+            interface.queryFunctionEntriesById = capture_query
             widget.b_fetch_labels.click()
             self.check(
-                table.rowCount() > 0, "Fetch labels for matches populated the Function Overview"
+                not widget.b_fetch_labels.isEnabled(),
+                "Fetch labels for matches is disabled while its request runs",
             )
-            self.check(
-                any(
-                    entry.function_labels
-                    for entry in (self.session.matched_function_entries or {}).values()
-                ),
-                "Fetch labels for matches returned labels from the server",
-            )
+            self.wait(widget.b_fetch_labels.isEnabled, fetched, "Fetch labels for matches answered")
 
         def filter_radios():
-            baseline = table.rowCount()
+            baseline = table.model().rowCount()
             widget.rb_filter_labels.setChecked(True)
             self.check(
-                table.rowCount() <= baseline, "filter 'labels' does not widen the Function Overview"
+                table.model().rowCount() <= baseline,
+                "filter 'labels' does not widen the Function Overview",
             )
             widget.rb_filter_applicable.setChecked(True)
-            applicable = table.rowCount()
+            applicable = table.model().rowCount()
             widget.rb_filter_conflicted.setChecked(True)
             self.check(
-                table.rowCount() <= applicable,
+                table.model().rowCount() <= applicable,
                 "filter 'conflicted' is a subset of filter 'applicable'",
             )
             widget.rb_filter_none.setChecked(True)
             self.check(
-                table.rowCount() == baseline, "filter 'none' restores the full Function Overview"
+                table.model().rowCount() == baseline,
+                "filter 'none' restores the full Function Overview",
             )
 
         def score_spinbox():
             spinbox = widget.sb_minhash_threshold
-            baseline = table.rowCount()
+            baseline = table.model().rowCount()
             spinbox.setValue(spinbox.maximum())
             self.check(
-                table.rowCount() <= baseline,
+                table.model().rowCount() <= baseline,
                 "Function Overview min-score spinbox narrows the table",
             )
             spinbox.setValue(spinbox.minimum())
             self.check(
-                table.rowCount() == baseline,
+                table.model().rowCount() == baseline,
                 "Function Overview min-score spinbox restores the table",
             )
 
         def column_sorting():
-            rows = table.rowCount()
-            for column in range(table.columnCount()):
+            rows = table.model().rowCount()
+            for column in range(table.model().columnCount()):
                 table.sortByColumn(column, self.session.cc.QtCore.Qt.AscendingOrder)
                 self.check(
-                    table.rowCount() == rows,
+                    table.model().rowCount() == rows,
                     f"Function Overview keeps all rows sorting column {column} ascending",
                 )
                 table.sortByColumn(column, self.session.cc.QtCore.Qt.DescendingOrder)
                 self.check(
-                    table.rowCount() == rows,
+                    table.model().rowCount() == rows,
                     f"Function Overview keeps all rows sorting column {column} descending",
                 )
             table.sortByColumn(0, self.session.cc.QtCore.Qt.AscendingOrder)
-            offsets = [int(table.item(row, 0).text(), 16) for row in range(rows)]
+            offsets = [int(table.model().index(row, 0).data(), 16) for row in range(rows)]
             self.check(offsets == sorted(offsets), "Function Overview sorts offsets ascending")
 
         def label_dropdown():
-            delegate = table.itemDelegateForColumn(label_column)
+            model = table.table_model
             self.check(
-                hasattr(delegate, "getEditorForRow"), "Function Overview installed label dropdowns"
+                model.isDropdown(model.index(0, label_column)),
+                "Function Overview shows label dropdowns",
             )
-            editor = delegate.getEditorForRow(widget._populatedRow(0))
-            self.check(editor is not None, "label dropdown editor exists for the first row")
-            self.check(editor.count() > 1, "label dropdown offers a label and the '-|-' opt-out")
-            editor.setCurrentIndex(0)
-            editor.activated.emit(0)
             self.check(
-                editor.hasUserMadeSelection(), "label dropdown records an explicit user selection"
+                len(model.rows[0].choices) > 1,
+                "label dropdown offers a label and the '-|-' opt-out",
+            )
+            # a pick lands in the row's own model entry, whatever order the rows are shown in
+            self.check(
+                table.model().setData(table.model().index(0, label_column), 0),
+                "label dropdown accepts an explicit user selection",
+            )
+            self.check(
+                widget.getSelectedLabel(0, label_column) == model.rows[0].choices[0],
+                "label dropdown shows the entry that was picked",
             )
 
         def right_click_resolves():
-            offset = int(table.item(0, 0).text(), 16)
+            offset = int(table.model().index(0, 0).data(), 16)
             # the dropdowns report the row they were filled into, which sorting may have moved
             widget._handleRightClickOnRow(widget._populatedRow(0), label_column)
             self.check(
@@ -456,7 +508,7 @@ class IntegrationTest:
             self.check(
                 all(
                     widget.getSelectedLabel(row, label_column) == "-|-"
-                    for row in range(table.rowCount())
+                    for row in range(table.model().rowCount())
                 ),
                 "(de)select all sets every label dropdown to the opt-out entry",
             )
@@ -464,8 +516,8 @@ class IntegrationTest:
             # a dropdown whose matches carry no label on the server only offers the opt-out entry
             rows_with_labels = [
                 row
-                for row in range(table.rowCount())
-                if len(widget.function_name_mapping[(widget._populatedRow(row), label_column)]) > 1
+                for row in range(table.model().rowCount())
+                if table.table_model.rows[row].label_entries
             ]
             self.check(
                 bool(rows_with_labels), "(de)select all has at least one labelled row to restore"
@@ -479,7 +531,10 @@ class IntegrationTest:
 
         def import_labels():
             backend = self.session.cc.backend
-            offsets = [int(table.item(row, 0).text(), 16) for row in range(table.rowCount())]
+            offsets = [
+                int(table.model().index(row, 0).data(), 16)
+                for row in range(table.model().rowCount())
+            ]
             importable = [offset for offset in offsets if backend.has_default_function_name(offset)]
             self.check(bool(importable), "Function Overview lists functions without a custom name")
             before = {offset: backend.get_function_name(offset) for offset in importable}
@@ -516,10 +571,10 @@ class IntegrationTest:
             )
 
         def table_clicks():
-            offset = int(table.item(0, 0).text(), 16)
+            offset = int(table.model().index(0, 0).data(), 16)
             self.single_click(table, 0, 0)
             self.check(
-                table.currentRow() == 0,
+                table.currentIndex().row() == 0,
                 "clicking a Function Overview row selects it",
             )
             self.double_click(table, 0, 0)
@@ -534,19 +589,20 @@ class IntegrationTest:
             )
             self.session.main_widget.tabs.setCurrentIndex(2)
 
-        self.sequence(
-            [
-                fetch_labels,
-                filter_radios,
-                score_spinbox,
-                column_sorting,
-                label_dropdown,
-                right_click_resolves,
-                select_deselect_all,
-                import_labels,
-                table_clicks,
-            ],
-            self.exercise_sample_summary,
+        fetch_labels(
+            lambda: self.sequence(
+                [
+                    filter_radios,
+                    score_spinbox,
+                    column_sorting,
+                    label_dropdown,
+                    right_click_resolves,
+                    select_deselect_all,
+                    import_labels,
+                    table_clicks,
+                ],
+                self.exercise_sample_summary,
+            )
         )
 
     ################################################################################
@@ -793,7 +849,56 @@ class IntegrationTest:
                 match_right_click,
                 name_table,
             ],
-            self.exercise_block_scope,
+            self.exercise_late_function_answer,
+        )
+
+    def exercise_late_function_answer(self):
+        """A query answered after the cursor moved on must not replace the newer function."""
+        widget = self.session.function_match_widget
+        interface = self.session.mcrit_interface
+        original_query = interface.querySmdaFunctionMatches
+        trace = {}
+
+        def slow_query(report):
+            trace["off_ui_thread"] = threading.current_thread() is not threading.main_thread()
+            time.sleep(1)
+            result = original_query(report)
+            trace["answered"] = time.time()
+            return result
+
+        rendered = []
+        original_show = widget._showFunctionMatches
+
+        def recording_show(smda_function):
+            rendered.append(smda_function.offset)
+            return original_show(smda_function)
+
+        self.session.function_matches.pop(self.target.start, None)
+        interface.querySmdaFunctionMatches = slow_query
+        widget._showFunctionMatches = recording_show
+        self.session.current_function = self.target.start
+        widget.updateViewWithCurrentFunction()
+        self.session.current_function = self.second_target.start
+        widget.updateViewWithCurrentFunction()
+
+        def settled():
+            interface.querySmdaFunctionMatches = original_query
+            del widget._showFunctionMatches
+            self.check(trace["off_ui_thread"], "a Function Scope query runs off the UI thread")
+            self.check(
+                rendered == [self.second_target.start],
+                "a late answer for a function the cursor left does not replace the table",
+            )
+            self.check(
+                self.target.start in self.session.function_matches,
+                "the late answer is still cached for that function",
+            )
+            self.step(self.exercise_block_scope)
+
+        self.wait(
+            lambda: "answered" in trace and time.time() - trace["answered"] > 0.5,
+            settled,
+            "the slow query for the earlier function answered",
         )
 
     ################################################################################

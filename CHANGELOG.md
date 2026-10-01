@@ -8,6 +8,31 @@ Ninja applies to that plugin only.
 
 ## [Unreleased]
 
+### Changed
+
+- Binary Ninja: uploading the report, Function Scope and Block Scope queries, and fetching a
+  matching result run off the UI thread, so a slow or unreachable MCRIT server no longer freezes
+  Binary Ninja. A live query answered after the cursor moved to another function is cached but not
+  shown. Results already cached show at once. IDA still runs these requests on its main thread.
+- Binary Ninja: "Fetch labels for matches" also runs off the UI thread; on a result with 150,000
+  matched functions it froze Binary Ninja for about a minute.
+- The Function Overview renders large results about ten times faster: it sizes its rows once
+  instead of row by row, and a new result or filter click renders the table once instead of two or
+  three times.
+- Binary Ninja: MCRIT requests show in the status bar as background tasks named after what they
+  do, such as "MCRIT: fetching labels for 2000 of 151306 matched functions", like Binary Ninja's
+  own analysis tasks. The plugin's log messages go to the log of the file they concern.
+- "Fetch labels for matches" asks the server for 2,000 functions first, then 50,000 at a time, best
+  matches first, and shows the labels of each chunk as it arrives instead of after the last one. A
+  failed chunk stops the fetch; the functions not yet fetched are requested again by the next
+  click.
+- The Function Overview keeps its rows in a table model and paints the label drop-downs, instead of
+  creating a combo box for every row. A filter click on a synthetic result of 20,000 functions takes about
+  one second instead of two minutes, and a drop-down opens when its cell is clicked.
+  The matches of a result are grouped by function once and each threshold and filter is aggregated
+  once, so with 221,000 matches over 705 functions clicking through the filters takes about 0.15 s
+  instead of 3 to 4 s.
+
 ## [2.0.0] - 2026-09-28
 
 ### Added
