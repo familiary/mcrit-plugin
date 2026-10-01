@@ -1,5 +1,6 @@
 """Tests for the McritInterface logic that runs without a disassembler or an MCRIT server."""
 
+import threading
 from types import SimpleNamespace
 from unittest.mock import MagicMock
 
@@ -57,6 +58,8 @@ def _make_interface(timeout=10):
     )
     inst.config = inst.parent.config
     inst._mcrit_server = "http://127.0.0.1:8000"
+    inst._cache_lock = threading.Lock()
+    inst._remote_info_lock = threading.Lock()
     inst.mcrit_client = MagicMock()
     return inst
 
@@ -166,3 +169,45 @@ class TestServerErrors:
 
         assert interface.queryJobs(sample_id=23) is None
         interface.parent.local_widget.updateActivityInfo.assert_called_with("Job query failed.")
+
+    def test_jobs_of_a_sample_are_narrowed_by_the_server_and_checked_exactly(self):
+        interface = _make_interface()
+
+        def job(parameters):
+            return SimpleNamespace(parameters=parameters)
+
+        wanted = job("getMatchesForSample(23, 2)")
+        interface.mcrit_client.getQueueData.return_value = [
+            wanted,
+            job("getMatchesForSample(230, 2)"),
+            job("updateMinHashesForSample(23)"),
+        ]
+
+        assert interface.queryJobs(sample_id=23) == [wanted]
+        interface.mcrit_client.getQueueData.assert_called_once_with(filter="23")
+
+
+class TestRemoteInformation:
+    def test_the_lists_are_downloaded_once_by_whoever_asks_first(self):
+        interface = _make_interface()
+        interface.parent.family_infos = None
+        interface.parent.sample_infos = None
+        interface.mcrit_client.getFamilies.return_value = {1: MagicMock()}
+        interface.mcrit_client.getSamples.return_value = {2: MagicMock()}
+
+        assert interface.ensureRemoteInformation() is True
+        assert interface.ensureRemoteInformation() is True
+        assert interface.mcrit_client.getFamilies.call_count == 1
+        assert interface.mcrit_client.getSamples.call_count == 1
+
+    def test_a_failed_download_is_tried_again_on_the_next_ask(self):
+        interface = _make_interface()
+        interface.parent.family_infos = None
+        interface.parent.sample_infos = None
+        interface.mcrit_client.getFamilies.return_value = None
+        interface.mcrit_client.getSamples.return_value = {2: MagicMock()}
+
+        assert interface.ensureRemoteInformation() is False
+        interface.mcrit_client.getFamilies.return_value = {1: MagicMock()}
+        assert interface.ensureRemoteInformation() is True
+        assert interface.mcrit_client.getSamples.call_count == 1

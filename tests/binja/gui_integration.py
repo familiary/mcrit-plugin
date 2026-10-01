@@ -11,6 +11,7 @@ import os
 import threading
 import time
 import traceback
+import types
 
 import binaryninja
 from binaryninjaui import (
@@ -20,7 +21,7 @@ from binaryninjaui import (
     UIContext,
     UIContextNotification,
 )
-from PySide6.QtCore import QPoint, QTimer
+from PySide6.QtCore import QPoint, Qt, QTimer
 from PySide6.QtWidgets import QApplication
 
 # startup.py is executed without __file__
@@ -278,7 +279,12 @@ class IntegrationTest:
         job_ids = []
         original_request = client.requestMatchesForSample
 
+        off_ui_thread = []
+        running_tasks = []
+
         def capture_request(*args, **kwargs):
+            off_ui_thread.append(threading.current_thread() is not threading.main_thread())
+            running_tasks.extend(task.progress for task in binaryninja.BackgroundTask)
             job_id = original_request(*args, **kwargs)
             job_ids.append(job_id)
             return job_id
@@ -292,18 +298,25 @@ class IntegrationTest:
 
         client.requestMatchesForSample = capture_request
         main_widget.ResultChooserDialog = RequestDialog
-        try:
-            main_widget.getMatchResultAction.trigger()
-        finally:
+        main_widget.getMatchResultAction.trigger()
+
+        def requested():
             client.requestMatchesForSample = original_request
             main_widget.ResultChooserDialog = original_dialog
-        self.check(bool(job_ids and job_ids[-1]), "Create Matching Job returned a job id")
-        self.job_id = job_ids[-1]
-        self.wait(
-            lambda: client.getResultForJob(self.job_id) is not None,
-            self.select_matching,
-            "matching job finished",
-        )
+            self.check(bool(job_ids[-1]), "Create Matching Job returned a job id")
+            self.check(all(off_ui_thread), "the job request ran off the UI thread")
+            self.check(
+                "MCRIT: requesting a matching job" in running_tasks,
+                "the job request is listed among Binary Ninja's background tasks",
+            )
+            self.job_id = job_ids[-1]
+            self.wait(
+                lambda: client.getResultForJob(self.job_id) is not None,
+                self.select_matching,
+                "matching job finished",
+            )
+
+        self.wait(lambda: bool(job_ids), requested, "Create Matching Job requested a job")
 
     def select_matching(self):
         client = self.session.mcrit_interface.mcrit_client
@@ -339,18 +352,21 @@ class IntegrationTest:
                 return 1
 
         main_widget.ResultChooserDialog = SelectDialog
-        try:
-            main_widget.getMatchResultAction.trigger()
-        finally:
+        main_widget.getMatchResultAction.trigger()
+
+        def loaded():
             main_widget.ResultChooserDialog = original_dialog
-        self.check(
-            self.session.matching_report is not None, "result chooser loaded the MatchingResult"
-        )
-        self.check(
-            main_widget.tabs.currentWidget() is self.session.function_widget,
+            self.check(
+                self.session.matching_report is not None,
+                "result chooser loaded the MatchingResult",
+            )
+            self.step(self.exercise_function_overview)
+
+        self.wait(
+            lambda: main_widget.tabs.currentWidget() is self.session.function_widget,
+            loaded,
             "Function Overview shown with results",
         )
-        self.step(self.exercise_function_overview)
 
     ################################################################################
     # Function Overview tab
@@ -361,18 +377,40 @@ class IntegrationTest:
         table = widget.table_local_functions
         label_column = len(self.session.config.OVERVIEW_TABLE_COLUMNS) - 1
 
-        def fetch_labels():
+        def fetch_labels(then):
+            interface = self.session.mcrit_interface
+            original_query = interface.queryFunctionEntriesById
+            off_ui_thread = []
+
+            def capture_query(*args, **kwargs):
+                off_ui_thread.append(threading.current_thread() is not threading.main_thread())
+                return original_query(*args, **kwargs)
+
+            def fetched():
+                interface.queryFunctionEntriesById = original_query
+                self.check(
+                    off_ui_thread and all(off_ui_thread),
+                    "Fetch labels for matches ran off the UI thread",
+                )
+                self.check(
+                    table.rowCount() > 0, "Fetch labels for matches populated the Function Overview"
+                )
+                self.check(
+                    any(
+                        entry.function_labels
+                        for entry in (self.session.matched_function_entries or {}).values()
+                    ),
+                    "Fetch labels for matches returned labels from the server",
+                )
+                then()
+
+            interface.queryFunctionEntriesById = capture_query
             widget.b_fetch_labels.click()
             self.check(
-                table.rowCount() > 0, "Fetch labels for matches populated the Function Overview"
+                not widget.b_fetch_labels.isEnabled(),
+                "Fetch labels for matches is disabled while its request runs",
             )
-            self.check(
-                any(
-                    entry.function_labels
-                    for entry in (self.session.matched_function_entries or {}).values()
-                ),
-                "Fetch labels for matches returned labels from the server",
-            )
+            self.wait(widget.b_fetch_labels.isEnabled, fetched, "Fetch labels for matches answered")
 
         def filter_radios():
             baseline = table.rowCount()
@@ -534,19 +572,20 @@ class IntegrationTest:
             )
             self.session.main_widget.tabs.setCurrentIndex(2)
 
-        self.sequence(
-            [
-                fetch_labels,
-                filter_radios,
-                score_spinbox,
-                column_sorting,
-                label_dropdown,
-                right_click_resolves,
-                select_deselect_all,
-                import_labels,
-                table_clicks,
-            ],
-            self.exercise_sample_summary,
+        fetch_labels(
+            lambda: self.sequence(
+                [
+                    filter_radios,
+                    score_spinbox,
+                    column_sorting,
+                    label_dropdown,
+                    right_click_resolves,
+                    select_deselect_all,
+                    import_labels,
+                    table_clicks,
+                ],
+                self.exercise_sample_summary,
+            )
         )
 
     ################################################################################
@@ -793,7 +832,56 @@ class IntegrationTest:
                 match_right_click,
                 name_table,
             ],
-            self.exercise_block_scope,
+            self.exercise_late_function_answer,
+        )
+
+    def exercise_late_function_answer(self):
+        """A query answered after the cursor moved on must not replace the newer function."""
+        widget = self.session.function_match_widget
+        interface = self.session.mcrit_interface
+        original_query = interface.querySmdaFunctionMatches
+        trace = {}
+
+        def slow_query(report):
+            trace["off_ui_thread"] = threading.current_thread() is not threading.main_thread()
+            time.sleep(1)
+            result = original_query(report)
+            trace["answered"] = time.time()
+            return result
+
+        rendered = []
+        original_show = widget._showFunctionMatches
+
+        def recording_show(smda_function):
+            rendered.append(smda_function.offset)
+            return original_show(smda_function)
+
+        self.session.function_matches.pop(self.target.start, None)
+        interface.querySmdaFunctionMatches = slow_query
+        widget._showFunctionMatches = recording_show
+        self.session.current_function = self.target.start
+        widget.updateViewWithCurrentFunction()
+        self.session.current_function = self.second_target.start
+        widget.updateViewWithCurrentFunction()
+
+        def settled():
+            interface.querySmdaFunctionMatches = original_query
+            del widget._showFunctionMatches
+            self.check(trace["off_ui_thread"], "a Function Scope query runs off the UI thread")
+            self.check(
+                rendered == [self.second_target.start],
+                "a late answer for a function the cursor left does not replace the table",
+            )
+            self.check(
+                self.target.start in self.session.function_matches,
+                "the late answer is still cached for that function",
+            )
+            self.step(self.exercise_block_scope)
+
+        self.wait(
+            lambda: "answered" in trace and time.time() - trace["answered"] > 0.5,
+            settled,
+            "the slow query for the earlier function answered",
         )
 
     ################################################################################
@@ -1134,6 +1222,54 @@ class IntegrationTest:
             "the uploaded report carries the new function name",
         )
         self.bv.undo()
+        self.step(self.exercise_split_pane)
+
+    ################################################################################
+    # a split pane its tab's sidebar has not seen
+    ################################################################################
+
+    def tab_frames(self, frame):
+        for tab in self.context.getTabs():
+            frames = list(self.context.getAllViewFramesForTab(tab))
+            if any(candidate is frame for candidate in frames):
+                return frames
+        return []
+
+    def exercise_split_pane(self):
+        from binaryninjaui import SplitPaneContainer
+
+        frame = self.widget.backend.view_frame
+        # held so the pane it returns is not deleted with a temporary wrapper
+        self.split_container = SplitPaneContainer.containerForWidget(frame)
+        self.split_container.currentViewPane().splitPane(Qt.Horizontal)
+        new = {}
+
+        def split():
+            others = [other for other in self.tab_frames(frame) if other is not frame]
+            if others:
+                new["pane"] = others[0]
+                return True
+            return False
+
+        self.wait(split, lambda: self.check_split_routing(frame, new["pane"]), "the tab is split")
+
+    def check_split_routing(self, frame, split_pane):
+        widgets = self.sidebar_module._SIDEBAR_WIDGETS
+        # stands in for another tab's widget of the same file, which the old fallback returned
+        other_tab = types.SimpleNamespace(
+            backend=types.SimpleNamespace(bv=self.bv, view_frame=object())
+        )
+        self.widget.backend.view_frame = frame
+        widgets.insert(0, other_tab)
+        try:
+            route = self.sidebar_module._widget_for_view
+            self.check(route(self.bv, frame) is self.widget, "a seen pane routes to its sidebar")
+            self.check(
+                route(self.bv, split_pane) is self.widget,
+                "a split pane its sidebar has not seen routes to its own tab's sidebar",
+            )
+        finally:
+            widgets.remove(other_tab)
         self.finish(True)
 
 
