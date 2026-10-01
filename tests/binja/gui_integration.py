@@ -100,6 +100,33 @@ class IntegrationTest:
         table.setCurrentCell(row, column)
         table.doubleClicked.emit(table.model().index(row, column))
 
+    def double_click_graph(self, table, row, column, what):
+        """Double click a match and wait for its graph; the remote function is fetched off the UI
+        thread, so the click returns before the graph opens."""
+        interface = self.session.mcrit_interface
+        original = interface.queryRemoteFunction
+        off_ui_thread = []
+
+        def capture(*args, **kwargs):
+            off_ui_thread.append(threading.current_thread() is not threading.main_thread())
+            return original(*args, **kwargs)
+
+        interface.queryRemoteFunction = capture
+        before = len(self.graph_calls)
+        try:
+            self.double_click(table, row, column)
+            self.check(len(self.graph_calls) == before, f"{what}: the click returns at once")
+            deadline = time.time() + TIMEOUT
+            while len(self.graph_calls) == before and time.time() < deadline:
+                QApplication.processEvents()
+                time.sleep(0.01)
+        finally:
+            interface.queryRemoteFunction = original
+        self.check(len(self.graph_calls) == before + 1, f"{what} opens the CFG graph")
+        self.check(
+            off_ui_thread == [True], f"{what}: the remote function is fetched off the UI thread"
+        )
+
     def single_click(self, table, row, column):
         table.setCurrentCell(row, column)
         table.clicked.emit(table.model().index(row, column))
@@ -769,12 +796,7 @@ class IntegrationTest:
             )
 
         def match_double_click():
-            before = len(self.graph_calls)
-            self.double_click(matches, 0, 0)
-            self.check(
-                len(self.graph_calls) == before + 1,
-                "double clicking a function match opens the CFG graph",
-            )
+            self.double_click_graph(matches, 0, 0, "double clicking a function match")
 
         def match_right_click():
             columns = self.session.config.FUNCTION_MATCHES_TABLE_COLUMNS
@@ -802,12 +824,7 @@ class IntegrationTest:
             label_column = McritTableColumn.columnTypeToIndex(
                 McritTableColumn.FUNCTION_LABEL, columns
             )
-            before = len(self.graph_calls)
-            self.double_click(names, 0, id_column)
-            self.check(
-                len(self.graph_calls) == before + 1,
-                "double clicking a name's function id opens the CFG graph",
-            )
+            self.double_click_graph(names, 0, id_column, "double clicking a name's function id")
             backend = self.session.cc.backend
             original_name = backend.get_function_name(self.second_target.start)
             label = names.item(0, label_column).text()
@@ -959,12 +976,7 @@ class IntegrationTest:
             )
 
         def matches_double_click():
-            before = len(self.graph_calls)
-            self.double_click(matches, 0, 0)
-            self.check(
-                len(self.graph_calls) == before + 1,
-                "double clicking a block match opens the CFG graph",
-            )
+            self.double_click_graph(matches, 0, 0, "double clicking a block match")
 
         def matches_right_click():
             import mcrit_plugin.core.McritTableColumn as McritTableColumn

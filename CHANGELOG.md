@@ -22,6 +22,10 @@ Ninja applies to that plugin only.
 - Binary Ninja: MCRIT requests show in the status bar as background tasks named after what they
   do, such as "MCRIT: fetching labels for 151306 matched functions", like Binary Ninja's own
   analysis tasks. The plugin's log messages go to the log of the file they concern.
+- Opening the graph of a function or block match fetches the remote function off the UI thread on
+  Binary Ninja, and takes its sample from the sample list already downloaded instead of asking the
+  server again. For a 3,955-instruction match against mcrit.malpedia.io, Binary Ninja froze for
+  about 3.5 s; the click now returns at once and the graph opens after about 2.1 s.
 
 ## [2.0.0] - 2026-09-28
 
