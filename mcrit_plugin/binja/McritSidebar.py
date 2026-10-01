@@ -246,6 +246,11 @@ _ACTIONS = [
         _has_report,
     ),
     (
+        "MCRIT\\Clear Match Coloring",
+        lambda session: session.cc.backend.clear_local_match_coloring(),
+        _has_report,
+    ),
+    (
         "MCRIT\\Query Current Block",
         lambda session: session.block_match_widget.queryCurrentBlock(),
         _has_report,

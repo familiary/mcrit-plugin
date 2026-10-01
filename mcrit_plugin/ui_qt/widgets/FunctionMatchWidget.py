@@ -499,6 +499,11 @@ class FunctionMatchWidget(QMainWindow):
             smda_report_a = self.parent.local_smda_report
             self._showMatchGraph(smda_report_a, smda_function_a, remote_function_id)
 
+    @staticmethod
+    def _blockColoring(node_colors):
+        """Block offset -> 0xRRGGBB from the matcher's "Node0x<offset>" -> "#RRGGBB" mapping."""
+        return {int(k[6:], 16): int(v[1:], 16) for k, v in node_colors.items()}
+
     def _onTableFunctionNameDoubleClicked(self, mi):
         """
         Use the row with that was double clicked to import the function_name to the current function
@@ -543,8 +548,11 @@ class FunctionMatchWidget(QMainWindow):
             fcm = FunctionCfgMatcher(
                 smda_report_a, smda_function_a, sample_entry_b, smda_function_b
             )
-            coloring = fcm.getColoredMatches()
-            coloring = {int(k[6:], 16): int(v[1:], 16) for k, v in coloring["b"].items()}
+            colorings = fcm.getColoredMatches()
+            self.cc.backend.show_local_match_coloring(
+                smda_function_a, self._blockColoring(colorings["a"])
+            )
+            coloring = self._blockColoring(colorings["b"])
             self.cc.backend.show_function_graph(
                 self, sample_entry_b, function_entry_b, smda_function_b, coloring
             )

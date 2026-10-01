@@ -50,6 +50,12 @@ Ninja applies to that plugin only.
 - Requests to the MCRIT server reuse their connection instead of opening a new one each time, and
   Block Scope looks up a function's block hashes eight at a time. Against a remote server, the
   block lookups for a function with 166 distinct block hashes took 6 seconds instead of 166.
+### Added
+
+- Binary Ninja: opening a matched function's graph, or a block match's function, now also tints the
+  matched basic blocks of the local function in Binary Ninja's own graph and linear views, through
+  the "MCRIT Matches" render layer (on by default; switch it off in the view's render layer menu).
+  The tint stays until another graph is opened or "MCRIT\Clear Match Coloring" is run.
 
 ## [2.0.0] - 2026-09-28
 

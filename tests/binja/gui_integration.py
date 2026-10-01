@@ -816,6 +816,12 @@ class IntegrationTest:
 
         def match_double_click():
             self.double_click_graph(matches, 0, 0, "double clicking a function match")
+            from mcrit_plugin.binja.MatchRenderLayer import MatchRenderLayer
+
+            self.check(
+                bool(MatchRenderLayer._ranges.get(self.bv.file.session_id)),
+                "double clicking a function match tints the local function's matched blocks",
+            )
 
         def match_right_click():
             columns = self.session.config.FUNCTION_MATCHES_TABLE_COLUMNS
@@ -1111,6 +1117,7 @@ class IntegrationTest:
             "MCRIT\\Build YARA String from Selection": main_widget.buildYaraStringAction.isEnabled(),
             "MCRIT\\Query Current Function": True,
             "MCRIT\\Query Current Block": True,
+            "MCRIT\\Clear Match Coloring": self.session.local_smda_report is not None,
         }
         names = [name for name, _handler, _enabled in self.sidebar_module._ACTIONS]
         for name in names:
@@ -1118,6 +1125,17 @@ class IntegrationTest:
                 handler.isValidAction(name, context) == expected_validity[name],
                 f"menu action validity matches the toolbar state: {name}",
             )
+        from mcrit_plugin.binja.MatchRenderLayer import MatchRenderLayer
+
+        self.check(
+            bool(MatchRenderLayer._ranges.get(self.bv.file.session_id)),
+            "the last match opened left its tint in place",
+        )
+        handler.executeAction("MCRIT\\Clear Match Coloring", context)
+        self.check(
+            not MatchRenderLayer._ranges.get(self.bv.file.session_id),
+            "MCRIT\\Clear Match Coloring removes the tint",
+        )
 
         target_job = str(self.job_id)
 
@@ -1166,6 +1184,9 @@ class IntegrationTest:
             ),
             "MCRIT\\Query Current Block": lambda: (
                 self.session.block_match_widget.table_block_summary.rowCount() > 0
+            ),
+            "MCRIT\\Clear Match Coloring": lambda: (
+                not MatchRenderLayer._ranges.get(self.bv.file.session_id)
             ),
         }
         pending = list(names)
