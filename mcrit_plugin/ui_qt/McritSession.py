@@ -1,3 +1,4 @@
+import copy
 import time
 
 
@@ -36,14 +37,9 @@ class McritSession:
         self.block_to_hash = {}
         # PicBlockHash to matches from remote server
         self.blockhash_matches = {}
-        # unused
-        self.remote_function_mapping = {}
         self.sample_infos = None
         self.family_infos = None
         self.function_id_to_offset = {}
-        self.pichash_matches = {}
-        self.pichash_match_summaries = {}
-        self.picblockhash_matches = {}
         self.icon = self.cc.QIcon(config.ICON_FILE_PATH + "relationship.png")
         self.mcrit_interface = McritInterface(self, backend)
         self.hook_subscribed_widgets = []
@@ -55,12 +51,6 @@ class McritSession:
 
     def getMatchingReport(self):
         return self.matching_report
-
-    def getSampleInfos(self):
-        return self.sample_infos
-
-    def getFunctionInfos(self):
-        return self.remote_function_mapping
 
     def getLocalSmdaReport(self):
         return self.local_smda_report
@@ -74,18 +64,17 @@ class McritSession:
             return None
         if self._outline_source is not self.local_smda_report:
             self._outline_source = self.local_smda_report
-            self.local_smda_report_outline = self.local_smda_report.toDict()
-            self.local_smda_report_outline["xcfg"] = {}
+            # serializing the functions only to drop them took most of a second for 2,000 functions
+            without_functions = copy.copy(self.local_smda_report)
+            without_functions.xcfg = {}
+            self.local_smda_report_outline = without_functions.toDict()
         return SmdaReport.fromDict(dict(self.local_smda_report_outline))
 
     def getRemoteSampleInformation(self):
         """Download family/sample meta data; callable off the UI thread, so it touches no widget."""
         time_before = time.time()
         print("[/] starting download of meta data from MCRIT...")
-        self.mcrit_interface.queryAllFamilyEntries()
-        print("[|] downloaded FamilyEntries!")
-        self.mcrit_interface.queryAllSampleEntries()
-        print("[|] downloaded SampleEntries!")
+        self.mcrit_interface.ensureRemoteInformation()
         print("[\\] this took %3.2f seconds.\n" % (time.time() - time_before))
 
     def setupWidgets(self):

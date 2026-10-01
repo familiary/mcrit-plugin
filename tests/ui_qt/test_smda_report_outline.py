@@ -15,6 +15,8 @@ from mcrit_plugin.ui_qt.McritSession import McritSession
 class _CachingSmdaReport:
     """SmdaReport stand-in with SMDA >= 4.8 `getFunctions()` caching semantics."""
 
+    serialized_functions = 0
+
     def __init__(self, xcfg=None, sha256="a" * 64):
         self.xcfg = xcfg or {}
         self.sha256 = sha256
@@ -25,6 +27,7 @@ class _CachingSmdaReport:
         return cls(data.get("xcfg"), data.get("sha256"))
 
     def toDict(self):
+        type(self).serialized_functions += len(self.xcfg)
         return {"xcfg": dict(self.xcfg), "sha256": self.sha256}
 
     def getFunctions(self):
@@ -93,3 +96,13 @@ def test_outline_follows_a_replaced_local_report(outline_getter):
 
 def test_outline_is_none_without_a_local_report(outline_getter):
     assert outline_getter(_make_session(None)) is None
+
+
+def test_the_outline_serializes_no_function_and_leaves_the_report_whole(outline_getter):
+    _CachingSmdaReport.serialized_functions = 0
+    local_report = _CachingSmdaReport({0x1000: "func_a", 0x2000: "func_b"})
+
+    outline_getter(_make_session(local_report))
+
+    assert _CachingSmdaReport.serialized_functions == 0
+    assert local_report.xcfg == {0x1000: "func_a", 0x2000: "func_b"}

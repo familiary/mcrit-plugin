@@ -41,6 +41,10 @@ class Backend(ABC):
         """Dict of function start address -> current function name."""
 
     @abstractmethod
+    def get_function_offsets(self):
+        """Start addresses of the functions export_smda_report would export, without exporting."""
+
+    @abstractmethod
     def get_cursor_address(self):
         """Address under the cursor in the active view, or None."""
 
@@ -89,6 +93,14 @@ class Backend(ABC):
         """
         on_done(work())
 
+    def run_request(self, title, work, on_done):
+        """Run work(), requests to the MCRIT server, off the UI thread where the disassembler
+        allows it, then on_done(result) on the UI thread; title names it where progress is shown.
+
+        work must not touch Qt widgets directly. The default runs synchronously.
+        """
+        on_done(work())
+
     @abstractmethod
     def run_on_ui_thread(self, func):
         """Run func on the UI thread and wait for it."""
@@ -112,6 +124,13 @@ class Backend(ABC):
         Backends that follow a user-selectable theme override this; the default keeps `default`.
         """
         return default
+
+    def show_local_match_coloring(self, smda_function, coloring):
+        """Tint the matched blocks of the local function in the disassembler's own views;
+        coloring maps block offset -> 0xRRGGBB. Backends without such a view keep this no-op."""
+
+    def clear_local_match_coloring(self):
+        """Remove the tint set by show_local_match_coloring."""
 
     @abstractmethod
     def show_function_graph(self, parent, sample_entry, function_entry, smda_function, coloring):

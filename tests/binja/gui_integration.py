@@ -11,6 +11,7 @@ import os
 import threading
 import time
 import traceback
+import types
 
 import binaryninja
 from binaryninjaui import (
@@ -20,7 +21,7 @@ from binaryninjaui import (
     UIContext,
     UIContextNotification,
 )
-from PySide6.QtCore import QPoint, QTimer
+from PySide6.QtCore import QPoint, Qt, QTimer
 from PySide6.QtWidgets import QApplication
 
 # startup.py is executed without __file__
@@ -97,11 +98,44 @@ class IntegrationTest:
         log(f"PASS {what}")
 
     def double_click(self, table, row, column):
-        table.setCurrentCell(row, column)
+        self.select_cell(table, row, column)
         table.doubleClicked.emit(table.model().index(row, column))
 
+    def select_cell(self, table, row, column):
+        if hasattr(table, "setCurrentCell"):
+            table.setCurrentCell(row, column)
+        else:  # the Function Overview's table view
+            table.setCurrentIndex(table.model().index(row, column))
+
+    def double_click_graph(self, table, row, column, what):
+        """Double click a match and wait for its graph; the remote function is fetched off the UI
+        thread, so the click returns before the graph opens."""
+        interface = self.session.mcrit_interface
+        original = interface.queryRemoteFunction
+        off_ui_thread = []
+
+        def capture(*args, **kwargs):
+            off_ui_thread.append(threading.current_thread() is not threading.main_thread())
+            return original(*args, **kwargs)
+
+        interface.queryRemoteFunction = capture
+        before = len(self.graph_calls)
+        try:
+            self.double_click(table, row, column)
+            self.check(len(self.graph_calls) == before, f"{what}: the click returns at once")
+            deadline = time.time() + TIMEOUT
+            while len(self.graph_calls) == before and time.time() < deadline:
+                QApplication.processEvents()
+                time.sleep(0.01)
+        finally:
+            interface.queryRemoteFunction = original
+        self.check(len(self.graph_calls) == before + 1, f"{what} opens the CFG graph")
+        self.check(
+            off_ui_thread == [True], f"{what}: the remote function is fetched off the UI thread"
+        )
+
     def single_click(self, table, row, column):
-        table.setCurrentCell(row, column)
+        self.select_cell(table, row, column)
         table.clicked.emit(table.model().index(row, column))
 
     def count_graphs(self):
@@ -278,7 +312,12 @@ class IntegrationTest:
         job_ids = []
         original_request = client.requestMatchesForSample
 
+        off_ui_thread = []
+        running_tasks = []
+
         def capture_request(*args, **kwargs):
+            off_ui_thread.append(threading.current_thread() is not threading.main_thread())
+            running_tasks.extend(task.progress for task in binaryninja.BackgroundTask)
             job_id = original_request(*args, **kwargs)
             job_ids.append(job_id)
             return job_id
@@ -292,18 +331,25 @@ class IntegrationTest:
 
         client.requestMatchesForSample = capture_request
         main_widget.ResultChooserDialog = RequestDialog
-        try:
-            main_widget.getMatchResultAction.trigger()
-        finally:
+        main_widget.getMatchResultAction.trigger()
+
+        def requested():
             client.requestMatchesForSample = original_request
             main_widget.ResultChooserDialog = original_dialog
-        self.check(bool(job_ids and job_ids[-1]), "Create Matching Job returned a job id")
-        self.job_id = job_ids[-1]
-        self.wait(
-            lambda: client.getResultForJob(self.job_id) is not None,
-            self.select_matching,
-            "matching job finished",
-        )
+            self.check(bool(job_ids[-1]), "Create Matching Job returned a job id")
+            self.check(all(off_ui_thread), "the job request ran off the UI thread")
+            self.check(
+                "MCRIT: requesting a matching job" in running_tasks,
+                "the job request is listed among Binary Ninja's background tasks",
+            )
+            self.job_id = job_ids[-1]
+            self.wait(
+                lambda: client.getResultForJob(self.job_id) is not None,
+                self.select_matching,
+                "matching job finished",
+            )
+
+        self.wait(lambda: bool(job_ids), requested, "Create Matching Job requested a job")
 
     def select_matching(self):
         client = self.session.mcrit_interface.mcrit_client
@@ -339,18 +385,21 @@ class IntegrationTest:
                 return 1
 
         main_widget.ResultChooserDialog = SelectDialog
-        try:
-            main_widget.getMatchResultAction.trigger()
-        finally:
+        main_widget.getMatchResultAction.trigger()
+
+        def loaded():
             main_widget.ResultChooserDialog = original_dialog
-        self.check(
-            self.session.matching_report is not None, "result chooser loaded the MatchingResult"
-        )
-        self.check(
-            main_widget.tabs.currentWidget() is self.session.function_widget,
+            self.check(
+                self.session.matching_report is not None,
+                "result chooser loaded the MatchingResult",
+            )
+            self.step(self.exercise_function_overview)
+
+        self.wait(
+            lambda: main_widget.tabs.currentWidget() is self.session.function_widget,
+            loaded,
             "Function Overview shown with results",
         )
-        self.step(self.exercise_function_overview)
 
     ################################################################################
     # Function Overview tab
@@ -361,84 +410,115 @@ class IntegrationTest:
         table = widget.table_local_functions
         label_column = len(self.session.config.OVERVIEW_TABLE_COLUMNS) - 1
 
-        def fetch_labels():
+        def fetch_labels(then):
+            interface = self.session.mcrit_interface
+            original_query = interface.queryFunctionEntriesById
+            off_ui_thread = []
+
+            def capture_query(*args, **kwargs):
+                off_ui_thread.append(threading.current_thread() is not threading.main_thread())
+                return original_query(*args, **kwargs)
+
+            def fetched():
+                interface.queryFunctionEntriesById = original_query
+                self.check(
+                    off_ui_thread and all(off_ui_thread),
+                    "Fetch labels for matches ran off the UI thread",
+                )
+                self.check(
+                    table.model().rowCount() > 0,
+                    "Fetch labels for matches populated the Function Overview",
+                )
+                self.check(
+                    any(
+                        entry.function_labels
+                        for entry in (self.session.matched_function_entries or {}).values()
+                    ),
+                    "Fetch labels for matches returned labels from the server",
+                )
+                then()
+
+            interface.queryFunctionEntriesById = capture_query
             widget.b_fetch_labels.click()
             self.check(
-                table.rowCount() > 0, "Fetch labels for matches populated the Function Overview"
+                not widget.b_fetch_labels.isEnabled(),
+                "Fetch labels for matches is disabled while its request runs",
             )
-            self.check(
-                any(
-                    entry.function_labels
-                    for entry in (self.session.matched_function_entries or {}).values()
-                ),
-                "Fetch labels for matches returned labels from the server",
-            )
+            self.wait(widget.b_fetch_labels.isEnabled, fetched, "Fetch labels for matches answered")
 
         def filter_radios():
-            baseline = table.rowCount()
+            baseline = table.model().rowCount()
             widget.rb_filter_labels.setChecked(True)
             self.check(
-                table.rowCount() <= baseline, "filter 'labels' does not widen the Function Overview"
+                table.model().rowCount() <= baseline,
+                "filter 'labels' does not widen the Function Overview",
             )
             widget.rb_filter_applicable.setChecked(True)
-            applicable = table.rowCount()
+            applicable = table.model().rowCount()
             widget.rb_filter_conflicted.setChecked(True)
             self.check(
-                table.rowCount() <= applicable,
+                table.model().rowCount() <= applicable,
                 "filter 'conflicted' is a subset of filter 'applicable'",
             )
             widget.rb_filter_none.setChecked(True)
             self.check(
-                table.rowCount() == baseline, "filter 'none' restores the full Function Overview"
+                table.model().rowCount() == baseline,
+                "filter 'none' restores the full Function Overview",
             )
 
         def score_spinbox():
             spinbox = widget.sb_minhash_threshold
-            baseline = table.rowCount()
+            baseline = table.model().rowCount()
             spinbox.setValue(spinbox.maximum())
             self.check(
-                table.rowCount() <= baseline,
+                table.model().rowCount() <= baseline,
                 "Function Overview min-score spinbox narrows the table",
             )
             spinbox.setValue(spinbox.minimum())
             self.check(
-                table.rowCount() == baseline,
+                table.model().rowCount() == baseline,
                 "Function Overview min-score spinbox restores the table",
             )
 
         def column_sorting():
-            rows = table.rowCount()
-            for column in range(table.columnCount()):
+            rows = table.model().rowCount()
+            for column in range(table.model().columnCount()):
                 table.sortByColumn(column, self.session.cc.QtCore.Qt.AscendingOrder)
                 self.check(
-                    table.rowCount() == rows,
+                    table.model().rowCount() == rows,
                     f"Function Overview keeps all rows sorting column {column} ascending",
                 )
                 table.sortByColumn(column, self.session.cc.QtCore.Qt.DescendingOrder)
                 self.check(
-                    table.rowCount() == rows,
+                    table.model().rowCount() == rows,
                     f"Function Overview keeps all rows sorting column {column} descending",
                 )
             table.sortByColumn(0, self.session.cc.QtCore.Qt.AscendingOrder)
-            offsets = [int(table.item(row, 0).text(), 16) for row in range(rows)]
+            offsets = [int(table.model().index(row, 0).data(), 16) for row in range(rows)]
             self.check(offsets == sorted(offsets), "Function Overview sorts offsets ascending")
 
         def label_dropdown():
-            delegate = table.itemDelegateForColumn(label_column)
+            model = table.table_model
             self.check(
-                hasattr(delegate, "getEditorForRow"), "Function Overview installed label dropdowns"
+                model.isDropdown(model.index(0, label_column)),
+                "Function Overview shows label dropdowns",
             )
-            editor = delegate.getEditorForRow(widget._populatedRow(0))
-            self.check(editor is not None, "label dropdown editor exists for the first row")
-            self.check(editor.count() > 1, "label dropdown offers a label and the '-|-' opt-out")
-            editor.setCurrentIndex(0)
-            editor.activated.emit(0)
             self.check(
-                editor.hasUserMadeSelection(), "label dropdown records an explicit user selection"
+                len(model.rows[0].choices) > 1,
+                "label dropdown offers a label and the '-|-' opt-out",
+            )
+            # a pick lands in the row's own model entry, whatever order the rows are shown in
+            self.check(
+                table.model().setData(table.model().index(0, label_column), 0),
+                "label dropdown accepts an explicit user selection",
+            )
+            self.check(
+                widget.getSelectedLabel(0, label_column) == model.rows[0].choices[0],
+                "label dropdown shows the entry that was picked",
             )
 
         def right_click_resolves():
-            offset = int(table.item(0, 0).text(), 16)
+            offset = int(table.model().index(0, 0).data(), 16)
             # the dropdowns report the row they were filled into, which sorting may have moved
             widget._handleRightClickOnRow(widget._populatedRow(0), label_column)
             self.check(
@@ -456,7 +536,7 @@ class IntegrationTest:
             self.check(
                 all(
                     widget.getSelectedLabel(row, label_column) == "-|-"
-                    for row in range(table.rowCount())
+                    for row in range(table.model().rowCount())
                 ),
                 "(de)select all sets every label dropdown to the opt-out entry",
             )
@@ -464,8 +544,8 @@ class IntegrationTest:
             # a dropdown whose matches carry no label on the server only offers the opt-out entry
             rows_with_labels = [
                 row
-                for row in range(table.rowCount())
-                if len(widget.function_name_mapping[(widget._populatedRow(row), label_column)]) > 1
+                for row in range(table.model().rowCount())
+                if table.table_model.rows[row].label_entries
             ]
             self.check(
                 bool(rows_with_labels), "(de)select all has at least one labelled row to restore"
@@ -479,7 +559,10 @@ class IntegrationTest:
 
         def import_labels():
             backend = self.session.cc.backend
-            offsets = [int(table.item(row, 0).text(), 16) for row in range(table.rowCount())]
+            offsets = [
+                int(table.model().index(row, 0).data(), 16)
+                for row in range(table.model().rowCount())
+            ]
             importable = [offset for offset in offsets if backend.has_default_function_name(offset)]
             self.check(bool(importable), "Function Overview lists functions without a custom name")
             before = {offset: backend.get_function_name(offset) for offset in importable}
@@ -516,10 +599,10 @@ class IntegrationTest:
             )
 
         def table_clicks():
-            offset = int(table.item(0, 0).text(), 16)
+            offset = int(table.model().index(0, 0).data(), 16)
             self.single_click(table, 0, 0)
             self.check(
-                table.currentRow() == 0,
+                table.currentIndex().row() == 0,
                 "clicking a Function Overview row selects it",
             )
             self.double_click(table, 0, 0)
@@ -534,19 +617,20 @@ class IntegrationTest:
             )
             self.session.main_widget.tabs.setCurrentIndex(2)
 
-        self.sequence(
-            [
-                fetch_labels,
-                filter_radios,
-                score_spinbox,
-                column_sorting,
-                label_dropdown,
-                right_click_resolves,
-                select_deselect_all,
-                import_labels,
-                table_clicks,
-            ],
-            self.exercise_sample_summary,
+        fetch_labels(
+            lambda: self.sequence(
+                [
+                    filter_radios,
+                    score_spinbox,
+                    column_sorting,
+                    label_dropdown,
+                    right_click_resolves,
+                    select_deselect_all,
+                    import_labels,
+                    table_clicks,
+                ],
+                self.exercise_sample_summary,
+            )
         )
 
     ################################################################################
@@ -565,25 +649,25 @@ class IntegrationTest:
                 "setTabFocus reaches the Sample Match Summary tab",
             )
             self.check(
-                families.rowCount() > 0,
+                families.model().rowCount() > 0,
                 "Sample Match Summary lists best matches once a result is loaded",
             )
 
         def filter_checkbox():
-            baseline = families.rowCount()
+            baseline = families.model().rowCount()
             widget.cb_filter_library.setChecked(True)
             self.check(
-                families.rowCount() <= baseline,
+                families.model().rowCount() <= baseline,
                 "Sample Match Summary library filter does not widen the table",
             )
             widget.cb_filter_library.setChecked(False)
             self.check(
-                families.rowCount() == baseline,
+                families.model().rowCount() == baseline,
                 "Sample Match Summary library filter restores the table",
             )
 
         def family_selection():
-            family = families.item(0, 2).text()
+            family = families.model().index(0, 2).data()
             self.single_click(families, 0, 2)
             self.check(
                 widget.last_family_selected == family,
@@ -593,22 +677,24 @@ class IntegrationTest:
                 f'"{family}"' in widget.label_sample_matches_family.text(),
                 "the sample table header names the selected family",
             )
-            self.check(samples.rowCount() > 0, "the selected family lists its sample matches")
+            self.check(
+                samples.model().rowCount() > 0, "the selected family lists its sample matches"
+            )
 
         def sorting():
-            rows = families.rowCount()
-            for column in range(families.columnCount()):
+            rows = families.model().rowCount()
+            for column in range(families.model().columnCount()):
                 families.sortByColumn(column, self.session.cc.QtCore.Qt.DescendingOrder)
                 self.check(
-                    families.rowCount() == rows,
+                    families.model().rowCount() == rows,
                     f"Sample Match Summary keeps all rows sorting column {column}",
                 )
 
         def double_click_is_inert():
-            before = families.rowCount()
+            before = families.model().rowCount()
             self.double_click(families, 0, 2)
             self.check(
-                families.rowCount() == before,
+                families.model().rowCount() == before,
                 "double clicking a family row leaves the table untouched",
             )
 
@@ -676,7 +762,7 @@ class IntegrationTest:
     def after_second_navigation(self):
         widget = self.session.function_match_widget
         self.check(
-            widget.table_function_matches.rowCount() > 0,
+            widget.table_function_matches.model().rowCount() > 0,
             "the second function queried successfully and lists matches",
         )
         self.step(self.exercise_function_scope)
@@ -694,7 +780,8 @@ class IntegrationTest:
         def query_button():
             widget.b_query_single.click()
             self.check(
-                matches.rowCount() > 0, "Query current function lists matches for the cursor"
+                matches.model().rowCount() > 0,
+                "Query current function lists matches for the cursor",
             )
             self.check(
                 "0x%x" % self.second_target.start in widget.label_current_function_matches.text(),
@@ -702,18 +789,20 @@ class IntegrationTest:
             )
 
         def score_spinbox():
-            baseline = matches.rowCount()
+            baseline = matches.model().rowCount()
             widget.sb_score_threshold.setValue(100)
             self.check(
-                matches.rowCount() <= baseline, "Function Scope min-score spinbox narrows matches"
+                matches.model().rowCount() <= baseline,
+                "Function Scope min-score spinbox narrows matches",
             )
             widget.sb_score_threshold.setValue(widget.sb_score_threshold.minimum())
             self.check(
-                matches.rowCount() == baseline, "Function Scope min-score spinbox restores matches"
+                matches.model().rowCount() == baseline,
+                "Function Scope min-score spinbox restores matches",
             )
 
         def library_filter():
-            baseline = matches.rowCount()
+            baseline = matches.model().rowCount()
             widget.cb_filter_library.setChecked(False)
             widget.cb_filter_library.click()
             self.check(
@@ -721,21 +810,22 @@ class IntegrationTest:
                 "Function Scope library filter checkbox toggles on",
             )
             self.check(
-                matches.rowCount() <= baseline,
+                matches.model().rowCount() <= baseline,
                 "Function Scope library filter does not widen the matches",
             )
             widget.cb_filter_library.click()
             self.check(
-                matches.rowCount() == baseline,
+                matches.model().rowCount() == baseline,
                 "Function Scope library filter restores the matches",
             )
 
         def match_double_click():
-            before = len(self.graph_calls)
-            self.double_click(matches, 0, 0)
+            self.double_click_graph(matches, 0, 0, "double clicking a function match")
+            from mcrit_plugin.binja.MatchRenderLayer import MatchRenderLayer
+
             self.check(
-                len(self.graph_calls) == before + 1,
-                "double clicking a function match opens the CFG graph",
+                bool(MatchRenderLayer._ranges.get(self.bv.file.session_id)),
+                "double clicking a function match tints the local function's matched blocks",
             )
 
         def match_right_click():
@@ -744,8 +834,8 @@ class IntegrationTest:
 
             sha256_column = McritTableColumn.columnTypeToIndex(McritTableColumn.SHA256, columns)
             sample_column = McritTableColumn.columnTypeToIndex(McritTableColumn.SAMPLE_ID, columns)
-            matches.setCurrentCell(0, sha256_column)
-            sample_id = int(matches.item(0, sample_column).text())
+            self.select_cell(matches, 0, sha256_column)
+            sample_id = int(matches.model().index(0, sample_column).data())
             matches.customContextMenuRequested.emit(QPoint(0, 0))
             expected = self.session.sample_infos[sample_id].sha256
             self.check(
@@ -755,7 +845,8 @@ class IntegrationTest:
 
         def name_table():
             self.check(
-                names.rowCount() > 0, "Names from Matched Functions lists labels for the matches"
+                names.model().rowCount() > 0,
+                "Names from Matched Functions lists labels for the matches",
             )
             import mcrit_plugin.core.McritTableColumn as McritTableColumn
 
@@ -764,15 +855,10 @@ class IntegrationTest:
             label_column = McritTableColumn.columnTypeToIndex(
                 McritTableColumn.FUNCTION_LABEL, columns
             )
-            before = len(self.graph_calls)
-            self.double_click(names, 0, id_column)
-            self.check(
-                len(self.graph_calls) == before + 1,
-                "double clicking a name's function id opens the CFG graph",
-            )
+            self.double_click_graph(names, 0, id_column, "double clicking a name's function id")
             backend = self.session.cc.backend
             original_name = backend.get_function_name(self.second_target.start)
-            label = names.item(0, label_column).text()
+            label = names.model().index(0, label_column).data()
             self.double_click(names, 0, label_column)
             self.check(
                 backend.get_function_name(self.second_target.start) == label,
@@ -793,7 +879,56 @@ class IntegrationTest:
                 match_right_click,
                 name_table,
             ],
-            self.exercise_block_scope,
+            self.exercise_late_function_answer,
+        )
+
+    def exercise_late_function_answer(self):
+        """A query answered after the cursor moved on must not replace the newer function."""
+        widget = self.session.function_match_widget
+        interface = self.session.mcrit_interface
+        original_query = interface.querySmdaFunctionMatches
+        trace = {}
+
+        def slow_query(report):
+            trace["off_ui_thread"] = threading.current_thread() is not threading.main_thread()
+            time.sleep(1)
+            result = original_query(report)
+            trace["answered"] = time.time()
+            return result
+
+        rendered = []
+        original_show = widget._showFunctionMatches
+
+        def recording_show(smda_function):
+            rendered.append(smda_function.offset)
+            return original_show(smda_function)
+
+        self.session.function_matches.pop(self.target.start, None)
+        interface.querySmdaFunctionMatches = slow_query
+        widget._showFunctionMatches = recording_show
+        self.session.current_function = self.target.start
+        widget.updateViewWithCurrentFunction()
+        self.session.current_function = self.second_target.start
+        widget.updateViewWithCurrentFunction()
+
+        def settled():
+            interface.querySmdaFunctionMatches = original_query
+            del widget._showFunctionMatches
+            self.check(trace["off_ui_thread"], "a Function Scope query runs off the UI thread")
+            self.check(
+                rendered == [self.second_target.start],
+                "a late answer for a function the cursor left does not replace the table",
+            )
+            self.check(
+                self.target.start in self.session.function_matches,
+                "the late answer is still cached for that function",
+            )
+            self.step(self.exercise_block_scope)
+
+        self.wait(
+            lambda: "answered" in trace and time.time() - trace["answered"] > 0.5,
+            settled,
+            "the slow query for the earlier function answered",
         )
 
     ################################################################################
@@ -808,27 +943,27 @@ class IntegrationTest:
 
         def query_button():
             widget.b_query_single.click()
-            self.check(summary.rowCount() > 0, "Query current basic block lists the blocks")
+            self.check(summary.model().rowCount() > 0, "Query current basic block lists the blocks")
             self.check(
                 "0x%x" % self.second_target.start in widget.label_current_function_matches.text(),
                 "Block Scope header names the queried function",
             )
 
         def size_spinbox():
-            baseline = summary.rowCount()
+            baseline = summary.model().rowCount()
             widget.sb_blocksize_threshold.setValue(widget.sb_blocksize_threshold.maximum())
             self.check(
-                summary.rowCount() <= baseline,
+                summary.model().rowCount() <= baseline,
                 "Block Scope min-size spinbox narrows the block summary",
             )
             widget.sb_blocksize_threshold.setValue(4)
             self.check(
-                summary.rowCount() == baseline,
+                summary.model().rowCount() == baseline,
                 "Block Scope min-size spinbox restores the block summary",
             )
 
         def library_filter():
-            baseline = summary.rowCount()
+            baseline = summary.model().rowCount()
             widget.cb_filter_library.setChecked(False)
             widget.cb_filter_library.click()
             self.check(
@@ -836,22 +971,27 @@ class IntegrationTest:
                 "Block Scope library filter checkbox toggles on",
             )
             self.check(
-                summary.rowCount() <= baseline,
+                summary.model().rowCount() <= baseline,
                 "Block Scope library filter does not widen the block summary",
             )
             widget.cb_filter_library.click()
             self.check(
-                summary.rowCount() == baseline, "Block Scope library filter restores the blocks"
+                summary.model().rowCount() == baseline,
+                "Block Scope library filter restores the blocks",
             )
 
         def summary_click():
             matched_row = next(
-                (row for row in range(summary.rowCount()) if int(summary.item(row, 5).text()) > 0),
+                (
+                    row
+                    for row in range(summary.model().rowCount())
+                    if int(summary.model().index(row, 5).data()) > 0
+                ),
                 None,
             )
             self.check(matched_row is not None, "at least one block of the function has matches")
             self.summary_row = matched_row
-            offset = int(summary.item(matched_row, 0).text(), 16)
+            offset = int(summary.model().index(matched_row, 0).data(), 16)
             self.single_click(summary, matched_row, 0)
             self.check(
                 self.session.current_block == offset,
@@ -861,10 +1001,10 @@ class IntegrationTest:
                 "0x%x" % offset in widget.label_block_matches.text(),
                 "the block matches header names the selected block",
             )
-            self.check(matches.rowCount() > 0, "the selected block lists its matches")
+            self.check(matches.model().rowCount() > 0, "the selected block lists its matches")
 
         def summary_double_click():
-            offset = int(summary.item(self.summary_row, 0).text(), 16)
+            offset = int(summary.model().index(self.summary_row, 0).data(), 16)
             self.double_click(summary, self.summary_row, 0)
             self.check(
                 self.session.cc.backend.get_cursor_address() == offset,
@@ -872,12 +1012,7 @@ class IntegrationTest:
             )
 
         def matches_double_click():
-            before = len(self.graph_calls)
-            self.double_click(matches, 0, 0)
-            self.check(
-                len(self.graph_calls) == before + 1,
-                "double clicking a block match opens the CFG graph",
-            )
+            self.double_click_graph(matches, 0, 0, "double clicking a block match")
 
         def matches_right_click():
             import mcrit_plugin.core.McritTableColumn as McritTableColumn
@@ -886,7 +1021,7 @@ class IntegrationTest:
             sha256_column = McritTableColumn.columnTypeToIndex(McritTableColumn.SHA256, columns)
             clipboard = self.session.cc.QApplication.clipboard()
             before = clipboard.text()
-            matches.setCurrentCell(0, 0)
+            self.select_cell(matches, 0, 0)
             matches.customContextMenuRequested.emit(QPoint(0, 0))
             self.check(
                 sha256_column is None and clipboard.text() == before,
@@ -993,6 +1128,7 @@ class IntegrationTest:
             "MCRIT\\Build YARA String from Selection": main_widget.buildYaraStringAction.isEnabled(),
             "MCRIT\\Query Current Function": True,
             "MCRIT\\Query Current Block": True,
+            "MCRIT\\Clear Match Coloring": self.session.local_smda_report is not None,
         }
         names = [name for name, _handler, _enabled in self.sidebar_module._ACTIONS]
         for name in names:
@@ -1000,6 +1136,17 @@ class IntegrationTest:
                 handler.isValidAction(name, context) == expected_validity[name],
                 f"menu action validity matches the toolbar state: {name}",
             )
+        from mcrit_plugin.binja.MatchRenderLayer import MatchRenderLayer
+
+        self.check(
+            bool(MatchRenderLayer._ranges.get(self.bv.file.session_id)),
+            "the last match opened left its tint in place",
+        )
+        handler.executeAction("MCRIT\\Clear Match Coloring", context)
+        self.check(
+            not MatchRenderLayer._ranges.get(self.bv.file.session_id),
+            "MCRIT\\Clear Match Coloring removes the tint",
+        )
 
         target_job = str(self.job_id)
 
@@ -1044,10 +1191,13 @@ class IntegrationTest:
                 "YARA rule copied" in activity.text()
             ),
             "MCRIT\\Query Current Function": lambda: (
-                self.session.function_match_widget.table_function_matches.rowCount() > 0
+                self.session.function_match_widget.table_function_matches.model().rowCount() > 0
             ),
             "MCRIT\\Query Current Block": lambda: (
-                self.session.block_match_widget.table_block_summary.rowCount() > 0
+                self.session.block_match_widget.table_block_summary.model().rowCount() > 0
+            ),
+            "MCRIT\\Clear Match Coloring": lambda: (
+                not MatchRenderLayer._ranges.get(self.bv.file.session_id)
             ),
         }
         pending = list(names)
@@ -1134,6 +1284,54 @@ class IntegrationTest:
             "the uploaded report carries the new function name",
         )
         self.bv.undo()
+        self.step(self.exercise_split_pane)
+
+    ################################################################################
+    # a split pane its tab's sidebar has not seen
+    ################################################################################
+
+    def tab_frames(self, frame):
+        for tab in self.context.getTabs():
+            frames = list(self.context.getAllViewFramesForTab(tab))
+            if any(candidate is frame for candidate in frames):
+                return frames
+        return []
+
+    def exercise_split_pane(self):
+        from binaryninjaui import SplitPaneContainer
+
+        frame = self.widget.backend.view_frame
+        # held so the pane it returns is not deleted with a temporary wrapper
+        self.split_container = SplitPaneContainer.containerForWidget(frame)
+        self.split_container.currentViewPane().splitPane(Qt.Horizontal)
+        new = {}
+
+        def split():
+            others = [other for other in self.tab_frames(frame) if other is not frame]
+            if others:
+                new["pane"] = others[0]
+                return True
+            return False
+
+        self.wait(split, lambda: self.check_split_routing(frame, new["pane"]), "the tab is split")
+
+    def check_split_routing(self, frame, split_pane):
+        widgets = self.sidebar_module._SIDEBAR_WIDGETS
+        # stands in for another tab's widget of the same file, which the old fallback returned
+        other_tab = types.SimpleNamespace(
+            backend=types.SimpleNamespace(bv=self.bv, view_frame=object())
+        )
+        self.widget.backend.view_frame = frame
+        widgets.insert(0, other_tab)
+        try:
+            route = self.sidebar_module._widget_for_view
+            self.check(route(self.bv, frame) is self.widget, "a seen pane routes to its sidebar")
+            self.check(
+                route(self.bv, split_pane) is self.widget,
+                "a split pane its sidebar has not seen routes to its own tab's sidebar",
+            )
+        finally:
+            widgets.remove(other_tab)
         self.finish(True)
 
 

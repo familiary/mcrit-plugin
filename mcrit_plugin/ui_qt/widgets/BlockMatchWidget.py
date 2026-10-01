@@ -1,13 +1,16 @@
+import threading
 import time
+from concurrent.futures import ThreadPoolExecutor
 
 import mcrit_plugin.core.McritTableColumn as McritTableColumn
 import mcrit_plugin.ui_qt.QtShim as QtShim
 from mcrit_plugin.core.minimcrit.matchers.FunctionCfgMatcher import FunctionCfgMatcher
 from mcrit_plugin.core.ScoreColorProvider import ScoreColorProvider, ThemeRole
-from mcrit_plugin.ui_qt.widgets.NumberQTableWidgetItem import NumberQTableWidgetItem
+from mcrit_plugin.ui_qt.widgets.MatchTable import MatchRow, MatchTableView
 
 QMainWindow = QtShim.get_QMainWindow()
 QColor = QtShim.get_QColor()
+BLOCK_QUERY_WORKERS = 8
 
 
 def packRgb(rgb):
@@ -47,27 +50,23 @@ class BlockMatchWidget(QMainWindow):
         self.b_query_single = self.cc.QPushButton("Query current basic block")
         self.b_query_single.clicked.connect(self.queryCurrentBlock)
         self.b_query_single.setEnabled(False)
-        ### self.cb_filter_library.stateChanged.connect(self.populateBestMatchTable)
         # horizontal line
         self.hline = self.cc.QFrame()
         self.hline.setFrameShape(self.cc.QFrameHLine)
         self.hline.setFrameShadow(self.cc.QFrameShadow.Sunken)
         # upper table
         self.label_block_summary = self.cc.QLabel("Blocks Summary")
-        self.table_block_summary = self.cc.QTableWidget()
+        self.table_block_summary = MatchTableView()
         self.table_block_summary.clicked.connect(self._onTableBlockSummaryClicked)
         self.table_block_summary.doubleClicked.connect(self._onTableBlockSummaryDoubleClicked)
         # lower table
         self.label_block_matches = self.cc.QLabel("Block Matches for <block_offset>")
-        self.table_block_matches = self.cc.QTableWidget()
+        self.table_block_matches = MatchTableView()
         self.table_block_matches.doubleClicked.connect(self._onTableBlockMatchesDoubleClicked)
-        self.table_block_matches.setContextMenuPolicy(self.cc.QtCore.Qt.CustomContextMenu)
         self.table_block_matches.customContextMenuRequested.connect(
             self._onTableBlockMatchesRightClicked
         )
-        ### self.table_picblockhash_matches.doubleClicked.connect(self._onTablePicBlockHashDoubleClicked)
         # static links to objects to help IDA
-        self.NumberQTableWidgetItem = NumberQTableWidgetItem
         self._QtShim = QtShim
         self._createGui()
 
@@ -137,18 +136,15 @@ class BlockMatchWidget(QMainWindow):
             return family_infos.get(family_id)
         return None
 
-    def _ensure_remote_cache(self):
-        if self.parent.family_infos is None:
-            self.parent.mcrit_interface.queryAllFamilyEntries()
-        if self.parent.sample_infos is None:
-            self.parent.mcrit_interface.queryAllSampleEntries()
-        if self.parent.family_infos is None or self.parent.sample_infos is None:
-            self.clearTable()
-            self.label_current_function_matches.setText(
-                "Remote family/sample info unavailable. Check server connection."
-            )
-            return False
-        return True
+    def _fetch_remote_cache(self):
+        """Request the family and sample lists if they are missing; touches no widget."""
+        return self.parent.mcrit_interface.ensureRemoteInformation()
+
+    def _show_remote_cache_unavailable(self):
+        self.clearTable()
+        self.label_current_function_matches.setText(
+            "Remote family/sample info unavailable. Check server connection."
+        )
 
     def updateCurrentBlock(self, view):
         function_start = self.cc.backend.get_current_function(view)
@@ -196,39 +192,22 @@ class BlockMatchWidget(QMainWindow):
         self.updateViewWithCurrentBlock()
 
     def clearTable(self):
-        # upper table
-        self.table_block_summary.clear()
-        self.table_block_summary.setSortingEnabled(False)
-        self.function_matches_header_labels = [
-            McritTableColumn.MAP_COLUMN_TO_HEADER_STRING[col]
-            for col in self.parent.config.BLOCK_SUMMARY_TABLE_COLUMNS
-        ]
-        self.table_block_summary.setColumnCount(len(self.function_matches_header_labels))
-        self.table_block_summary.setHorizontalHeaderLabels(self.function_matches_header_labels)
-        self.table_block_summary.setRowCount(0)
-        self.table_block_summary.resizeRowToContents(0)
-        # lower table
-        self.table_block_matches.clear()
-        self.table_block_matches.setSortingEnabled(False)
-        self.function_matches_header_labels = [
-            McritTableColumn.MAP_COLUMN_TO_HEADER_STRING[col]
-            for col in self.parent.config.BLOCK_MATCHES_TABLE_COLUMNS
-        ]
-        self.table_block_matches.setColumnCount(len(self.function_matches_header_labels))
-        self.table_block_matches.setHorizontalHeaderLabels(self.function_matches_header_labels)
-        self.table_block_matches.setRowCount(0)
-        self.table_block_matches.resizeRowToContents(0)
+        self.table_block_summary.table_model.reset(
+            self._headers(self.parent.config.BLOCK_SUMMARY_TABLE_COLUMNS), []
+        )
+        self.table_block_matches.table_model.reset(
+            self._headers(self.parent.config.BLOCK_MATCHES_TABLE_COLUMNS), []
+        )
+
+    @staticmethod
+    def _headers(column_types):
+        return [McritTableColumn.MAP_COLUMN_TO_HEADER_STRING[col] for col in column_types]
 
     def updateViewWithCurrentBlock(self):
-        if not self._ensure_remote_cache():
-            return
-        self.last_viewed_function = self.parent.current_function
+        function_offset = self.parent.current_function
+        self.last_viewed_function = function_offset
         self.last_viewed_block = self.parent.current_block
-        if self.parent.current_block:
-            self.label_block_matches.setText(
-                "No Block Matches for: 0x%x" % self.parent.current_block
-            )
-        smda_function = self.parent.local_smda_report.getFunction(self.parent.current_function)
+        smda_function = self.parent.local_smda_report.getFunction(function_offset)
         if smda_function is None or smda_function.num_instructions < 4:
             self.clearTable()
             self.label_current_function_matches.setText(
@@ -240,25 +219,79 @@ class BlockMatchWidget(QMainWindow):
         pbh = FunctionCfgMatcher.getPicBlockHashesForFunction(
             self.parent.local_smda_report, smda_function, min_size=min_block_size
         )
-        block_matches_by_offset = {}
-        start = time.time()
-        num_queries = 0
-        lookup_failed = False
-        for entry in pbh:
-            if entry["hash"] not in self.parent.blockhash_matches and not lookup_failed:
-                pichash_matches = self.parent.mcrit_interface.getMatchesForPicBlockHash(
-                    entry["hash"]
+
+        def request():
+            if self.parent.current_function != function_offset:
+                return None
+            if not self._fetch_remote_cache():
+                return False
+            self._lookupBlockHashes(
+                [entry["hash"] for entry in pbh],
+                stop=lambda: self.parent.current_function != function_offset,
+            )
+            return True
+
+        def show(remote_cache_ready):
+            # a live query answered after the cursor moved on; its results stay cached
+            if remote_cache_ready is None or self.parent.current_function != function_offset:
+                return
+            if not remote_cache_ready:
+                # the next cursor move in this function tries again
+                self.last_viewed_function = None
+                self._show_remote_cache_unavailable()
+                return
+            if self.parent.current_block:
+                self.label_block_matches.setText(
+                    "No Block Matches for: 0x%x" % self.parent.current_block
                 )
-                num_queries += 1
-                # a failed query answers None; leave it uncached so the next visit retries, and
-                # skip this visit's other lookups, which would each wait out the same timeout
-                if pichash_matches is None:
-                    lookup_failed = True
-                else:
-                    self.parent.blockhash_matches[entry["hash"]] = pichash_matches
-            pichash_matches = self.parent.blockhash_matches.get(entry["hash"])
-            if pichash_matches is None:
-                pichash_matches = []
+            self._showBlockMatches(pbh)
+
+        # with every block cached, e.g. after a filter change, no request delays the table
+        if (
+            self.parent.family_infos is not None
+            and self.parent.sample_infos is not None
+            and all(entry["hash"] in self.parent.blockhash_matches for entry in pbh)
+        ):
+            show(True)
+        else:
+            self.cc.backend.run_request(
+                "MCRIT: querying block matches for function 0x%x" % function_offset, request, show
+            )
+
+    def _lookupBlockHashes(self, hashes, stop=None):
+        """Query the uncached hashes concurrently; MCRIT answers one block hash per request.
+
+        Lookups not yet started are skipped once stop() is true; they stay uncached."""
+        missing = [h for h in dict.fromkeys(hashes) if h not in self.parent.blockhash_matches]
+        if not missing:
+            return
+        failed = threading.Event()
+
+        def lookup(block_hash):
+            # after a failure the remaining lookups would each wait out the same timeout
+            if failed.is_set() or (stop is not None and stop()):
+                return None
+            matches = self.parent.mcrit_interface.getMatchesForPicBlockHash(block_hash)
+            if matches is None:
+                failed.set()
+            return matches
+
+        start = time.time()
+        with ThreadPoolExecutor(BLOCK_QUERY_WORKERS) as pool:
+            for block_hash, matches in zip(missing, pool.map(lookup, missing)):
+                # a failed query stays uncached so the next visit retries it
+                if matches is not None:
+                    self.parent.blockhash_matches[block_hash] = matches
+        duration = time.time() - start
+        print(
+            f"Querying {len(missing)} blocks took {duration:5.3f} seconds, "
+            f"or {duration / len(missing):5.3f} seconds per block."
+        )
+
+    def _showBlockMatches(self, pbh):
+        block_matches_by_offset = {}
+        for entry in pbh:
+            pichash_matches = self.parent.blockhash_matches.get(entry["hash"]) or []
             # cache this so we only query once per block
             if entry["offset"] not in self.parent.block_to_hash:
                 self.parent.block_to_hash[entry["offset"]] = entry["hash"]
@@ -274,11 +307,6 @@ class BlockMatchWidget(QMainWindow):
                 "summary": summary,
                 "has_library_matches": False,
             }
-        stop = time.time()
-        if num_queries > 0:
-            print(
-                f"Querying {num_queries} blocks took {stop - start:5.3f} seconds, or {(stop - start) / num_queries:5.3f} seconds per block."
-            )
         if block_matches_by_offset:
             # TODO when filtering, we should actually fully remove them by offset here, as we don't want to see such blocks in the summary later on
             set_families = set([])
@@ -350,218 +378,213 @@ class BlockMatchWidget(QMainWindow):
         self.populateBlockSummaryTable(block_matches_by_offset)
         self.populateBlockMatchTable(block_matches_by_offset, self.last_viewed_block)
 
-    def generateSummaryTableCellItem(self, column_type, block_offset, block_entry):
-        tmp_item = None
+    def _summaryCell(self, column_type, block_offset, block_entry):
+        """The text a block shows in a column of the summary table, and the value it sorts by."""
         if column_type == McritTableColumn.OFFSET:
-            tmp_item = self.cc.QTableWidgetItem("0x%x" % block_offset)
-        elif column_type == McritTableColumn.PIC_BLOCK_HASH:
-            tmp_item = self.cc.QTableWidgetItem("0x%x" % block_entry["picblockhash"]["hash"])
-        elif column_type == McritTableColumn.SIZE:
-            tmp_item = self.NumberQTableWidgetItem("%d" % block_entry["picblockhash"]["size"])
-        elif column_type == McritTableColumn.FAMILIES:
-            tmp_item = self.NumberQTableWidgetItem("%d" % block_entry["summary"]["families"])
-        elif column_type == McritTableColumn.SAMPLES:
-            tmp_item = self.NumberQTableWidgetItem("%d" % block_entry["summary"]["samples"])
-        elif column_type == McritTableColumn.FUNCTIONS:
-            tmp_item = self.NumberQTableWidgetItem("%d" % block_entry["summary"]["functions"])
-        elif column_type == McritTableColumn.IS_LIBRARY:
-            tmp_item = self.cc.QTableWidgetItem(
-                "YES" if block_entry["has_library_matches"] else "NO"
-            )
-        return tmp_item
+            return "0x%x" % block_offset, block_offset
+        if column_type == McritTableColumn.PIC_BLOCK_HASH:
+            block_hash = block_entry["picblockhash"]["hash"]
+            return "0x%x" % block_hash, block_hash
+        if column_type == McritTableColumn.SIZE:
+            size = block_entry["picblockhash"]["size"]
+            return "%d" % size, size
+        if column_type in (
+            McritTableColumn.FAMILIES,
+            McritTableColumn.SAMPLES,
+            McritTableColumn.FUNCTIONS,
+        ):
+            key = {
+                McritTableColumn.FAMILIES: "families",
+                McritTableColumn.SAMPLES: "samples",
+                McritTableColumn.FUNCTIONS: "functions",
+            }[column_type]
+            count = block_entry["summary"][key]
+            return "%d" % count, count
+        if column_type == McritTableColumn.IS_LIBRARY:
+            text = "YES" if block_entry["has_library_matches"] else "NO"
+            return text, text
+        return "", ""
 
     def populateBlockSummaryTable(self, block_matches):
-        """
-        Populate the function match table with all matches for the selected function_id
-        """
-        self.table_block_summary.setSortingEnabled(False)
-        self.function_matches_header_labels = [
-            McritTableColumn.MAP_COLUMN_TO_HEADER_STRING[col]
-            for col in self.parent.config.BLOCK_SUMMARY_TABLE_COLUMNS
-        ]
-        self.table_block_summary.clear()
-        self.table_block_summary.setColumnCount(len(self.function_matches_header_labels))
-        self.table_block_summary.setHorizontalHeaderLabels(self.function_matches_header_labels)
-        # Identify number of table entries and prepare addresses to display
-        self.table_block_summary.setRowCount(len(block_matches))
-        self.table_block_summary.resizeRowToContents(0)
-        row = 0
+        """Fill the summary table with one row per block of the current function."""
+        column_types = self.parent.config.BLOCK_SUMMARY_TABLE_COLUMNS
+        backgrounds = {}
+        rows = []
         for block_offset, block_entry in sorted(block_matches.items(), key=lambda x: x[0]):
-            for column, column_name in enumerate(self.function_matches_header_labels):
-                column_type = self.parent.config.BLOCK_SUMMARY_TABLE_COLUMNS[column]
-                tmp_item = self.generateSummaryTableCellItem(column_type, block_offset, block_entry)
-                tmp_item.setFlags(tmp_item.flags() & ~self.cc.QtCore.Qt.ItemIsEditable)
-                # Set background color and font color
-                if block_entry["summary"]["families"] > 0:
-                    row_color = self.scp.frequencyToColor(
-                        block_entry["summary"]["families"], opacity=1
+            num_families = block_entry["summary"]["families"]
+            background = None
+            if num_families > 0:
+                if num_families not in backgrounds:
+                    backgrounds[num_families] = QColor(
+                        *self.scp.frequencyToColor(num_families, opacity=1)[:3]
                     )
-                    tmp_item.setBackground(QColor(row_color[0], row_color[1], row_color[2]))
-                    text_color = self.scp.textOnTintColor()
-                    if text_color is not None:
-                        tmp_item.setForeground(QColor(text_color[0], text_color[1], text_color[2]))
-                self.table_block_summary.setItem(row, column, tmp_item)
-            # self.table_function_matches.resizeRowToContents(row)
-            row += 1
-        self.table_block_summary.setSelectionMode(self.cc.QAbstractItemView.SingleSelection)
+                background = backgrounds[num_families]
+            cells = [
+                self._summaryCell(column_type, block_offset, block_entry)
+                for column_type in column_types
+            ]
+            rows.append(
+                MatchRow(
+                    len(rows),
+                    block_offset,
+                    [text for text, _key in cells],
+                    [key for _text, key in cells],
+                    background,
+                )
+            )
+        text_color = self.scp.textOnTintColor()
+        self.table_block_summary.table_model.reset(
+            self._headers(column_types),
+            rows,
+            QColor(*text_color[:3]) if text_color is not None else None,
+        )
         self.table_block_summary.resizeColumnsToContents()
-        self.table_block_summary.setSortingEnabled(True)
-        header = self.table_block_summary.horizontalHeader()
-        header.setStretchLastSection(True)
+        self.table_block_summary.horizontalHeader().setStretchLastSection(True)
 
-    def generateMatchTableCellItem(self, column_type, match_entry):
-        tmp_item = None
+    def _matchCell(self, column_type, match_entry):
+        """The text a block match, (family id, sample id, function id, offset), shows in a column
+        of the match table, and the value it sorts by."""
         if column_type == McritTableColumn.SHA256:
             sample_info = self._get_sample_entry(match_entry[1])
             sample_sha256 = self._get_entry_field(sample_info, "sha256")
-            tmp_item = self.cc.QTableWidgetItem(sample_sha256[:8] if sample_sha256 else "unknown")
-        elif column_type == McritTableColumn.OFFSET:
-            tmp_item = self.cc.QTableWidgetItem("0x%x" % match_entry[3])
-        elif column_type == McritTableColumn.FAMILY_NAME:
+            text = sample_sha256[:8] if sample_sha256 else "unknown"
+            return text, text
+        if column_type == McritTableColumn.OFFSET:
+            return "0x%x" % match_entry[3], match_entry[3]
+        if column_type == McritTableColumn.FAMILY_NAME:
             family_info = self._get_family_entry(match_entry[0])
             family_name = self._get_entry_field(family_info, "family_name")
-            tmp_item = self.cc.QTableWidgetItem(family_name if family_name else "unknown")
-        elif column_type == McritTableColumn.FAMILY_ID:
-            tmp_item = self.NumberQTableWidgetItem("%d" % match_entry[0])
-        elif column_type == McritTableColumn.SAMPLE_ID:
-            tmp_item = self.NumberQTableWidgetItem("%d" % match_entry[1])
-        elif column_type == McritTableColumn.FUNCTION_ID:
-            tmp_item = self.NumberQTableWidgetItem("%d" % match_entry[2])
-        return tmp_item
+            text = family_name if family_name else "unknown"
+            return text, text
+        if column_type == McritTableColumn.FAMILY_ID:
+            return "%d" % match_entry[0], match_entry[0]
+        if column_type == McritTableColumn.SAMPLE_ID:
+            return "%d" % match_entry[1], match_entry[1]
+        if column_type == McritTableColumn.FUNCTION_ID:
+            return "%d" % match_entry[2], match_entry[2]
+        return "", ""
 
     def populateBlockMatchTable(self, block_matches, block_offset):
-        """
-        Populate the function name table with all names for the matches we found
-        """
+        """Fill the match table with the matches of one block, selecting the match at that
+        block."""
         if block_offset is not None:
             self.label_block_matches.setText("Block Matches for: 0x%x" % block_offset)
-        self.table_block_matches.setSortingEnabled(False)
-        self.function_matches_header_labels = [
-            McritTableColumn.MAP_COLUMN_TO_HEADER_STRING[col]
-            for col in self.parent.config.BLOCK_MATCHES_TABLE_COLUMNS
-        ]
-        self.table_block_matches.clear()
-        self.table_block_matches.setColumnCount(len(self.function_matches_header_labels))
-        self.table_block_matches.setHorizontalHeaderLabels(self.function_matches_header_labels)
-        self.table_block_matches.setRowCount(0)
-        if block_offset not in block_matches:
-            return
-        self.table_block_matches.setRowCount(len(block_matches[block_offset]["matches"]))
-        self.table_block_matches.resizeRowToContents(0)
-
+        column_types = self.parent.config.BLOCK_MATCHES_TABLE_COLUMNS
+        rows = []
         preselect_row = 0
-        row = 0
-        for match_entry in sorted(
-            block_matches[block_offset]["matches"], key=lambda x: (x[0], x[1], x[2])
-        ):
-            for column, column_name in enumerate(self.function_matches_header_labels):
+        if block_offset in block_matches:
+            for match_entry in sorted(
+                block_matches[block_offset]["matches"], key=lambda x: (x[0], x[1], x[2])
+            ):
                 if block_offset == match_entry[3]:
-                    preselect_row = row
-                column_type = self.parent.config.BLOCK_MATCHES_TABLE_COLUMNS[column]
-                tmp_item = self.generateMatchTableCellItem(column_type, match_entry)
-                tmp_item.setFlags(tmp_item.flags() & ~self.cc.QtCore.Qt.ItemIsEditable)
-                self.table_block_matches.setItem(row, column, tmp_item)
-            # self.table_function_matches.resizeRowToContents(row)
-            row += 1
-        self.table_block_matches.selectRow(preselect_row)
-        self.table_block_matches.setSelectionMode(self.cc.QAbstractItemView.SingleSelection)
+                    preselect_row = len(rows)
+                cells = [self._matchCell(column_type, match_entry) for column_type in column_types]
+                rows.append(
+                    MatchRow(
+                        len(rows),
+                        match_entry,
+                        [text for text, _key in cells],
+                        [key for _text, key in cells],
+                    )
+                )
+        model = self.table_block_matches.table_model
+        model.reset(self._headers(column_types), rows)
+        if not rows:
+            return
+        self.table_block_matches.selectEntireRow(model.positionOf(preselect_row))
         self.table_block_matches.resizeColumnsToContents()
-        self.table_block_matches.setSortingEnabled(True)
-        header = self.table_block_matches.horizontalHeader()
-        header.setStretchLastSection(True)
+        self.table_block_matches.horizontalHeader().setStretchLastSection(True)
 
     def _onTableBlockSummaryClicked(self, mi):
-        """
-        Use the row with that was clicked to show block matches corresponding to the current block
-        """
-        clicked_block_address = None
-        for index, column_type in enumerate(self.parent.config.BLOCK_SUMMARY_TABLE_COLUMNS):
-            if column_type == McritTableColumn.OFFSET:
-                clicked_block_address = self.table_block_summary.item(mi.row(), index).text()
-        # print("clicked_block_address", clicked_block_address)
-        if clicked_block_address is not None:
-            self.parent.current_block = int(clicked_block_address, 16)
-            self.populateBlockMatchTable(self._last_block_matches, self.parent.current_block)
+        """Show the matches of the clicked block."""
+        self.parent.current_block = self.table_block_summary.table_model.entryAt(mi.row())
+        self.populateBlockMatchTable(self._last_block_matches, self.parent.current_block)
 
     def _onTableBlockSummaryDoubleClicked(self, mi):
-        """
-        Use the row with that was double clicked to jump to that block
-        """
+        """Double clicking a block's offset jumps the cursor to that block."""
         offset_column_index = McritTableColumn.columnTypeToIndex(
             McritTableColumn.OFFSET, self.parent.config.BLOCK_SUMMARY_TABLE_COLUMNS
         )
         if offset_column_index is not None and mi.column() == offset_column_index:
-            clicked_block_address = self.table_block_summary.item(
-                mi.row(), offset_column_index
-            ).text()
-            # print("double clicked_block_address", clicked_block_address)
-            self.cc.backend.jump_to(int(clicked_block_address, 16))
-            self.parent.current_block = int(clicked_block_address, 16)
+            block_offset = self.table_block_summary.table_model.entryAt(mi.row())
+            self.cc.backend.jump_to(block_offset)
+            self.parent.current_block = block_offset
             self.populateBlockMatchTable(self._last_block_matches, self.parent.current_block)
 
     def _onTableBlockMatchesDoubleClicked(self, mi):
         """
         Use the row with that was double clicked to show the matched remote function in a graph viewer
         """
-        block_offset_b = None
-        function_id_b = None
-        for index, column_type in enumerate(self.parent.config.BLOCK_MATCHES_TABLE_COLUMNS):
-            if column_type == McritTableColumn.OFFSET:
-                block_offset_b = int(self.table_block_matches.item(mi.row(), index).text(), 16)
-            elif column_type == McritTableColumn.FUNCTION_ID:
-                function_id_b = int(self.table_block_matches.item(mi.row(), index).text())
-        # print("double clicked row for function_id", function_id_b)
-        if block_offset_b is not None and function_id_b is not None:
-            function_entry_b = self.parent.mcrit_interface.queryFunctionEntryById(function_id_b)
-            if function_entry_b is None:
-                self.parent.local_widget.updateActivityInfo(
-                    f"Failed to fetch function entry {function_id_b}."
-                )
+        _family_id, _sample_id, function_id_b, block_offset_b = (
+            self.table_block_matches.table_model.entryAt(mi.row())
+        )
+        block_matches = self._last_block_matches
+        # the remote function arrives later; the tint is for the function and block clicked
+        function_offset_a = self.parent.current_function
+        block_a = self.parent.current_block
+        self.parent.local_widget.updateActivityInfo(
+            f"Fetching function {function_id_b} for the graph viewer..."
+        )
+
+        def show(remote):
+            if remote is None:
                 return
-            smda_function_b = function_entry_b.toSmdaFunction()
-            sample_entry_b = self.parent.mcrit_interface.querySampleEntryById(
-                function_entry_b.sample_id
-            )
-            if sample_entry_b is None:
-                self.parent.local_widget.updateActivityInfo(
-                    f"Failed to fetch sample entry {function_entry_b.sample_id}."
-                )
-                return
-            #
+            function_entry_b, smda_function_b, sample_entry_b = remote
             matched_color = packRgb(self.scp.roleColor(ThemeRole.CYAN, (0xC0, 0xF4, 0xFF)))
             current_color = packRgb(self.scp.roleColor(ThemeRole.CURRENT, (0x00, 0xDD, 0xFF)))
             coloring = {}
-            for offset, data in self._last_block_matches.items():
+            for offset, data in block_matches.items():
                 for match in data["matches"]:
                     if match[2] == function_entry_b.function_id:
                         coloring[match[3]] = matched_color
             coloring[block_offset_b] = current_color
+            self._colorLocalBlocks(
+                block_matches,
+                function_entry_b.function_id,
+                function_offset_a,
+                block_a,
+                matched_color,
+                current_color,
+            )
             self.cc.backend.show_function_graph(
                 self, sample_entry_b, function_entry_b, smda_function_b, coloring
             )
 
+        self.cc.backend.run_request(
+            "MCRIT: fetching remote function %d" % function_id_b,
+            lambda: self.parent.mcrit_interface.queryRemoteFunction(function_id_b),
+            show,
+        )
+
+    def _colorLocalBlocks(
+        self, block_matches, function_id_b, function_offset_a, block_a, matched_color, current_color
+    ):
+        """Tint the local blocks that matched the remote function in the disassembler's own views."""
+        smda_function_a = self.parent.local_smda_report.getFunction(function_offset_a)
+        if smda_function_a is None:
+            return
+        local_coloring = {}
+        for offset, data in block_matches.items():
+            if any(match[2] == function_id_b for match in data["matches"]):
+                local_coloring[offset] = matched_color
+        if block_a in local_coloring:
+            local_coloring[block_a] = current_color
+        self.cc.backend.show_local_match_coloring(smda_function_a, local_coloring)
+
     def _onTableBlockMatchesRightClicked(self, position):
+        """Right clicking the SHA256 column copies the full hash of the match's sample."""
         sha256_column_index = McritTableColumn.columnTypeToIndex(
             McritTableColumn.SHA256, self.parent.config.BLOCK_MATCHES_TABLE_COLUMNS
         )
-        sample_id_column_index = McritTableColumn.columnTypeToIndex(
-            McritTableColumn.SAMPLE_ID, self.parent.config.BLOCK_MATCHES_TABLE_COLUMNS
-        )
+        index = self.table_block_matches.currentIndex()
         if (
-            sha256_column_index is not None
-            and self.table_block_matches.currentColumn() == sha256_column_index
+            sha256_column_index is None
+            or not index.isValid()
+            or index.column() != sha256_column_index
         ):
-            if sample_id_column_index is None:
-                # TODO possibly can reconstruct clicked row from matching data, but let's keep it simple for now
-                print("Need a column with sample IDs to copy SHA256 to clipboard.")
-            # copy to clipboard
-            sample_id_item = self.table_block_matches.item(
-                self.table_block_matches.currentRow(), sample_id_column_index
-            )
-            if sample_id_item is None:
-                return
-            sample_id = sample_id_item.text()
-            sample_info = self._get_sample_entry(int(sample_id))
-            sample_sha256 = self._get_entry_field(sample_info, "sha256")
-            if sample_sha256:
-                self.parent.copyStringToClipboard(sample_sha256)
+            return
+        sample_id = self.table_block_matches.table_model.entryAt(index.row())[1]
+        sample_info = self._get_sample_entry(sample_id)
+        sample_sha256 = self._get_entry_field(sample_info, "sha256")
+        if sample_sha256:
+            self.parent.copyStringToClipboard(sample_sha256)

@@ -107,10 +107,5 @@ class ScoreColorProvider(object):
             return self._mapColor(self.matching_color_map_50, 7, opacity)
         return self._mapColor(self.frequency_color_map, 0)
 
-    def uniqueScoreToColor(self, score, opacity=0.4):
-        if score is not None and score > 0:
-            return self.scoreToColor(60, opacity=opacity)
-        return self._mapColor(self.frequency_color_map, 0)
-
     def __init__(self, backend=None) -> None:
         self.backend = backend

@@ -132,48 +132,13 @@ class MainWidget(QMainWindow):
         self.buildYaraStringAction.triggered.connect(self._onBuildYaraStringButtonClicked)
 
     def getLocalSmdaReport(self):
-        backend_converted_report = self.parent.mcrit_interface.convertToSmda()
-        local_report = backend_converted_report
-        # check of we alternatively want to use SMDA for analysis
-        smda_converted_report = None
+        local_report = None
         if self.parent.config.USE_SMDA_FOR_ANALYSIS:
-            smda_converted_report = self.parent.mcrit_interface.convertToSmdaUsingSmda()
-        if smda_converted_report is not None:
-            backend_report_offsets = [
-                func.offset for func in backend_converted_report.getFunctions()
-            ]
-            smda_report_offsets = [func.offset for func in smda_converted_report.getFunctions()]
-            # output diagnostic information if function sets differ
-            if set(backend_report_offsets) != set(smda_report_offsets):
-                print(
-                    f"[!] SMDA disassembly report function set ({len(smda_report_offsets)}) differs from {self.cc.backend.name} converted report function set ({len(backend_report_offsets)})!"
-                )
-                missing_in_smda = set(backend_report_offsets) - set(smda_report_offsets)
-                missing_in_backend = set(smda_report_offsets) - set(backend_report_offsets)
-                if missing_in_smda:
-                    print(
-                        "    Functions in %s but not in SMDA report (%d): %s"
-                        % (
-                            self.cc.backend.name,
-                            len(missing_in_smda),
-                            ", ".join([f"0x{off:x}" for off in missing_in_smda]),
-                        )
-                    )
-                if missing_in_backend:
-                    print(
-                        "    Functions in SMDA but not in %s report (%d): %s"
-                        % (
-                            self.cc.backend.name,
-                            len(missing_in_backend),
-                            ", ".join([f"0x{off:x}" for off in missing_in_backend]),
-                        )
-                    )
-                print("    Using SMDA converted report.")
-            else:
-                print(
-                    f"[|] SMDA converted report function set matches {self.cc.backend.name} converted report function set."
-                )
-            local_report = smda_converted_report
+            local_report = self.parent.mcrit_interface.convertToSmdaUsingSmda()
+            if local_report is not None:
+                self._printFunctionSetDifference(local_report)
+        if local_report is None:
+            local_report = self.parent.mcrit_interface.convertToSmda()
         if local_report is not None:
             local_report.sha256 = self.cc.backend.get_input_sha256()
             local_report.filename = self.cc.backend.get_input_filename()
@@ -248,8 +213,32 @@ class MainWidget(QMainWindow):
         )
         dialog.exec_()
 
-    def _buildLocalSmdaReport(self, on_ready, work=None):
-        """Run work off the UI thread where supported, then call on_ready(report) on the UI thread."""
+    def _printFunctionSetDifference(self, smda_report):
+        backend_name = self.cc.backend.name
+        backend_offsets = set(self.cc.backend.get_function_offsets())
+        smda_offsets = {function.offset for function in smda_report.getFunctions()}
+        if backend_offsets == smda_offsets:
+            print(
+                f"[|] SMDA converted report function set matches {backend_name} converted report "
+                "function set."
+            )
+            return
+        print(
+            f"[!] SMDA disassembly report function set ({len(smda_offsets)}) differs from "
+            f"{backend_name} converted report function set ({len(backend_offsets)})!"
+        )
+        for label, missing in (
+            (f"in {backend_name} but not in SMDA report", backend_offsets - smda_offsets),
+            (f"in SMDA but not in {backend_name} report", smda_offsets - backend_offsets),
+        ):
+            if missing:
+                offsets = ", ".join(f"0x{offset:x}" for offset in sorted(missing))
+                print(f"    Functions {label} ({len(missing)}): {offsets}")
+        print("    Using SMDA converted report.")
+
+    def _buildLocalSmdaReport(self, on_ready):
+        """Export the report off the UI thread where supported, then call on_ready(report) on the UI
+        thread."""
         if self._building:
             self.parent.local_widget.updateActivityInfo(
                 "An SMDA report is still being built; try again when it is done."
@@ -259,7 +248,7 @@ class MainWidget(QMainWindow):
 
         def build():
             try:
-                return (work or self.getLocalSmdaReport)()
+                return self.getLocalSmdaReport()
             except Exception:
                 self._building = False
                 raise
@@ -271,27 +260,41 @@ class MainWidget(QMainWindow):
         self.cc.backend.run_background("MCRIT: exporting SMDA report", build, done)
 
     def _onConvertSmdaButtonClicked(self):
-        self._buildLocalSmdaReport(self._applyConvertedReport, self._convertAndFetchRemote)
+        self._buildLocalSmdaReport(self._lookUpConvertedSample)
 
-    def _convertAndFetchRemote(self):
-        local_smda_report = self.getLocalSmdaReport()
-        if self.parent.local_smda_report is None:
-            self.parent.getRemoteSampleInformation()
-        return local_smda_report
+    def _lookUpConvertedSample(self, local_smda_report):
+        if local_smda_report is None:
+            self._applyConvertedReport(None)
+            return
+        # IDA exports on its main thread, so the request must not be part of the export
+        self._building = True
+
+        def done(_result):
+            self._building = False
+            self._applyConvertedReport(local_smda_report)
+
+        self.cc.backend.run_request(
+            "MCRIT: looking up the converted sample",
+            lambda: self.parent.mcrit_interface.querySampleSha256(local_smda_report.sha256),
+            done,
+        )
 
     def _applyConvertedReport(self, local_smda_report):
         if self.parent.local_smda_report is None:
             self.parent.local_smda_report = local_smda_report
-            self.parent.local_widget.updateActivityInfo(
-                "Downloaded all family/sample information from MCRIT"
+            # the lists are needed once matches show up, so convert does not wait for them
+            self.cc.backend.run_request(
+                "MCRIT: downloading family and sample lists",
+                self.parent.getRemoteSampleInformation,
+                lambda _result: self.parent.local_widget.updateActivityInfo(
+                    "Downloaded all family/sample information from MCRIT"
+                ),
             )
         if self.parent.local_smda_report is not None:
             self.exportSmdaAction.setEnabled(True)
             self.uploadSmdaAction.setEnabled(True)
             self.buildYaraStringAction.setEnabled(True)
-            # check if remote sample exists
-            self.parent.mcrit_interface.querySampleSha256(self.parent.local_smda_report.sha256)
-            # if yes, enable matching and use meta data
+            # if the conversion found the sample on the server, enable matching and use its meta data
             if self.parent.remote_sample_entry is not None:
                 self.getMatchResultAction.setEnabled(True)
                 self.parent.local_smda_report.family = self.parent.remote_sample_entry.family
@@ -301,15 +304,32 @@ class MainWidget(QMainWindow):
                 )
             # else query for family, version, library instead
             else:
-                dialog = self.SmdaInfoDialog(self)
-                dialog.exec_()
-                smda_info = dialog.getSmdaInfo()
-                self.parent.local_smda_report.family = smda_info["family"]
-                self.parent.local_smda_report.version = smda_info["version"]
-                self.parent.local_smda_report.is_library = smda_info["is_library"]
-            self.parent.block_match_widget.enable()
-            self.parent.function_match_widget.enable()
+                # the dialog offers the families, so they have to be here first; until it closes,
+                # another Convert would open a second one
+                self._building = True
+                self.cc.backend.run_request(
+                    "MCRIT: downloading family and sample lists",
+                    self.parent.getRemoteSampleInformation,
+                    lambda _result: self._askSmdaInfo(),
+                )
+                return
+            self._enableMatchWidgets()
         self.parent.local_widget.update()
+
+    def _askSmdaInfo(self):
+        dialog = self.SmdaInfoDialog(self)
+        dialog.exec_()
+        self._building = False
+        smda_info = dialog.getSmdaInfo()
+        self.parent.local_smda_report.family = smda_info["family"]
+        self.parent.local_smda_report.version = smda_info["version"]
+        self.parent.local_smda_report.is_library = smda_info["is_library"]
+        self._enableMatchWidgets()
+        self.parent.local_widget.update()
+
+    def _enableMatchWidgets(self):
+        self.parent.block_match_widget.enable()
+        self.parent.function_match_widget.enable()
 
     def _onExportSmdaButtonClicked(self):
         self._buildLocalSmdaReport(self._exportReport)
@@ -363,51 +383,77 @@ class MainWidget(QMainWindow):
         self.parent.local_smda_report.version = local_version
         self.parent.local_smda_report.is_library = local_library
         if self.parent.local_smda_report:
-            self.parent.mcrit_interface.uploadReport(self.parent.local_smda_report)
-            # check if remote sample exists
-            if self.parent.remote_sample_id is not None:
-                self.getMatchResultAction.setEnabled(True)
+            report = self.parent.local_smda_report
+            self.cc.backend.run_request(
+                "MCRIT: uploading the SMDA report",
+                lambda: self.parent.mcrit_interface.uploadReport(report),
+                self._afterUpload,
+            )
         else:
             self.parent.local_widget.updateActivityInfo(
                 "Database is not converted to SMDA report yet, can't upload."
             )
 
-    def _onGetMatchResultButtonClicked(self):
+    def _afterUpload(self, _result):
+        # check if remote sample exists
         if self.parent.remote_sample_id is not None:
-            # fetch jobs
-            jobs = self.parent.mcrit_interface.queryJobs(sample_id=self.parent.remote_sample_id)
-            if jobs is None:
-                return
-            # check which job the user wants to use as reference
-            dialog = self.ResultChooserDialog(self, job_infos=jobs)
-            dialog.exec_()
-            dialog_result = dialog.getResultChosen()
-            # if user wants to request a new matching, schedule it via client
-            if dialog_result["is_requesting_matching_job"]:
-                self.parent.mcrit_interface.requestMatchingJob(
-                    self.parent.remote_sample_id, force_update=True
-                )
-            # if otherwise a job was finished and a job_id selected, fetch the data
-            elif dialog_result["selected_job_id"]:
-                # we already have this matching data, so we can skip and save time
-                if (
-                    self.parent.matching_job_id is not None
-                    and self.parent.matching_job_id == dialog_result["selected_job_id"]
-                ):
-                    pass
-                else:
-                    self.parent.mcrit_interface.getMatchingJobById(dialog_result["selected_job_id"])
-                self.setTabFocus(self.parent.function_widget.name)
-                self.hideLocalWidget()
-            self.parent.function_widget.update()
-            self.parent.sample_widget.update()
-            if self.parent.config.OVERVIEW_FETCH_LABELS_AUTOMATICALLY:
-                self.parent.function_widget.fetchLabels()
-            return
-        else:
+            self.getMatchResultAction.setEnabled(True)
+        self.parent.local_widget.update()
+
+    def _onGetMatchResultButtonClicked(self):
+        sample_id = self.parent.remote_sample_id
+        if sample_id is None:
             self.parent.local_widget.updateActivityInfo(
                 "No remote Sample present yet, can't request a matching or query results."
             )
+            return
+        self.cc.backend.run_request(
+            "MCRIT: fetching matching jobs",
+            lambda: self.parent.mcrit_interface.queryJobs(sample_id=sample_id),
+            lambda jobs: self._chooseMatchingJob(sample_id, jobs),
+        )
+
+    def _chooseMatchingJob(self, sample_id, jobs):
+        if jobs is None:
+            return
+        # check which job the user wants to use as reference
+        dialog = self.ResultChooserDialog(self, job_infos=jobs)
+        dialog.exec_()
+        dialog_result = dialog.getResultChosen()
+        selected_job_id = dialog_result["selected_job_id"]
+        # if user wants to request a new matching, schedule it via client
+        if dialog_result["is_requesting_matching_job"]:
+            self.cc.backend.run_request(
+                "MCRIT: requesting a matching job",
+                lambda: self.parent.mcrit_interface.requestMatchingJob(
+                    sample_id, force_update=True
+                ),
+                lambda _job_id: self._showMatchingResult(False),
+            )
+        # if otherwise a job was finished and a job_id selected, fetch the data
+        elif selected_job_id:
+            # we already have this matching data, so we can skip and save time
+            if self.parent.matching_job_id is not None and (
+                self.parent.matching_job_id == selected_job_id
+            ):
+                self._showMatchingResult(True)
+            else:
+                self.cc.backend.run_request(
+                    "MCRIT: downloading the matching result",
+                    lambda: self.parent.mcrit_interface.getMatchingJobById(selected_job_id),
+                    lambda _result: self._showMatchingResult(True),
+                )
+        else:
+            self._showMatchingResult(False)
+
+    def _showMatchingResult(self, focus_overview):
+        if focus_overview:
+            self.setTabFocus(self.parent.function_widget.name)
+            self.hideLocalWidget()
+        self.parent.function_widget.update()
+        self.parent.sample_widget.update()
+        if self.parent.config.OVERVIEW_FETCH_LABELS_AUTOMATICALLY:
+            self.parent.function_widget.fetchLabels()
 
     def hideLocalWidget(self):
         self.splitter.setSizes([0, 1])

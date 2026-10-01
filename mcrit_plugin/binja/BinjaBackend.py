@@ -15,6 +15,7 @@ from binaryninja.enums import (
     ThemeColor,
 )
 
+from mcrit_plugin.binja.MatchRenderLayer import MatchRenderLayer
 from mcrit_plugin.core.Backend import Backend
 from mcrit_plugin.core.ScoreColorProvider import ThemeRole
 
@@ -42,11 +43,14 @@ class BinjaBackend(Backend):
 
     def __init__(self, bv):
         self.bv = bv
+        # messages go to this file's log, not the global one
+        self.logger = Logger(bv.file.session_id, TITLE)
         self.view_frame = None
         self.cursor_offset = None
         self._input_hashes = None
         self.closed = False
         self._mutation_depth = 0
+        self._colored_function = None
 
     def _smda_interface(self):
         from smda.binja.BinjaInterface import BinjaInterface
@@ -96,6 +100,14 @@ class BinjaBackend(Backend):
 
     def get_function_symbols(self):
         return self._smda_interface().getFunctionSymbols()
+
+    def get_function_offsets(self):
+        interface = self._smda_interface()
+        return {
+            offset
+            for offset in interface.getFunctions()
+            if not interface.isExternalFunction(offset)
+        }
 
     def get_cursor_address(self):
         if self.view_frame is not None:
@@ -173,13 +185,28 @@ class BinjaBackend(Backend):
                     task.progress = title
                     result = work()
                 except Exception:
-                    logger.log_error(f"{title} failed:\n{traceback.format_exc()}")
+                    backend.logger.log_error(f"{title} failed:\n{traceback.format_exc()}")
                     backend._on_main_thread(
                         lambda: backend.show_warning(f"{title} failed, see the log for details.")
                     )
                     return
                 backend._on_main_thread(lambda: on_done(result))
 
+        Task(title, False).start()
+
+    def run_request(self, title, work, on_done):
+        backend = self
+
+        class Task(binaryninja.BackgroundTaskThread):
+            def run(task):
+                try:
+                    result = work()
+                except Exception:
+                    backend.logger.log_error(f"{title} failed:\n{traceback.format_exc()}")
+                    return
+                backend._on_main_thread(lambda: on_done(result))
+
+        # no analysis wait, unlike run_background; without cancel, as a request cannot be stopped
         Task(title, False).start()
 
     def _on_main_thread(self, func):
@@ -243,6 +270,34 @@ class BinjaBackend(Backend):
                 (tint.blue(), base.blue()),
             )
         )
+
+    def _refresh_views(self):
+        try:
+            from binaryninjaui import UIContext
+        except ImportError:
+            return
+        # render layers run when a view regenerates its lines, as in Binary Ninja's
+        # follow_reg_render_layer example
+        for context in UIContext.allContexts():
+            context.refreshCurrentViewContents()
+
+    def show_local_match_coloring(self, smda_function, coloring):
+        self.clear_local_match_coloring()
+        ranges = []
+        for block in smda_function.getBlocks():
+            if block.offset in coloring:
+                last = list(block.getInstructions())[-1]
+                end = last.offset + len(last.bytes) // 2
+                ranges.append((block.offset, end, coloring[block.offset]))
+        MatchRenderLayer.set_coloring(self.bv.file.session_id, ranges)
+        self._colored_function = smda_function.offset
+        self._refresh_views()
+
+    def clear_local_match_coloring(self):
+        MatchRenderLayer.clear(self.bv.file.session_id)
+        if self._colored_function is not None:
+            self._refresh_views()
+            self._colored_function = None
 
     @staticmethod
     def _edge_branch_types(block, targets):

@@ -1,5 +1,8 @@
+import functools
 import os
+import queue
 import re
+import threading
 import traceback
 from contextlib import contextmanager
 
@@ -19,10 +22,87 @@ except ImportError:
     ida_hexrays = None
 
 
+# bounds the threads fast cursor moves start; Block Scope parallelises its own lookups
+REQUEST_WORKERS = 4
+DELIVERY_INTERVAL_MS = 20
+
+
 def _address_or_none(ea):
     if ea is None or ea == ida_idaapi.BADADDR:
         return None
     return ea
+
+
+def _on_main_thread(method):
+    """IDA's API is main-thread only: called on a worker, e.g. inside run_background's work, the
+    method runs on the main thread while the worker waits."""
+
+    @functools.wraps(method)
+    def wrapper(self, *args, **kwargs):
+        if threading.current_thread() is threading.main_thread():
+            return method(self, *args, **kwargs)
+        outcome = []
+
+        def call():
+            try:
+                # the form closed while this waited; the database may be gone with it
+                if self.closed:
+                    raise RuntimeError("the MCRIT form was closed")
+                outcome.append((method(self, *args, **kwargs), None))
+            except Exception as exc:
+                outcome.append((None, exc))
+            return 1  # execute_sync requires an int return value
+
+        # MFF_READ: IDA runs it once the database is safe to read
+        ida_kernwin.execute_sync(call, ida_kernwin.MFF_READ)
+        if not outcome:
+            raise RuntimeError("IDA did not run %s on its main thread" % method.__name__)
+        result, error = outcome[0]
+        if error is not None:
+            raise error
+        return result
+
+    return wrapper
+
+
+def _smda_ida_interface():
+    """smda's IDA interface, set up on first use with the reads below.
+
+    smda selects its ida_domain backend whenever that package is importable, and its per-call
+    wrappers make the export about twice as slow inside IDA as smda's IDAPython backend.
+    """
+    from smda.ida.IdaInterface import IdaInterface
+
+    if IdaInterface.instance is not None:
+        return IdaInterface()
+
+    import ida_xref
+    from smda.ida.IdaIdapythonInterface import Ida85Interface
+
+    class FastIdaInterface(Ida85Interface):
+        # one item lookup and raw xref walks instead of a decode and an iterator per instruction;
+        # the report is unchanged
+        def getInstructionBytes(self, offset):
+            return ida_bytes.get_bytes(offset, ida_bytes.get_item_size(offset))
+
+        def getCodeInRefs(self, offset):
+            refs = []
+            ref = ida_xref.get_first_cref_to(offset)
+            while ref != ida_idaapi.BADADDR:
+                refs.append((ref, offset))
+                ref = ida_xref.get_next_cref_to(offset, ref)
+            return refs
+
+        def getCodeOutRefs(self, offset):
+            refs = []
+            ref = ida_xref.get_first_cref_from(offset)
+            while ref != ida_idaapi.BADADDR:
+                refs.append((offset, ref))
+                ref = ida_xref.get_next_cref_from(offset, ref)
+            return refs
+
+    IdaInterface.instance = FastIdaInterface()
+    return IdaInterface()
 
 
 class IdaBackend(Backend):
@@ -31,32 +111,64 @@ class IdaBackend(Backend):
 
     def __init__(self):
         self._mutation_depth = 0
+        self.closed = False
+        self._requests = queue.SimpleQueue()
+        self._workers = []
+        self._deliveries = queue.SimpleQueue()
+        self._pending = 0
+        self._timer = None
+        self._delivering = False
 
+    @_on_main_thread
     def get_input_md5(self):
         md5 = ida_nalt.retrieve_input_file_md5()
         return md5.hex() if md5 is not None else None
 
+    @_on_main_thread
     def get_input_sha256(self):
         sha256 = ida_nalt.retrieve_input_file_sha256()
         return sha256.hex() if sha256 is not None else None
 
+    @_on_main_thread
     def get_input_filename(self):
         return os.path.basename(ida_nalt.get_root_filename())
 
+    @_on_main_thread
     def get_input_size(self):
         return ida_nalt.retrieve_input_file_size()
 
     def export_smda_report(self):
+        # only reading the database needs IDA's main thread; disassembling and hashing, most of
+        # the export, then run on the calling thread
+        disassembler, snapshot = self._read_export_snapshot()
+        return disassembler.disassembleBuffer(snapshot.getBinary(), 0)
+
+    @_on_main_thread
+    def _read_export_snapshot(self):
         from smda.Disassembler import Disassembler
-        from smda.ida.IdaInterface import IdaInterface
 
-        return Disassembler(backend="IDA").disassembleBuffer(IdaInterface().getBinary(), 0)
+        from mcrit_plugin.ida.SmdaInterfaceSnapshot import SmdaInterfaceSnapshot
 
+        show_wait_box = ida_kernwin.is_idaq()
+        if show_wait_box:
+            ida_kernwin.show_wait_box("HIDECANCEL\nMCRIT: reading the database")
+        try:
+            # first, so smda's IDA facade holds this interface rather than its own choice
+            interface = _smda_ida_interface()
+            # IdaExporter reads the bitness and architecture from IDA when it is created
+            disassembler = Disassembler(backend="IDA")
+            snapshot = SmdaInterfaceSnapshot(interface)
+        finally:
+            if show_wait_box:
+                ida_kernwin.hide_wait_box()
+        disassembler.disassembler.ida_interface = snapshot
+        return disassembler, snapshot
+
+    @_on_main_thread
     def get_binary_info(self):
         from smda.common.BinaryInfo import BinaryInfo
-        from smda.ida.IdaInterface import IdaInterface
 
-        ida_interface = IdaInterface()
+        ida_interface = _smda_ida_interface()
         binary_info = BinaryInfo(ida_interface.getBinary())
         if not binary_info.architecture:
             binary_info.architecture = ida_interface.getArchitecture()
@@ -66,10 +178,19 @@ class IdaBackend(Backend):
             binary_info.bitness = ida_interface.getBitness()
         return binary_info
 
+    @_on_main_thread
     def get_function_symbols(self):
-        from smda.ida.IdaInterface import IdaInterface
+        return _smda_ida_interface().getFunctionSymbols()
 
-        return IdaInterface().getFunctionSymbols()
+    @_on_main_thread
+    def get_function_offsets(self):
+        interface = _smda_ida_interface()
+        # smda's exporter skips external functions
+        return {
+            offset
+            for offset in interface.getFunctions()
+            if not interface.isExternalFunction(offset)
+        }
 
     def get_cursor_address(self):
         return _address_or_none(ida_kernwin.get_screen_ea())
@@ -135,17 +256,79 @@ class IdaBackend(Backend):
             self._mutation_depth -= 1
 
     def run_background(self, title, work, on_done):
-        """IDA's API is main-thread only, so work runs synchronously behind a wait box."""
-        ida_kernwin.show_wait_box("HIDECANCEL\n%s" % title)
-        try:
-            result = work()
-        except Exception:
-            ida_kernwin.hide_wait_box()
-            traceback.print_exc()
-            self.show_warning("%s failed, see the Output window for details." % title)
+        """work runs on a worker thread like a request; the methods it calls that read the
+        database run on the main thread."""
+        self.run_request(title, work, on_done)
+
+    def run_request(self, title, work, on_done):
+        """IDA's API is main-thread only: work, the requests, runs on a worker thread and must not
+        call it; a main-thread timer hands each result to on_done."""
+        if self.closed:
             return
-        ida_kernwin.hide_wait_box()
-        on_done(result)
+        if not self._workers:
+            # daemon threads: the interpreter joins a ThreadPoolExecutor's threads at exit, so
+            # quitting IDA during a slow request would wait for it
+            for number in range(REQUEST_WORKERS):
+                worker = threading.Thread(
+                    target=self._work, name="mcrit-request-%d" % number, daemon=True
+                )
+                worker.start()
+                self._workers.append(worker)
+        self._pending += 1
+        self._requests.put((title, work, on_done))
+        if self._timer is None:
+            self._timer = ida_kernwin.register_timer(DELIVERY_INTERVAL_MS, self._deliver)
+
+    def _work(self):
+        while True:
+            request = self._requests.get()
+            if request is None:
+                return
+            if self.closed:
+                continue
+            title, work, on_done = request
+            try:
+                self._deliveries.put((on_done, work()))
+            except Exception:
+                traceback.print_exc()
+                self._deliveries.put((None, title))
+
+    def _deliver(self):
+        # a dialog opened by on_done runs a nested event loop in which this timer fires again;
+        # the other results wait until it closes
+        if self._delivering:
+            return DELIVERY_INTERVAL_MS
+        self._delivering = True
+        try:
+            while not self.closed:
+                try:
+                    on_done, result = self._deliveries.get_nowait()
+                except queue.Empty:
+                    break
+                self._pending -= 1
+                try:
+                    if on_done is None:
+                        self.show_warning("%s failed, see the Output window for details." % result)
+                    else:
+                        on_done(result)
+                except Exception:
+                    traceback.print_exc()
+        finally:
+            self._delivering = False
+        if self.closed or not self._pending:
+            self._timer = None
+            return -1  # unregisters the timer
+        return DELIVERY_INTERVAL_MS
+
+    def close(self):
+        """Drop the results still to come; called when the MCRIT form closes."""
+        self.closed = True
+        for _worker in self._workers:
+            self._requests.put(None)
+        self._workers = []
+        if self._timer is not None and not self._delivering:
+            ida_kernwin.unregister_timer(self._timer)
+            self._timer = None
 
     def run_on_ui_thread(self, func):
         result = []
