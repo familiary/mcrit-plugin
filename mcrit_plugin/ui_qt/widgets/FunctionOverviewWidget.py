@@ -25,6 +25,8 @@ class FunctionOverviewWidget(QMainWindow):
         self._labeled_source = None
         self._labeled = ({}, 0)
         self._grouped_matches = {}
+        self._matches_by_remote_function = {}
+        self._label_free_aggregates = {}
         self._aggregates = {}
         self._label_last_render = 0.0
         self._score_range_job_id = None
@@ -419,9 +421,35 @@ class FunctionOverviewWidget(QMainWindow):
                 function_id: (offsets[function_id], matches)
                 for function_id, matches in grouped.items()
             }
+            # labels belong to remote functions: this finds the matches a label applies to
+            # without a pass over all of them
+            by_remote_function = {}
+            for function_id, matches in grouped.items():
+                for match in matches:
+                    by_remote_function.setdefault(match[3], []).append((function_id, match))
+            # tuples of plain values drop out of the garbage collector's tracking, lists never do;
+            # a full collection walks every tracked object, so 150,000 lists made each pause longer
+            self._matches_by_remote_function = {
+                remote_function_id: tuple(matches)
+                for remote_function_id, matches in by_remote_function.items()
+            }
             self._grouped_report = match_report
+            self._label_free_aggregates = {}
             self._aggregates = {}
         return self._grouped_matches
+
+    def _labelFreeAggregates(self, grouped, threshold_value):
+        """Per local function the families, samples, functions and library matches of its matches
+        at or above the threshold, and their number; labels do not change these."""
+        cached = self._label_free_aggregates.get(threshold_value)
+        if cached is None:
+            cached = {}
+            for function_id, (offset, matches) in grouped.items():
+                selected = [match for match in matches if match[0] >= threshold_value]
+                if selected:
+                    cached[function_id] = _matchSets(offset, selected)
+            self._label_free_aggregates[threshold_value] = cached
+        return cached
 
     def _aggregateMatches(self, match_report, threshold_value, filtered, labeled_entries):
         """Per local function the families, samples, functions, library matches and labels of its
@@ -437,31 +465,34 @@ class FunctionOverviewWidget(QMainWindow):
         cached = self._aggregates.get(key)
         if cached is not None and cached[0] is labeled_entries:
             return cached[1:] + (len(grouped),)
+        # only the matches of labeled remote functions carry labels or pass the label filter
+        labels_by_function = {}
+        labeled_matches = {}
+        for matched_function_id, entry in labeled_entries.items():
+            for function_id, match in self._matches_by_remote_function.get(matched_function_id, ()):
+                if match[0] < threshold_value:
+                    continue
+                labeled_matches.setdefault(function_id, []).append(match)
+                labels = labels_by_function.setdefault(function_id, set())
+                for label in entry.function_labels:
+                    labels.add(
+                        (int(match[0]), label.function_label, label.username, label.timestamp)
+                    )
+        if filtered:
+            match_sets = {
+                function_id: _matchSets(grouped[function_id][0], selected)
+                for function_id, selected in labeled_matches.items()
+            }
+        else:
+            match_sets = self._labelFreeAggregates(grouped, threshold_value)
         aggregated_matches = {}
         matches_beyond_filters = 0
-        for function_id, (offset, matches) in grouped.items():
-            selected = [match for match in matches if match[0] >= threshold_value]
-            if filtered:
-                selected = [match for match in selected if match[3] in labeled_entries]
-            if not selected:
-                continue
-            matches_beyond_filters += len(selected)
-            labels = set()
-            for score, _family, _sample, matched_function_id, _library in selected:
-                entry = labeled_entries.get(matched_function_id)
-                if entry is not None:
-                    for label in entry.function_labels:
-                        labels.add(
-                            (int(score), label.function_label, label.username, label.timestamp)
-                        )
-            aggregated_matches[function_id] = {
-                "offset": offset,
-                "families": {match[1] for match in selected},
-                "samples": {match[2] for match in selected},
-                "functions": {match[3] for match in selected},
-                "library_matches": {match[3] for match in selected if match[4]},
-                "labels": labels,
-            }
+        for function_id, (sets, num_selected) in match_sets.items():
+            matches_beyond_filters += num_selected
+            # a new dict per aggregation: populating the table adds keys to it
+            aggregated_matches[function_id] = dict(
+                sets, labels=labels_by_function.get(function_id, set())
+            )
         result = (
             aggregated_matches,
             matches_beyond_filters,
@@ -653,3 +684,15 @@ class FunctionOverviewWidget(QMainWindow):
             self.parent.function_match_widget.queryCurrentFunction()
         elif mi.column() == function_offset_column:
             self.cc.backend.jump_to(clicked_function_address)
+
+
+def _matchSets(offset, selected):
+    """The sets the overview shows for one local function's selected matches, and their number."""
+    sets = {
+        "offset": offset,
+        "families": {match[1] for match in selected},
+        "samples": {match[2] for match in selected},
+        "functions": {match[3] for match in selected},
+        "library_matches": {match[3] for match in selected if match[4]},
+    }
+    return sets, len(selected)
