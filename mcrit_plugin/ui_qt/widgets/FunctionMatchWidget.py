@@ -216,6 +216,9 @@ class FunctionMatchWidget(QMainWindow):
             )
 
         def request():
+            # the cursor left while this waited behind other requests: None skips it
+            if self.parent.current_function != function_offset:
+                return None
             if not self._fetch_remote_cache():
                 return False
             if outline is not None:
@@ -227,7 +230,7 @@ class FunctionMatchWidget(QMainWindow):
 
         def show(remote_cache_ready):
             # a live query answered after the cursor moved on; its result stays cached
-            if self.parent.current_function != function_offset:
+            if remote_cache_ready is None or self.parent.current_function != function_offset:
                 return
             if not remote_cache_ready:
                 self._show_remote_cache_unavailable()

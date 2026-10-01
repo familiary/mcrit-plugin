@@ -237,6 +237,8 @@ class BlockMatchWidget(QMainWindow):
         )
 
         def request():
+            if self.parent.current_function != function_offset:
+                return None
             if not self._fetch_remote_cache():
                 return False
             self._lookupBlockHashes([entry["hash"] for entry in pbh])
@@ -244,7 +246,7 @@ class BlockMatchWidget(QMainWindow):
 
         def show(remote_cache_ready):
             # a live query answered after the cursor moved on; its results stay cached
-            if self.parent.current_function != function_offset:
+            if remote_cache_ready is None or self.parent.current_function != function_offset:
                 return
             if not remote_cache_ready:
                 # the next cursor move in this function tries again
