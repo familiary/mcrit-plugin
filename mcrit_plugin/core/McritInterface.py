@@ -398,6 +398,29 @@ class McritInterface(object):
         except Exception as exc:
             self._reportFailure("querySampleEntryById", exc)
 
+    def queryRemoteFunction(self, function_id):
+        """(function entry with its CFG, its SmdaFunction, its sample entry), or None after reporting
+        why; touches no widget, so it can run off the UI thread. The sample entry comes from the
+        downloaded sample list when that has it."""
+        function_entry = self.queryFunctionEntryById(function_id)
+        if function_entry is None:
+            self.parent.local_widget.updateActivityInfo(
+                f"Failed to fetch function entry {function_id}."
+            )
+            return None
+        sample_infos = self.parent.sample_infos
+        sample_entry = (
+            sample_infos.get(function_entry.sample_id) if isinstance(sample_infos, dict) else None
+        )
+        if sample_entry is None:
+            sample_entry = self.querySampleEntryById(function_entry.sample_id)
+        if sample_entry is None:
+            self.parent.local_widget.updateActivityInfo(
+                f"Failed to fetch sample entry {function_entry.sample_id}."
+            )
+            return None
+        return function_entry, function_entry.toSmdaFunction(), sample_entry
+
     def getMatchesForPicBlockHash(self, picblockhash):
         try:
             return self.mcrit_client.getMatchesForPicBlockHash(picblockhash)

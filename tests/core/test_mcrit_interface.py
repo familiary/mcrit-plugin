@@ -211,3 +211,43 @@ class TestRemoteInformation:
         interface.mcrit_client.getFamilies.return_value = {1: MagicMock()}
         assert interface.ensureRemoteInformation() is True
         assert interface.mcrit_client.getSamples.call_count == 1
+
+
+class TestQueryRemoteFunction:
+    def _interface(self, sample_infos=None):
+        interface = _make_interface()
+        interface.parent.sample_infos = sample_infos
+        entry = MagicMock(sample_id=5)
+        interface.mcrit_client.getFunctionById.return_value = entry
+        return interface, entry
+
+    def test_the_sample_comes_from_the_downloaded_list(self):
+        sample = object()
+        interface, entry = self._interface(sample_infos={5: sample})
+
+        assert interface.queryRemoteFunction(9) == (entry, entry.toSmdaFunction(), sample)
+        interface.mcrit_client.getFunctionById.assert_called_once_with(9, with_xcfg=True)
+        interface.mcrit_client.getSampleById.assert_not_called()
+
+    def test_an_unlisted_sample_is_requested(self):
+        sample = object()
+        interface, entry = self._interface(sample_infos={})
+        interface.mcrit_client.getSampleById.return_value = sample
+
+        assert interface.queryRemoteFunction(9) == (entry, entry.toSmdaFunction(), sample)
+        interface.mcrit_client.getSampleById.assert_called_once_with(5)
+
+    def test_a_missing_function_or_sample_is_reported(self):
+        interface, _entry = self._interface()
+        interface.mcrit_client.getSampleById.return_value = None
+
+        assert interface.queryRemoteFunction(9) is None
+        interface.parent.local_widget.updateActivityInfo.assert_called_with(
+            "Failed to fetch sample entry 5."
+        )
+        interface.mcrit_client.getFunctionById.return_value = None
+
+        assert interface.queryRemoteFunction(9) is None
+        interface.parent.local_widget.updateActivityInfo.assert_called_with(
+            "Failed to fetch function entry 9."
+        )

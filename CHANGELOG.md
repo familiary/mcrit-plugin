@@ -43,6 +43,10 @@ Ninja applies to that plugin only.
   The matches of a result are grouped by function once and each threshold and filter is aggregated
   once, so with 221,000 matches over 705 functions clicking through the filters takes about 0.15 s
   instead of 3 to 4 s.
+- Opening the graph of a function or block match fetches the remote function off the UI thread on
+  Binary Ninja, and takes its sample from the sample list already downloaded instead of asking the
+  server again. For a 3,955-instruction match against mcrit.malpedia.io, Binary Ninja froze for
+  about 3.5 s; the click now returns at once and the graph opens after about 2.1 s.
 
 ## [2.0.0] - 2026-09-28
 

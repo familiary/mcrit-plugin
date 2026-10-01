@@ -538,32 +538,31 @@ class BlockMatchWidget(QMainWindow):
                 function_id_b = int(self.table_block_matches.item(mi.row(), index).text())
         # print("double clicked row for function_id", function_id_b)
         if block_offset_b is not None and function_id_b is not None:
-            function_entry_b = self.parent.mcrit_interface.queryFunctionEntryById(function_id_b)
-            if function_entry_b is None:
-                self.parent.local_widget.updateActivityInfo(
-                    f"Failed to fetch function entry {function_id_b}."
-                )
-                return
-            smda_function_b = function_entry_b.toSmdaFunction()
-            sample_entry_b = self.parent.mcrit_interface.querySampleEntryById(
-                function_entry_b.sample_id
+            block_matches = self._last_block_matches
+            self.parent.local_widget.updateActivityInfo(
+                f"Fetching function {function_id_b} for the graph viewer..."
             )
-            if sample_entry_b is None:
-                self.parent.local_widget.updateActivityInfo(
-                    f"Failed to fetch sample entry {function_entry_b.sample_id}."
+
+            def show(remote):
+                if remote is None:
+                    return
+                function_entry_b, smda_function_b, sample_entry_b = remote
+                matched_color = packRgb(self.scp.roleColor(ThemeRole.CYAN, (0xC0, 0xF4, 0xFF)))
+                current_color = packRgb(self.scp.roleColor(ThemeRole.CURRENT, (0x00, 0xDD, 0xFF)))
+                coloring = {}
+                for offset, data in block_matches.items():
+                    for match in data["matches"]:
+                        if match[2] == function_entry_b.function_id:
+                            coloring[match[3]] = matched_color
+                coloring[block_offset_b] = current_color
+                self.cc.backend.show_function_graph(
+                    self, sample_entry_b, function_entry_b, smda_function_b, coloring
                 )
-                return
-            #
-            matched_color = packRgb(self.scp.roleColor(ThemeRole.CYAN, (0xC0, 0xF4, 0xFF)))
-            current_color = packRgb(self.scp.roleColor(ThemeRole.CURRENT, (0x00, 0xDD, 0xFF)))
-            coloring = {}
-            for offset, data in self._last_block_matches.items():
-                for match in data["matches"]:
-                    if match[2] == function_entry_b.function_id:
-                        coloring[match[3]] = matched_color
-            coloring[block_offset_b] = current_color
-            self.cc.backend.show_function_graph(
-                self, sample_entry_b, function_entry_b, smda_function_b, coloring
+
+            self.cc.backend.run_request(
+                "MCRIT: fetching remote function %d" % function_id_b,
+                lambda: self.parent.mcrit_interface.queryRemoteFunction(function_id_b),
+                show,
             )
 
     def _onTableBlockMatchesRightClicked(self, position):
