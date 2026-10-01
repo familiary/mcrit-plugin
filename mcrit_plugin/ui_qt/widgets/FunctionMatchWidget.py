@@ -41,7 +41,6 @@ class FunctionMatchWidget(QMainWindow):
         self.b_query_single = self.cc.QPushButton("Query current function")
         self.b_query_single.clicked.connect(self.queryCurrentFunction)
         self.b_query_single.setEnabled(False)
-        ### self.cb_filter_library.stateChanged.connect(self.populateBestMatchTable)
         # horizontal line
         self.hline = self.cc.QFrame()
         self.hline.setFrameShape(self.cc.QFrameHLine)
@@ -59,7 +58,6 @@ class FunctionMatchWidget(QMainWindow):
         self.label_function_names = self.cc.QLabel("Names from Matched Functions")
         self.table_function_names = self.cc.QTableWidget()
         self.table_function_names.doubleClicked.connect(self._onTableFunctionNameDoubleClicked)
-        ### self.table_picblockhash_matches.doubleClicked.connect(self._onTablePicBlockHashDoubleClicked)
         # static links to objects to help IDA
         self.NumberQTableWidgetItem = NumberQTableWidgetItem
         self._QtShim = QtShim
@@ -401,7 +399,6 @@ class FunctionMatchWidget(QMainWindow):
                 if text_color is not None:
                     tmp_item.setForeground(QColor(text_color[0], text_color[1], text_color[2]))
                 self.table_function_matches.setItem(row, column, tmp_item)
-            # self.table_function_matches.resizeRowToContents(row)
             row += 1
         self.table_function_matches.setSelectionMode(self.cc.QAbstractItemView.SingleSelection)
         self.table_function_matches.resizeColumnsToContents()
@@ -472,7 +469,6 @@ class FunctionMatchWidget(QMainWindow):
                 tmp_item = self.generateNameTableCellItem(column_type, function_label_entry)
                 tmp_item.setFlags(tmp_item.flags() & ~self.cc.QtCore.Qt.ItemIsEditable)
                 self.table_function_names.setItem(row, column, tmp_item)
-            # self.table_function_matches.resizeRowToContents(row)
             row += 1
         self.table_function_names.setSelectionMode(self.cc.QAbstractItemView.SingleSelection)
         self.table_function_names.resizeColumnsToContents()

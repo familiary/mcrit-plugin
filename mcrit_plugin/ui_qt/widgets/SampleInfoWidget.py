@@ -65,18 +65,6 @@ class SampleInfoWidget(QMainWindow):
     def updateFunctionsLabel(self):
         pass
 
-    def _get_entry_field(self, entry, field):
-        if entry is None:
-            return None
-        if isinstance(entry, dict):
-            return entry.get(field)
-        return getattr(entry, field, None)
-
-    def _get_sample_entry(self, sample_infos, sample_id):
-        if isinstance(sample_infos, dict):
-            return sample_infos.get(sample_id) or sample_infos.get(str(sample_id))
-        return None
-
     def _updateLabelBestMatches(self, text):
         self.label_best_matches.setText(text)
 
@@ -84,125 +72,30 @@ class SampleInfoWidget(QMainWindow):
         self.label_sample_matches_family.setText(text)
 
     def _aggregatedMatchingData(self):
-        """TODO refactor to somewhere else or re-use from mcrit core"""
         match_report = self.parent.getMatchingReport()
         if not match_report:
             return {}
-        if not isinstance(match_report, dict):
-            if hasattr(match_report, "filtered_sample_matches"):
-                sample_matches = match_report.filtered_sample_matches
-                if self.cb_filter_library.isChecked():
-                    sample_matches = [entry for entry in sample_matches if not entry.is_library]
-                return {
-                    sample_match.sample_id: {
-                        "family": sample_match.family,
-                        "version": sample_match.version,
-                        "sha256": sample_match.sha256,
-                        "filename": sample_match.filename,
-                        "sample_id": sample_match.sample_id,
-                        "minhash_matches": sample_match.matched_functions_minhash,
-                        "pichash_matches": sample_match.matched_functions_pichash,
-                        "combined_matches": sample_match.matched_functions_combined,
-                        "library_matches": sample_match.matched_functions_library,
-                        "bytescore": sample_match.matched_bytes_unweighted,
-                        "bytescore_adjusted": sample_match.matched_bytes_score_weighted,
-                        "percent": sample_match.matched_percent_unweighted,
-                        "percent_adjusted": sample_match.matched_percent_score_weighted,
-                    }
-                    for sample_match in sample_matches
-                }
-            if hasattr(match_report, "toDict"):
-                match_report = match_report.toDict()
-            else:
-                return {}
-        sample_infos = self.parent.getSampleInfos()
-        sample_info = match_report.get("sample_info") or {}
-        own_sample_num_bytes = sample_info.get("binweight") or 0
-        if own_sample_num_bytes <= 0:
-            return {}
-        function_num_bytes = {}
-        matches_per_sample = {}
-        pichash_matches = match_report.get("pichash", {}).get("pichash_matches") or {}
-        for own_function_id, match_data in pichash_matches.items():
-            function_num_bytes[own_function_id] = match_data["num_bytes"]
-            for foreign_sample_id, foreign_matches in match_data["matches"].items():
-                foreign_sample_id = int(foreign_sample_id)
-                for match in foreign_matches:
-                    if foreign_sample_id not in matches_per_sample:
-                        matches_per_sample[foreign_sample_id] = {}
-                    if own_function_id not in matches_per_sample[foreign_sample_id]:
-                        matches_per_sample[foreign_sample_id][own_function_id] = []
-                    matches_per_sample[foreign_sample_id][own_function_id].append(
-                        ("pichash", match[1])
-                    )
-                if match_data.get("has_library_match"):
-                    matches_per_sample[foreign_sample_id][own_function_id].append(("library", 0))
-        minhash_matches = match_report.get("minhash", {}).get("minhash_matches") or {}
-        for own_function_id, match_data in minhash_matches.items():
-            function_num_bytes[own_function_id] = match_data["num_bytes"]
-            for foreign_sample_id, foreign_matches in match_data["matches"].items():
-                foreign_sample_id = int(foreign_sample_id)
-                for match in foreign_matches:
-                    if foreign_sample_id not in matches_per_sample:
-                        matches_per_sample[foreign_sample_id] = {}
-                    if own_function_id not in matches_per_sample[foreign_sample_id]:
-                        matches_per_sample[foreign_sample_id][own_function_id] = []
-                    matches_per_sample[foreign_sample_id][own_function_id].append(
-                        ("minhash", match[1])
-                    )
-                if match_data.get("has_library_match"):
-                    matches_per_sample[foreign_sample_id][own_function_id].append(("library", 0))
-
-        sample_summary = {}
-        for foreign_sample_id in matches_per_sample:
-            sample_info = self._get_sample_entry(sample_infos, int(foreign_sample_id))
-            sample_summary[foreign_sample_id] = {
-                "family": self._get_entry_field(sample_info, "family") or "-",
-                "version": self._get_entry_field(sample_info, "version") or "-",
-                "sha256": self._get_entry_field(sample_info, "sha256") or "",
-                "filename": self._get_entry_field(sample_info, "filename") or "",
-                "sample_id": foreign_sample_id,
-                "minhash_matches": 0,
-                "pichash_matches": 0,
-                "combined_matches": 0,
-                "library_matches": 0,
-                "bytescore": 0,
-                "bytescore_adjusted": 0,
-                "percent": 0,
-                "percent_adjusted": 0,
+        sample_matches = match_report.filtered_sample_matches
+        if self.cb_filter_library.isChecked():
+            sample_matches = [entry for entry in sample_matches if not entry.is_library]
+        return {
+            sample_match.sample_id: {
+                "family": sample_match.family,
+                "version": sample_match.version,
+                "sha256": sample_match.sha256,
+                "filename": sample_match.filename,
+                "sample_id": sample_match.sample_id,
+                "minhash_matches": sample_match.matched_functions_minhash,
+                "pichash_matches": sample_match.matched_functions_pichash,
+                "combined_matches": sample_match.matched_functions_combined,
+                "library_matches": sample_match.matched_functions_library,
+                "bytescore": sample_match.matched_bytes_unweighted,
+                "bytescore_adjusted": sample_match.matched_bytes_score_weighted,
+                "percent": sample_match.matched_percent_unweighted,
+                "percent_adjusted": sample_match.matched_percent_score_weighted,
             }
-            for own_function_id, matches in matches_per_sample[foreign_sample_id].items():
-                has_library_match = "library" in [match[0] for match in matches]
-                sample_summary[foreign_sample_id]["library_matches"] += (
-                    1 if has_library_match else 0
-                )
-                if self.cb_filter_library.isChecked() and has_library_match:
-                    continue
-                sample_summary[foreign_sample_id]["minhash_matches"] += (
-                    1 if "minhash" in [match[0] for match in matches] else 0
-                )
-                sample_summary[foreign_sample_id]["pichash_matches"] += (
-                    1 if "pichash" in [match[0] for match in matches] else 0
-                )
-                sample_summary[foreign_sample_id]["combined_matches"] += 1
-                sample_summary[foreign_sample_id]["bytescore"] += function_num_bytes[
-                    own_function_id
-                ]
-                sample_summary[foreign_sample_id]["bytescore_adjusted"] += (
-                    1.0
-                    * function_num_bytes[own_function_id]
-                    * max([match[1] for match in matches])
-                    / 100.0
-                )
-            sample_summary[foreign_sample_id]["percent"] = (
-                100.0 * sample_summary[foreign_sample_id]["bytescore"] / own_sample_num_bytes
-            )
-            sample_summary[foreign_sample_id]["percent_adjusted"] = (
-                100.0
-                * sample_summary[foreign_sample_id]["bytescore_adjusted"]
-                / own_sample_num_bytes
-            )
-        return sample_summary
+            for sample_match in sample_matches
+        }
 
     def populateBestMatchTable(self, *_args):
         """

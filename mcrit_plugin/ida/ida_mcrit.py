@@ -11,7 +11,7 @@ import ida_idaapi
 import ida_kernwin
 from ida_kernwin import PluginForm
 
-from mcrit_plugin.ida.config import MCRIT4IDA_PLUGIN_ONLY, config
+from mcrit_plugin.ida.config import config
 from mcrit_plugin.ui_qt.McritSession import McritSession
 
 IdaBackend = None
@@ -250,10 +250,6 @@ def main():
         except Exception:
             pass
         MCRIT4IDA = None
-
-    if MCRIT4IDA_PLUGIN_ONLY:
-        print("MCRIT4IDA: configured as plugin-only mode, ignoring main function of script.")
-        return
 
     MCRIT4IDA = show_mcrit_form()
 

@@ -35,12 +35,6 @@ CRITICALITY_ROLES = {
     5: (ThemeRole.RED, (255, 100, 100)),
 }
 
-NUMERIC_COLUMNS = (
-    McritTableColumn.FAMILIES,
-    McritTableColumn.SAMPLES,
-    McritTableColumn.FUNCTIONS,
-)
-
 
 class OverviewRow:
     """One local function with its matches aggregated."""

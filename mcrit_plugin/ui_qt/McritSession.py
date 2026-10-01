@@ -37,14 +37,9 @@ class McritSession:
         self.block_to_hash = {}
         # PicBlockHash to matches from remote server
         self.blockhash_matches = {}
-        # unused
-        self.remote_function_mapping = {}
         self.sample_infos = None
         self.family_infos = None
         self.function_id_to_offset = {}
-        self.pichash_matches = {}
-        self.pichash_match_summaries = {}
-        self.picblockhash_matches = {}
         self.icon = self.cc.QIcon(config.ICON_FILE_PATH + "relationship.png")
         self.mcrit_interface = McritInterface(self, backend)
         self.hook_subscribed_widgets = []
@@ -56,12 +51,6 @@ class McritSession:
 
     def getMatchingReport(self):
         return self.matching_report
-
-    def getSampleInfos(self):
-        return self.sample_infos
-
-    def getFunctionInfos(self):
-        return self.remote_function_mapping
 
     def getLocalSmdaReport(self):
         return self.local_smda_report

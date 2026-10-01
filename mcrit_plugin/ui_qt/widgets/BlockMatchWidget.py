@@ -50,7 +50,6 @@ class BlockMatchWidget(QMainWindow):
         self.b_query_single = self.cc.QPushButton("Query current basic block")
         self.b_query_single.clicked.connect(self.queryCurrentBlock)
         self.b_query_single.setEnabled(False)
-        ### self.cb_filter_library.stateChanged.connect(self.populateBestMatchTable)
         # horizontal line
         self.hline = self.cc.QFrame()
         self.hline.setFrameShape(self.cc.QFrameHLine)
@@ -68,7 +67,6 @@ class BlockMatchWidget(QMainWindow):
         self.table_block_matches.customContextMenuRequested.connect(
             self._onTableBlockMatchesRightClicked
         )
-        ### self.table_picblockhash_matches.doubleClicked.connect(self._onTablePicBlockHashDoubleClicked)
         # static links to objects to help IDA
         self.NumberQTableWidgetItem = NumberQTableWidgetItem
         self._QtShim = QtShim
@@ -445,7 +443,6 @@ class BlockMatchWidget(QMainWindow):
                     if text_color is not None:
                         tmp_item.setForeground(QColor(text_color[0], text_color[1], text_color[2]))
                 self.table_block_summary.setItem(row, column, tmp_item)
-            # self.table_function_matches.resizeRowToContents(row)
             row += 1
         self.table_block_summary.setSelectionMode(self.cc.QAbstractItemView.SingleSelection)
         self.table_block_summary.resizeColumnsToContents()
@@ -505,7 +502,6 @@ class BlockMatchWidget(QMainWindow):
                 tmp_item = self.generateMatchTableCellItem(column_type, match_entry)
                 tmp_item.setFlags(tmp_item.flags() & ~self.cc.QtCore.Qt.ItemIsEditable)
                 self.table_block_matches.setItem(row, column, tmp_item)
-            # self.table_function_matches.resizeRowToContents(row)
             row += 1
         self.table_block_matches.selectRow(preselect_row)
         self.table_block_matches.setSelectionMode(self.cc.QAbstractItemView.SingleSelection)
@@ -522,7 +518,6 @@ class BlockMatchWidget(QMainWindow):
         for index, column_type in enumerate(self.parent.config.BLOCK_SUMMARY_TABLE_COLUMNS):
             if column_type == McritTableColumn.OFFSET:
                 clicked_block_address = self.table_block_summary.item(mi.row(), index).text()
-        # print("clicked_block_address", clicked_block_address)
         if clicked_block_address is not None:
             self.parent.current_block = int(clicked_block_address, 16)
             self.populateBlockMatchTable(self._last_block_matches, self.parent.current_block)
@@ -538,7 +533,6 @@ class BlockMatchWidget(QMainWindow):
             clicked_block_address = self.table_block_summary.item(
                 mi.row(), offset_column_index
             ).text()
-            # print("double clicked_block_address", clicked_block_address)
             self.cc.backend.jump_to(int(clicked_block_address, 16))
             self.parent.current_block = int(clicked_block_address, 16)
             self.populateBlockMatchTable(self._last_block_matches, self.parent.current_block)
@@ -554,7 +548,6 @@ class BlockMatchWidget(QMainWindow):
                 block_offset_b = int(self.table_block_matches.item(mi.row(), index).text(), 16)
             elif column_type == McritTableColumn.FUNCTION_ID:
                 function_id_b = int(self.table_block_matches.item(mi.row(), index).text())
-        # print("double clicked row for function_id", function_id_b)
         if block_offset_b is not None and function_id_b is not None:
             block_matches = self._last_block_matches
             # the remote function arrives later; the tint is for the function and block clicked

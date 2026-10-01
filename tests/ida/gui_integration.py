@@ -453,7 +453,6 @@ def _upload_and_match(form, report, qt_application):
     interface.querySampleSha256(report.sha256)
     interface.queryAllFamilyEntries()
     interface.queryAllSampleEntries()
-    interface.queryFunctionEntriesBySampleId(form.remote_sample_id)
     _check(form.remote_sample_entry is not None, "uploaded sample found by sha256")
 
     job_ids = []
