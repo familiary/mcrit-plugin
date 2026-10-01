@@ -843,7 +843,8 @@ class IntegrationTest:
 
         def name_table():
             self.check(
-                names.rowCount() > 0, "Names from Matched Functions lists labels for the matches"
+                names.model().rowCount() > 0,
+                "Names from Matched Functions lists labels for the matches",
             )
             import mcrit_plugin.core.McritTableColumn as McritTableColumn
 
@@ -855,7 +856,7 @@ class IntegrationTest:
             self.double_click_graph(names, 0, id_column, "double clicking a name's function id")
             backend = self.session.cc.backend
             original_name = backend.get_function_name(self.second_target.start)
-            label = names.item(0, label_column).text()
+            label = names.model().index(0, label_column).data()
             self.double_click(names, 0, label_column)
             self.check(
                 backend.get_function_name(self.second_target.start) == label,

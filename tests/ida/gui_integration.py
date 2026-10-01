@@ -872,7 +872,9 @@ def _exercise_function_widget(form, second_target, qt_application):
         "right clicking the SHA256 column copies the full hash to the clipboard",
     )
 
-    _check(names.rowCount() > 0, "Names from Matched Functions lists labels for the matches")
+    _check(
+        names.model().rowCount() > 0, "Names from Matched Functions lists labels for the matches"
+    )
     name_columns = form.config.FUNCTION_NAMES_TABLE_COLUMNS
     id_column = McritTableColumn.columnTypeToIndex(McritTableColumn.FUNCTION_ID, name_columns)
     label_column = McritTableColumn.columnTypeToIndex(McritTableColumn.FUNCTION_LABEL, name_columns)
@@ -885,7 +887,7 @@ def _exercise_function_widget(form, second_target, qt_application):
 
     backend = form.cc.backend
     original_name = backend.get_function_name(second_target.offset)
-    label = names.item(0, label_column).text()
+    label = names.model().index(0, label_column).data()
     _double_click(names, 0, label_column)
     _check(
         backend.get_function_name(second_target.offset) == label,

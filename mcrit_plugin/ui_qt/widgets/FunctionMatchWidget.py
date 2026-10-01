@@ -5,7 +5,6 @@ from mcrit_plugin.core.minimcrit.storage.MatchedFunctionEntry import MatchedFunc
 from mcrit_plugin.core.minimcrit.storage.MatchingResult import MatchingResult
 from mcrit_plugin.core.ScoreColorProvider import ScoreColorProvider
 from mcrit_plugin.ui_qt.widgets.MatchTable import MatchRow, MatchTableView
-from mcrit_plugin.ui_qt.widgets.NumberQTableWidgetItem import NumberQTableWidgetItem
 
 QMainWindow = QtShim.get_QMainWindow()
 QColor = QtShim.get_QColor()
@@ -56,13 +55,9 @@ class FunctionMatchWidget(QMainWindow):
 
         # lower table
         self.label_function_names = self.cc.QLabel("Names from Matched Functions")
-        self.table_function_names = self.cc.QTableWidget()
-        self.table_function_names.horizontalHeader().setResizeContentsPrecision(
-            McritTableColumn.FIT_COLUMNS_TO_ROWS
-        )
+        self.table_function_names = MatchTableView()
         self.table_function_names.doubleClicked.connect(self._onTableFunctionNameDoubleClicked)
         # static links to objects to help IDA
-        self.NumberQTableWidgetItem = NumberQTableWidgetItem
         self._QtShim = QtShim
         self._createGui()
 
@@ -180,16 +175,11 @@ class FunctionMatchWidget(QMainWindow):
         ]
         self.table_function_matches.table_model.reset(self.function_matches_header_labels, [])
         # lower table
-        self.table_function_names.clear()
-        self.table_function_names.setSortingEnabled(False)
         self.function_names_header_labels = [
             McritTableColumn.MAP_COLUMN_TO_HEADER_STRING[col]
             for col in self.parent.config.FUNCTION_NAMES_TABLE_COLUMNS
         ]
-        self.table_function_names.setColumnCount(len(self.function_names_header_labels))
-        self.table_function_names.setHorizontalHeaderLabels(self.function_names_header_labels)
-        self.table_function_names.setRowCount(0)
-        self.table_function_names.resizeRowToContents(0)
+        self.table_function_names.table_model.reset(self.function_names_header_labels, [])
 
     def updateViewWithCurrentFunction(self):
         self.last_viewed = self.parent.current_function
@@ -400,20 +390,22 @@ class FunctionMatchWidget(QMainWindow):
         self.table_function_matches.resizeColumnsToContents()
         self.table_function_matches.horizontalHeader().setStretchLastSection(True)
 
-    def generateNameTableCellItem(self, column_type, function_label_entry):
-        tmp_item = None
+    def _nameCell(self, column_type, function_label_entry):
+        """The text a label shows in a column of the name table, and the value it sorts by."""
         if column_type == McritTableColumn.FUNCTION_ID:
-            tmp_item = self.NumberQTableWidgetItem("%d" % function_label_entry.function_id)
-        elif column_type == McritTableColumn.SCORE:
-            tmp_item = self.NumberQTableWidgetItem("%d" % function_label_entry.score)
-        elif column_type == McritTableColumn.USER:
-            tmp_item = self.cc.QTableWidgetItem(function_label_entry.username)
-        elif column_type == McritTableColumn.FUNCTION_LABEL:
-            tmp_item = self.cc.QTableWidgetItem(function_label_entry.function_label)
-        elif column_type == McritTableColumn.TIMESTAMP:
-            timestamp = function_label_entry.timestamp.strftime("%Y-%m-%d %H:%M:%S")
-            tmp_item = self.cc.QTableWidgetItem(timestamp)
-        return tmp_item
+            function_id = function_label_entry.function_id
+            return "%d" % function_id, function_id
+        if column_type == McritTableColumn.SCORE:
+            score = function_label_entry.score
+            return "%d" % score, score
+        if column_type == McritTableColumn.USER:
+            return function_label_entry.username, function_label_entry.username
+        if column_type == McritTableColumn.FUNCTION_LABEL:
+            return function_label_entry.function_label, function_label_entry.function_label
+        if column_type == McritTableColumn.TIMESTAMP:
+            text = function_label_entry.timestamp.strftime("%Y-%m-%d %H:%M:%S")
+            return text, text
+        return "", ""
 
     def populateFunctionNameTable(self, match_report: MatchingResult):
         """
@@ -441,34 +433,27 @@ class FunctionMatchWidget(QMainWindow):
                     function_label.score = function_matches_by_id[function_id].matched_score
                     function_label_entries.append(function_label)
 
-        self.table_function_names.setSortingEnabled(False)
-        self.function_matches_header_labels = [
-            McritTableColumn.MAP_COLUMN_TO_HEADER_STRING[col]
-            for col in self.parent.config.FUNCTION_NAMES_TABLE_COLUMNS
-        ]
-        self.table_function_names.clear()
-        self.table_function_names.setColumnCount(len(self.function_matches_header_labels))
-        self.table_function_names.setHorizontalHeaderLabels(self.function_matches_header_labels)
-        # Identify number of table entries and prepare addresses to display
-        self.table_function_names.setRowCount(len(function_label_entries))
-        self.table_function_names.resizeRowToContents(0)
-
-        row = 0
-        sorted_entries = sorted(
+        column_types = self.parent.config.FUNCTION_NAMES_TABLE_COLUMNS
+        rows = []
+        for function_label_entry in sorted(
             function_label_entries, key=lambda x: (x.score, x.username, x.timestamp), reverse=True
+        ):
+            cells = [
+                self._nameCell(column_type, function_label_entry) for column_type in column_types
+            ]
+            rows.append(
+                MatchRow(
+                    len(rows),
+                    function_label_entry,
+                    [text for text, _key in cells],
+                    [key for _text, key in cells],
+                )
+            )
+        self.table_function_names.table_model.reset(
+            [McritTableColumn.MAP_COLUMN_TO_HEADER_STRING[col] for col in column_types], rows
         )
-        for function_label_entry in sorted_entries:
-            for column, column_name in enumerate(self.function_matches_header_labels):
-                column_type = self.parent.config.FUNCTION_NAMES_TABLE_COLUMNS[column]
-                tmp_item = self.generateNameTableCellItem(column_type, function_label_entry)
-                tmp_item.setFlags(tmp_item.flags() & ~self.cc.QtCore.Qt.ItemIsEditable)
-                self.table_function_names.setItem(row, column, tmp_item)
-            row += 1
-        self.table_function_names.setSelectionMode(self.cc.QAbstractItemView.SingleSelection)
         self.table_function_names.resizeColumnsToContents()
-        self.table_function_names.setSortingEnabled(True)
-        header = self.table_function_names.horizontalHeader()
-        header.setStretchLastSection(True)
+        self.table_function_names.horizontalHeader().setStretchLastSection(True)
 
     def _onTableFunctionMatchDoubleClicked(self, mi):
         """Open the graph of the double clicked match against the current function."""
@@ -489,9 +474,8 @@ class FunctionMatchWidget(QMainWindow):
         return {int(k[6:], 16): int(v[1:], 16) for k, v in node_colors.items()}
 
     def _onTableFunctionNameDoubleClicked(self, mi):
-        """
-        Use the row with that was double clicked to import the function_name to the current function
-        """
+        """Double clicking a label's function id opens its graph; double clicking the label names
+        the current function after it."""
         function_id_column_index = McritTableColumn.columnTypeToIndex(
             McritTableColumn.FUNCTION_ID, self.parent.config.FUNCTION_NAMES_TABLE_COLUMNS
         )
@@ -507,15 +491,10 @@ class FunctionMatchWidget(QMainWindow):
                     "Current function is unavailable; cannot open graph viewer."
                 )
                 return
-            smda_report_a = self.parent.local_smda_report
-            remote_function_id = int(
-                self.table_function_names.item(mi.row(), function_id_column_index).text()
-            )
-            self._showMatchGraph(smda_report_a, smda_function_a, remote_function_id)
+            label = self.table_function_names.table_model.entryAt(mi.row())
+            self._showMatchGraph(self.parent.local_smda_report, smda_function_a, label.function_id)
         elif function_label_column_index is not None and mi.column() == function_label_column_index:
-            function_name = self.table_function_names.item(
-                mi.row(), function_label_column_index
-            ).text()
+            function_name = self.table_function_names.table_model.entryAt(mi.row()).function_label
             with self.cc.backend.mutation("Apply MCRIT label"):
                 self.cc.backend.set_function_name(self.last_viewed, function_name)
 
