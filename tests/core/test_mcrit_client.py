@@ -94,20 +94,21 @@ class TestRequestHelpers:
         recorded = []
 
         def fake_request(method, url, **kwargs):
-            recorded.append((method.__name__, url, kwargs))
+            recorded.append((method, url, kwargs))
             return _make_response()
 
         monkeypatch.setattr(client, "_request", fake_request)
         client.setTimeout(3)
 
-        # Each helper must call its corresponding requests.<verb> via _request.
+        # Each helper must call its session's <verb> via _request.
         client._get("http://example/get")
         client._post("http://example/post")
         client._put("http://example/put")
         client._delete("http://example/delete")
 
-        verbs = [name for name, _, _ in recorded]
+        verbs = [method.__name__ for method, _, _ in recorded]
         assert verbs == ["get", "post", "put", "delete"]
+        assert all(method.__self__ is client._session for method, _, _ in recorded)
 
 
 class TestSampleGroupOnly:

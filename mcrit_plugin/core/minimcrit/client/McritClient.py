@@ -158,6 +158,8 @@ class McritClient:
         self.raise_client_errors = raise_client_errors
         self.raise_server_errors = raise_server_errors
         self.timeout = timeout
+        # one session keeps connections open; a new TLS handshake per request costs most of a second
+        self._session = requests.Session()
         if apitoken:
             self.headers.update({"apitoken": apitoken})
         if username:
@@ -192,16 +194,16 @@ class McritClient:
         return method(url, **kwargs)
 
     def _get(self, url, **kwargs):
-        return self._request(requests.get, url, **kwargs)
+        return self._request(self._session.get, url, **kwargs)
 
     def _post(self, url, **kwargs):
-        return self._request(requests.post, url, **kwargs)
+        return self._request(self._session.post, url, **kwargs)
 
     def _put(self, url, **kwargs):
-        return self._request(requests.put, url, **kwargs)
+        return self._request(self._session.put, url, **kwargs)
 
     def _delete(self, url, **kwargs):
-        return self._request(requests.delete, url, **kwargs)
+        return self._request(self._session.delete, url, **kwargs)
 
     def _getMatchingRequestParams(
         self,

@@ -1,4 +1,6 @@
+import threading
 import time
+from concurrent.futures import ThreadPoolExecutor
 
 import mcrit_plugin.core.McritTableColumn as McritTableColumn
 import mcrit_plugin.ui_qt.QtShim as QtShim
@@ -8,6 +10,7 @@ from mcrit_plugin.ui_qt.widgets.NumberQTableWidgetItem import NumberQTableWidget
 
 QMainWindow = QtShim.get_QMainWindow()
 QColor = QtShim.get_QColor()
+BLOCK_QUERY_WORKERS = 8
 
 
 def packRgb(rgb):
@@ -236,27 +239,7 @@ class BlockMatchWidget(QMainWindow):
         def request():
             if not self._fetch_remote_cache():
                 return False
-            start = time.time()
-            num_queries = 0
-            lookup_failed = False
-            for entry in pbh:
-                if entry["hash"] in self.parent.blockhash_matches or lookup_failed:
-                    continue
-                pichash_matches = self.parent.mcrit_interface.getMatchesForPicBlockHash(
-                    entry["hash"]
-                )
-                num_queries += 1
-                # a failed query answers None; leave it uncached so the next visit retries, and
-                # skip this visit's other lookups, which would each wait out the same timeout
-                if pichash_matches is None:
-                    lookup_failed = True
-                else:
-                    self.parent.blockhash_matches[entry["hash"]] = pichash_matches
-            stop = time.time()
-            if num_queries > 0:
-                print(
-                    f"Querying {num_queries} blocks took {stop - start:5.3f} seconds, or {(stop - start) / num_queries:5.3f} seconds per block."
-                )
+            self._lookupBlockHashes([entry["hash"] for entry in pbh])
             return True
 
         def show(remote_cache_ready):
@@ -285,6 +268,34 @@ class BlockMatchWidget(QMainWindow):
             self.cc.backend.run_request(
                 "MCRIT: querying block matches for function 0x%x" % function_offset, request, show
             )
+
+    def _lookupBlockHashes(self, hashes):
+        """Query the uncached hashes concurrently; MCRIT answers one block hash per request."""
+        missing = [h for h in dict.fromkeys(hashes) if h not in self.parent.blockhash_matches]
+        if not missing:
+            return
+        failed = threading.Event()
+
+        def lookup(block_hash):
+            # after a failure the remaining lookups would each wait out the same timeout
+            if failed.is_set():
+                return None
+            matches = self.parent.mcrit_interface.getMatchesForPicBlockHash(block_hash)
+            if matches is None:
+                failed.set()
+            return matches
+
+        start = time.time()
+        with ThreadPoolExecutor(BLOCK_QUERY_WORKERS) as pool:
+            for block_hash, matches in zip(missing, pool.map(lookup, missing)):
+                # a failed query stays uncached so the next visit retries it
+                if matches is not None:
+                    self.parent.blockhash_matches[block_hash] = matches
+        duration = time.time() - start
+        print(
+            f"Querying {len(missing)} blocks took {duration:5.3f} seconds, "
+            f"or {duration / len(missing):5.3f} seconds per block."
+        )
 
     def _showBlockMatches(self, pbh):
         block_matches_by_offset = {}
