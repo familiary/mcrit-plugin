@@ -234,6 +234,7 @@ class FunctionMatchWidget(QMainWindow):
             if self.parent.current_function != function_offset:
                 return
             if not remote_cache_ready:
+                self.last_viewed = None
                 self._show_remote_cache_unavailable()
                 return
             self._showFunctionMatches(smda_function)
