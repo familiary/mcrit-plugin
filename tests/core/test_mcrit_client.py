@@ -212,6 +212,22 @@ class TestSelectors:
             "/jobs/?method=getMatchesForSample&filter=a+b&sample_ids=1,2&job_ids=x"
         )
 
+    def test_the_queue_count_uses_the_same_selectors(self, client, monkeypatch):
+        captured = {}
+
+        def fake_get(url, **kwargs):
+            captured["url"] = url
+            return _make_response(json_data={"status": "successful", "data": {"count": 3}})
+
+        monkeypatch.setattr(client, "_get", fake_get)
+
+        count = client.getQueueCount(method="getMatchesForSample", state="finished", sample_ids=[1])
+
+        assert count == 3
+        assert captured["url"].endswith(
+            "/jobs/count?method=getMatchesForSample&state=finished&sample_ids=1"
+        )
+
     def test_unique_blocks_send_only_the_given_parameters(self, client, monkeypatch):
         captured = []
 

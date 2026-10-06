@@ -914,6 +914,31 @@ class McritClient:
         if data is not None:
             return [Job(job_data, None) for job_data in data]
 
+    def getQueueCount(
+        self, method=None, filter=None, state=None, username=None, sample_ids=None, job_ids=None
+    ):
+        """
+        How many jobs getQueueData would list for the same selection - what a paginated listing
+        needs to size itself.
+        Supported by mcritweb API pass-through
+        """
+        query_string = self._job_selection_query(
+            method=method,
+            filter=filter,
+            state=state,
+            username=username,
+            sample_ids=None
+            if sample_ids is None
+            else ",".join(str(sample_id) for sample_id in sample_ids),
+            job_ids=None if job_ids is None else ",".join(str(job_id) for job_id in job_ids),
+        )
+        response = self._get(f"{self.mcrit_server}/jobs/count{query_string}", headers=self.headers)
+        if self.raw:
+            return response
+        data = self._handle(response)
+        if data is not None:
+            return data["count"]
+
     def deleteQueueData(self, method=None, created_before=None, finished_before=None):
         """
         Delete Jobs that match given provided criteria
