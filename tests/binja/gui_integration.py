@@ -11,6 +11,7 @@ import os
 import threading
 import time
 import traceback
+import types
 
 import binaryninja
 from binaryninjaui import (
@@ -20,7 +21,7 @@ from binaryninjaui import (
     UIContext,
     UIContextNotification,
 )
-from PySide6.QtCore import QPoint, QTimer
+from PySide6.QtCore import QPoint, Qt, QTimer
 from PySide6.QtWidgets import QApplication
 
 # startup.py is executed without __file__
@@ -1134,6 +1135,54 @@ class IntegrationTest:
             "the uploaded report carries the new function name",
         )
         self.bv.undo()
+        self.step(self.exercise_split_pane)
+
+    ################################################################################
+    # a split pane its tab's sidebar has not seen
+    ################################################################################
+
+    def tab_frames(self, frame):
+        for tab in self.context.getTabs():
+            frames = list(self.context.getAllViewFramesForTab(tab))
+            if any(candidate is frame for candidate in frames):
+                return frames
+        return []
+
+    def exercise_split_pane(self):
+        from binaryninjaui import SplitPaneContainer
+
+        frame = self.widget.backend.view_frame
+        # held so the pane it returns is not deleted with a temporary wrapper
+        self.split_container = SplitPaneContainer.containerForWidget(frame)
+        self.split_container.currentViewPane().splitPane(Qt.Horizontal)
+        new = {}
+
+        def split():
+            others = [other for other in self.tab_frames(frame) if other is not frame]
+            if others:
+                new["pane"] = others[0]
+                return True
+            return False
+
+        self.wait(split, lambda: self.check_split_routing(frame, new["pane"]), "the tab is split")
+
+    def check_split_routing(self, frame, split_pane):
+        widgets = self.sidebar_module._SIDEBAR_WIDGETS
+        # stands in for another tab's widget of the same file, which the old fallback returned
+        other_tab = types.SimpleNamespace(
+            backend=types.SimpleNamespace(bv=self.bv, view_frame=object())
+        )
+        self.widget.backend.view_frame = frame
+        widgets.insert(0, other_tab)
+        try:
+            route = self.sidebar_module._widget_for_view
+            self.check(route(self.bv, frame) is self.widget, "a seen pane routes to its sidebar")
+            self.check(
+                route(self.bv, split_pane) is self.widget,
+                "a split pane its sidebar has not seen routes to its own tab's sidebar",
+            )
+        finally:
+            widgets.remove(other_tab)
         self.finish(True)
 
 

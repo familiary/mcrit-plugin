@@ -96,6 +96,20 @@ def test_select_smda_backend_handles_empty_string():
     assert interface._select_smda_backend(_FakeBinaryInfo("")) is None
 
 
+@pytest.mark.parametrize("timeout, expected", [(30, 30), (0, None)])
+def test_the_configured_timeout_reaches_the_client(timeout, expected):
+    config = SimpleNamespace(
+        MCRIT_SERVER="http://127.0.0.1:8000",
+        MCRIT_REQUEST_TIMEOUT=timeout,
+        MCRITWEB_API_TOKEN="",
+        MCRITWEB_USERNAME="",
+    )
+
+    interface = McritInterface(SimpleNamespace(config=config), backend=None)
+
+    assert interface.mcrit_client.timeout == expected
+
+
 class TestCheckConnectionImpl:
     def test_returns_version_on_success(self):
         interface = _make_interface()
