@@ -234,6 +234,7 @@ class FunctionMatchWidget(QMainWindow):
             if self.parent.current_function != function_offset:
                 return
             if not remote_cache_ready:
+                self.last_viewed = None
                 self._show_remote_cache_unavailable()
                 return
             self._showFunctionMatches(smda_function)
@@ -532,7 +533,8 @@ class FunctionMatchWidget(QMainWindow):
                 mi.row(), function_label_column_index
             ).text()
             with self.cc.backend.mutation("Apply MCRIT label"):
-                self.cc.backend.set_function_name(self.last_viewed, function_name)
+                # last_viewed moves on when a query starts, before the tables show its answer
+                self.cc.backend.set_function_name(self.current_function_offset, function_name)
 
     def _showMatchGraph(self, smda_report_a, smda_function_a, remote_function_id):
         """Fetch the remote function off the UI thread, then match it and show its graph."""
