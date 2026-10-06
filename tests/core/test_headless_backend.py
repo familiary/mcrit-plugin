@@ -32,3 +32,11 @@ def test_a_name_set_here_is_not_default(backend):
     backend.set_function_name(0x10, "imported_label")
 
     assert backend.has_default_function_name(0x10) is False
+
+
+def test_requests_run_synchronously_by_default(backend):
+    results = []
+
+    backend.run_request("request", lambda: "answer", results.append)
+
+    assert results == ["answer"]

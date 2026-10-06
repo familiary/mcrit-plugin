@@ -1,5 +1,6 @@
 """Tests for the McritInterface logic that runs without a disassembler or an MCRIT server."""
 
+import threading
 from types import SimpleNamespace
 from unittest.mock import MagicMock
 
@@ -57,6 +58,7 @@ def _make_interface(timeout=10):
     )
     inst.config = inst.parent.config
     inst._mcrit_server = "http://127.0.0.1:8000"
+    inst._cache_lock = threading.Lock()
     inst.mcrit_client = MagicMock()
     return inst
 
@@ -148,6 +150,18 @@ class TestQueryFunctionEntriesById:
 
         assert interface.queryFunctionEntriesById([7]) == {7: entry}
         assert interface.parent.matched_function_entries == {7: entry}
+
+    def test_leaves_a_dict_the_ui_is_iterating_unchanged(self):
+        interface = _make_interface()
+        old_entry = SimpleNamespace(function_labels=[])
+        interface.parent.matched_function_entries = {1: old_entry}
+        being_iterated = interface.parent.matched_function_entries
+        interface.mcrit_client.getFunctionsByIds.return_value = {7: old_entry}
+
+        interface.queryFunctionEntriesById([7])
+
+        assert being_iterated == {1: old_entry}
+        assert interface.parent.matched_function_entries == {1: old_entry, 7: old_entry}
 
 
 class TestServerErrors:

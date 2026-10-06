@@ -363,51 +363,84 @@ class MainWidget(QMainWindow):
         self.parent.local_smda_report.version = local_version
         self.parent.local_smda_report.is_library = local_library
         if self.parent.local_smda_report:
-            self.parent.mcrit_interface.uploadReport(self.parent.local_smda_report)
-            # check if remote sample exists
-            if self.parent.remote_sample_id is not None:
-                self.getMatchResultAction.setEnabled(True)
+            report = self.parent.local_smda_report
+            # a second click while the request runs would upload again
+            self.uploadSmdaAction.setEnabled(False)
+            self.cc.backend.run_request(
+                "MCRIT: uploading the SMDA report",
+                lambda: self.parent.mcrit_interface.uploadReport(report),
+                self._afterUpload,
+            )
         else:
             self.parent.local_widget.updateActivityInfo(
                 "Database is not converted to SMDA report yet, can't upload."
             )
 
-    def _onGetMatchResultButtonClicked(self):
+    def _afterUpload(self, _result):
+        self.uploadSmdaAction.setEnabled(True)
+        # check if remote sample exists
         if self.parent.remote_sample_id is not None:
-            # fetch jobs
-            jobs = self.parent.mcrit_interface.queryJobs(sample_id=self.parent.remote_sample_id)
-            if jobs is None:
-                return
-            # check which job the user wants to use as reference
-            dialog = self.ResultChooserDialog(self, job_infos=jobs)
-            dialog.exec_()
-            dialog_result = dialog.getResultChosen()
-            # if user wants to request a new matching, schedule it via client
-            if dialog_result["is_requesting_matching_job"]:
-                self.parent.mcrit_interface.requestMatchingJob(
-                    self.parent.remote_sample_id, force_update=True
-                )
-            # if otherwise a job was finished and a job_id selected, fetch the data
-            elif dialog_result["selected_job_id"]:
-                # we already have this matching data, so we can skip and save time
-                if (
-                    self.parent.matching_job_id is not None
-                    and self.parent.matching_job_id == dialog_result["selected_job_id"]
-                ):
-                    pass
-                else:
-                    self.parent.mcrit_interface.getMatchingJobById(dialog_result["selected_job_id"])
-                self.setTabFocus(self.parent.function_widget.name)
-                self.hideLocalWidget()
-            self.parent.function_widget.update()
-            self.parent.sample_widget.update()
-            if self.parent.config.OVERVIEW_FETCH_LABELS_AUTOMATICALLY:
-                self.parent.function_widget.fetchLabels()
-            return
-        else:
+            self.getMatchResultAction.setEnabled(True)
+        self.parent.local_widget.update()
+
+    def _onGetMatchResultButtonClicked(self):
+        sample_id = self.parent.remote_sample_id
+        if sample_id is None:
             self.parent.local_widget.updateActivityInfo(
                 "No remote Sample present yet, can't request a matching or query results."
             )
+            return
+        # enabled again once the chosen result is shown, so no second dialog opens meanwhile
+        self.getMatchResultAction.setEnabled(False)
+        self.cc.backend.run_request(
+            "MCRIT: fetching matching jobs",
+            lambda: self.parent.mcrit_interface.queryJobs(sample_id=sample_id),
+            lambda jobs: self._chooseMatchingJob(sample_id, jobs),
+        )
+
+    def _chooseMatchingJob(self, sample_id, jobs):
+        if jobs is None:
+            self.getMatchResultAction.setEnabled(True)
+            return
+        # check which job the user wants to use as reference
+        dialog = self.ResultChooserDialog(self, job_infos=jobs)
+        dialog.exec_()
+        dialog_result = dialog.getResultChosen()
+        selected_job_id = dialog_result["selected_job_id"]
+        # if user wants to request a new matching, schedule it via client
+        if dialog_result["is_requesting_matching_job"]:
+            self.cc.backend.run_request(
+                "MCRIT: requesting a matching job",
+                lambda: self.parent.mcrit_interface.requestMatchingJob(
+                    sample_id, force_update=True
+                ),
+                lambda _job_id: self._showMatchingResult(False),
+            )
+        # if otherwise a job was finished and a job_id selected, fetch the data
+        elif selected_job_id:
+            # we already have this matching data, so we can skip and save time
+            if self.parent.matching_job_id is not None and (
+                self.parent.matching_job_id == selected_job_id
+            ):
+                self._showMatchingResult(True)
+            else:
+                self.cc.backend.run_request(
+                    "MCRIT: downloading the matching result",
+                    lambda: self.parent.mcrit_interface.getMatchingJobById(selected_job_id),
+                    lambda _result: self._showMatchingResult(True),
+                )
+        else:
+            self._showMatchingResult(False)
+
+    def _showMatchingResult(self, focus_overview):
+        self.getMatchResultAction.setEnabled(True)
+        if focus_overview:
+            self.setTabFocus(self.parent.function_widget.name)
+            self.hideLocalWidget()
+        self.parent.function_widget.update()
+        self.parent.sample_widget.update()
+        if self.parent.config.OVERVIEW_FETCH_LABELS_AUTOMATICALLY:
+            self.parent.function_widget.fetchLabels()
 
     def hideLocalWidget(self):
         self.splitter.setSizes([0, 1])
