@@ -26,9 +26,8 @@ class McritInterface(object):
         self.config = parent.config
         self._mcrit_server = self.config.MCRIT_SERVER
         self.mcrit_client = McritClient(self.config.MCRIT_SERVER)
-        timeout_value = self.config.MCRIT_REQUEST_TIMEOUT
-        if timeout_value and timeout_value > 0:
-            self.mcrit_client.setTimeout(timeout_value)
+        # setTimeout maps 0 to no limit; skipping it would keep the client's 10 s connect timeout
+        self.mcrit_client.setTimeout(self.config.MCRIT_REQUEST_TIMEOUT)
         if self.config.MCRITWEB_API_TOKEN:
             self.mcrit_client.setApitoken(self.config.MCRITWEB_API_TOKEN)
         if self.config.MCRITWEB_USERNAME:
