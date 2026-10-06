@@ -100,6 +100,33 @@ class IntegrationTest:
         table.setCurrentCell(row, column)
         table.doubleClicked.emit(table.model().index(row, column))
 
+    def double_click_graph(self, table, row, column, what):
+        """Double click a match and wait for its graph; the remote function is fetched off the UI
+        thread, so the click returns before the graph opens."""
+        interface = self.session.mcrit_interface
+        original = interface.queryRemoteFunction
+        off_ui_thread = []
+
+        def capture(*args, **kwargs):
+            off_ui_thread.append(threading.current_thread() is not threading.main_thread())
+            return original(*args, **kwargs)
+
+        interface.queryRemoteFunction = capture
+        before = len(self.graph_calls)
+        try:
+            self.double_click(table, row, column)
+            self.check(len(self.graph_calls) == before, f"{what}: the click returns at once")
+            deadline = time.time() + TIMEOUT
+            while len(self.graph_calls) == before and time.time() < deadline:
+                QApplication.processEvents()
+                time.sleep(0.01)
+        finally:
+            interface.queryRemoteFunction = original
+        self.check(len(self.graph_calls) == before + 1, f"{what} opens the CFG graph")
+        self.check(
+            off_ui_thread == [True], f"{what}: the remote function is fetched off the UI thread"
+        )
+
     def single_click(self, table, row, column):
         table.setCurrentCell(row, column)
         table.clicked.emit(table.model().index(row, column))
@@ -278,7 +305,12 @@ class IntegrationTest:
         job_ids = []
         original_request = client.requestMatchesForSample
 
+        off_ui_thread = []
+        running_tasks = []
+
         def capture_request(*args, **kwargs):
+            off_ui_thread.append(threading.current_thread() is not threading.main_thread())
+            running_tasks.extend(task.progress for task in binaryninja.BackgroundTask)
             job_id = original_request(*args, **kwargs)
             job_ids.append(job_id)
             return job_id
@@ -292,18 +324,25 @@ class IntegrationTest:
 
         client.requestMatchesForSample = capture_request
         main_widget.ResultChooserDialog = RequestDialog
-        try:
-            main_widget.getMatchResultAction.trigger()
-        finally:
+        main_widget.getMatchResultAction.trigger()
+
+        def requested():
             client.requestMatchesForSample = original_request
             main_widget.ResultChooserDialog = original_dialog
-        self.check(bool(job_ids and job_ids[-1]), "Create Matching Job returned a job id")
-        self.job_id = job_ids[-1]
-        self.wait(
-            lambda: client.getResultForJob(self.job_id) is not None,
-            self.select_matching,
-            "matching job finished",
-        )
+            self.check(bool(job_ids[-1]), "Create Matching Job returned a job id")
+            self.check(all(off_ui_thread), "the job request ran off the UI thread")
+            self.check(
+                "MCRIT: requesting a matching job" in running_tasks,
+                "the job request is listed among Binary Ninja's background tasks",
+            )
+            self.job_id = job_ids[-1]
+            self.wait(
+                lambda: client.getResultForJob(self.job_id) is not None,
+                self.select_matching,
+                "matching job finished",
+            )
+
+        self.wait(lambda: bool(job_ids), requested, "Create Matching Job requested a job")
 
     def select_matching(self):
         client = self.session.mcrit_interface.mcrit_client
@@ -339,18 +378,21 @@ class IntegrationTest:
                 return 1
 
         main_widget.ResultChooserDialog = SelectDialog
-        try:
-            main_widget.getMatchResultAction.trigger()
-        finally:
+        main_widget.getMatchResultAction.trigger()
+
+        def loaded():
             main_widget.ResultChooserDialog = original_dialog
-        self.check(
-            self.session.matching_report is not None, "result chooser loaded the MatchingResult"
-        )
-        self.check(
-            main_widget.tabs.currentWidget() is self.session.function_widget,
+            self.check(
+                self.session.matching_report is not None,
+                "result chooser loaded the MatchingResult",
+            )
+            self.step(self.exercise_function_overview)
+
+        self.wait(
+            lambda: main_widget.tabs.currentWidget() is self.session.function_widget,
+            loaded,
             "Function Overview shown with results",
         )
-        self.step(self.exercise_function_overview)
 
     ################################################################################
     # Function Overview tab
@@ -361,18 +403,40 @@ class IntegrationTest:
         table = widget.table_local_functions
         label_column = len(self.session.config.OVERVIEW_TABLE_COLUMNS) - 1
 
-        def fetch_labels():
+        def fetch_labels(then):
+            interface = self.session.mcrit_interface
+            original_query = interface.queryFunctionEntriesById
+            off_ui_thread = []
+
+            def capture_query(*args, **kwargs):
+                off_ui_thread.append(threading.current_thread() is not threading.main_thread())
+                return original_query(*args, **kwargs)
+
+            def fetched():
+                interface.queryFunctionEntriesById = original_query
+                self.check(
+                    off_ui_thread and all(off_ui_thread),
+                    "Fetch labels for matches ran off the UI thread",
+                )
+                self.check(
+                    table.rowCount() > 0, "Fetch labels for matches populated the Function Overview"
+                )
+                self.check(
+                    any(
+                        entry.function_labels
+                        for entry in (self.session.matched_function_entries or {}).values()
+                    ),
+                    "Fetch labels for matches returned labels from the server",
+                )
+                then()
+
+            interface.queryFunctionEntriesById = capture_query
             widget.b_fetch_labels.click()
             self.check(
-                table.rowCount() > 0, "Fetch labels for matches populated the Function Overview"
+                not widget.b_fetch_labels.isEnabled(),
+                "Fetch labels for matches is disabled while its request runs",
             )
-            self.check(
-                any(
-                    entry.function_labels
-                    for entry in (self.session.matched_function_entries or {}).values()
-                ),
-                "Fetch labels for matches returned labels from the server",
-            )
+            self.wait(widget.b_fetch_labels.isEnabled, fetched, "Fetch labels for matches answered")
 
         def filter_radios():
             baseline = table.rowCount()
@@ -534,19 +598,20 @@ class IntegrationTest:
             )
             self.session.main_widget.tabs.setCurrentIndex(2)
 
-        self.sequence(
-            [
-                fetch_labels,
-                filter_radios,
-                score_spinbox,
-                column_sorting,
-                label_dropdown,
-                right_click_resolves,
-                select_deselect_all,
-                import_labels,
-                table_clicks,
-            ],
-            self.exercise_sample_summary,
+        fetch_labels(
+            lambda: self.sequence(
+                [
+                    filter_radios,
+                    score_spinbox,
+                    column_sorting,
+                    label_dropdown,
+                    right_click_resolves,
+                    select_deselect_all,
+                    import_labels,
+                    table_clicks,
+                ],
+                self.exercise_sample_summary,
+            )
         )
 
     ################################################################################
@@ -731,11 +796,12 @@ class IntegrationTest:
             )
 
         def match_double_click():
-            before = len(self.graph_calls)
-            self.double_click(matches, 0, 0)
+            self.double_click_graph(matches, 0, 0, "double clicking a function match")
+            from mcrit_plugin.binja.MatchRenderLayer import MatchRenderLayer
+
             self.check(
-                len(self.graph_calls) == before + 1,
-                "double clicking a function match opens the CFG graph",
+                bool(MatchRenderLayer._ranges.get(self.bv.file.session_id)),
+                "double clicking a function match tints the local function's matched blocks",
             )
 
         def match_right_click():
@@ -764,12 +830,7 @@ class IntegrationTest:
             label_column = McritTableColumn.columnTypeToIndex(
                 McritTableColumn.FUNCTION_LABEL, columns
             )
-            before = len(self.graph_calls)
-            self.double_click(names, 0, id_column)
-            self.check(
-                len(self.graph_calls) == before + 1,
-                "double clicking a name's function id opens the CFG graph",
-            )
+            self.double_click_graph(names, 0, id_column, "double clicking a name's function id")
             backend = self.session.cc.backend
             original_name = backend.get_function_name(self.second_target.start)
             label = names.item(0, label_column).text()
@@ -793,7 +854,56 @@ class IntegrationTest:
                 match_right_click,
                 name_table,
             ],
-            self.exercise_block_scope,
+            self.exercise_late_function_answer,
+        )
+
+    def exercise_late_function_answer(self):
+        """A query answered after the cursor moved on must not replace the newer function."""
+        widget = self.session.function_match_widget
+        interface = self.session.mcrit_interface
+        original_query = interface.querySmdaFunctionMatches
+        trace = {}
+
+        def slow_query(report):
+            trace["off_ui_thread"] = threading.current_thread() is not threading.main_thread()
+            time.sleep(1)
+            result = original_query(report)
+            trace["answered"] = time.time()
+            return result
+
+        rendered = []
+        original_show = widget._showFunctionMatches
+
+        def recording_show(smda_function):
+            rendered.append(smda_function.offset)
+            return original_show(smda_function)
+
+        self.session.function_matches.pop(self.target.start, None)
+        interface.querySmdaFunctionMatches = slow_query
+        widget._showFunctionMatches = recording_show
+        self.session.current_function = self.target.start
+        widget.updateViewWithCurrentFunction()
+        self.session.current_function = self.second_target.start
+        widget.updateViewWithCurrentFunction()
+
+        def settled():
+            interface.querySmdaFunctionMatches = original_query
+            del widget._showFunctionMatches
+            self.check(trace["off_ui_thread"], "a Function Scope query runs off the UI thread")
+            self.check(
+                rendered == [self.second_target.start],
+                "a late answer for a function the cursor left does not replace the table",
+            )
+            self.check(
+                self.target.start in self.session.function_matches,
+                "the late answer is still cached for that function",
+            )
+            self.step(self.exercise_block_scope)
+
+        self.wait(
+            lambda: "answered" in trace and time.time() - trace["answered"] > 0.5,
+            settled,
+            "the slow query for the earlier function answered",
         )
 
     ################################################################################
@@ -872,12 +982,7 @@ class IntegrationTest:
             )
 
         def matches_double_click():
-            before = len(self.graph_calls)
-            self.double_click(matches, 0, 0)
-            self.check(
-                len(self.graph_calls) == before + 1,
-                "double clicking a block match opens the CFG graph",
-            )
+            self.double_click_graph(matches, 0, 0, "double clicking a block match")
 
         def matches_right_click():
             import mcrit_plugin.core.McritTableColumn as McritTableColumn
@@ -993,6 +1098,7 @@ class IntegrationTest:
             "MCRIT\\Build YARA String from Selection": main_widget.buildYaraStringAction.isEnabled(),
             "MCRIT\\Query Current Function": True,
             "MCRIT\\Query Current Block": True,
+            "MCRIT\\Clear Match Coloring": self.session.local_smda_report is not None,
         }
         names = [name for name, _handler, _enabled in self.sidebar_module._ACTIONS]
         for name in names:
@@ -1000,6 +1106,17 @@ class IntegrationTest:
                 handler.isValidAction(name, context) == expected_validity[name],
                 f"menu action validity matches the toolbar state: {name}",
             )
+        from mcrit_plugin.binja.MatchRenderLayer import MatchRenderLayer
+
+        self.check(
+            bool(MatchRenderLayer._ranges.get(self.bv.file.session_id)),
+            "the last match opened left its tint in place",
+        )
+        handler.executeAction("MCRIT\\Clear Match Coloring", context)
+        self.check(
+            not MatchRenderLayer._ranges.get(self.bv.file.session_id),
+            "MCRIT\\Clear Match Coloring removes the tint",
+        )
 
         target_job = str(self.job_id)
 
@@ -1048,6 +1165,9 @@ class IntegrationTest:
             ),
             "MCRIT\\Query Current Block": lambda: (
                 self.session.block_match_widget.table_block_summary.rowCount() > 0
+            ),
+            "MCRIT\\Clear Match Coloring": lambda: (
+                not MatchRenderLayer._ranges.get(self.bv.file.session_id)
             ),
         }
         pending = list(names)
