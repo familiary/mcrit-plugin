@@ -2,6 +2,7 @@
 that cell's own entry."""
 
 import os
+import random
 from types import SimpleNamespace
 
 import pytest
@@ -87,11 +88,26 @@ def test_hex_offsets_sort_by_value(cc):
     assert [table.item(row, 0).text() for row in range(3)] == ["0x1000", "0x80", "0x9"]
 
 
-def test_text_that_is_no_number_sorts_without_raising(cc):
+def test_text_that_is_no_number_sorts_after_the_numbers(cc):
     table = QtWidgets.QTableWidget(4, 1)
     for row, text in enumerate(["3", "", "unknown", "10"]):
         table.setItem(row, 0, NumberQTableWidgetItem(text))
 
-    _sort_descending(table)
+    table.sortItems(0, QtShim.get_Qt().AscendingOrder)
 
-    assert sorted(table.item(row, 0).text() for row in range(4)) == ["", "10", "3", "unknown"]
+    assert [table.item(row, 0).text() for row in range(4)] == ["3", "10", "", "unknown"]
+
+
+def test_a_mixed_column_sorts_the_same_whatever_its_starting_order(cc):
+    texts = ["9", "10", "1a", "0x2", "", "abc", "3.5"]
+    orders = set()
+    for seed in range(20):
+        shuffled = texts[:]
+        random.Random(seed).shuffle(shuffled)
+        table = QtWidgets.QTableWidget(len(shuffled), 1)
+        for row, text in enumerate(shuffled):
+            table.setItem(row, 0, NumberQTableWidgetItem(text))
+        table.sortItems(0, QtShim.get_Qt().AscendingOrder)
+        orders.add(tuple(table.item(row, 0).text() for row in range(len(shuffled))))
+
+    assert orders == {("0x2", "3.5", "9", "10", "", "1a", "abc")}

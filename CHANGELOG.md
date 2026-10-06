@@ -13,7 +13,9 @@ Ninja applies to that plugin only.
 - Binary Ninja: uploading the report, Function Scope and Block Scope queries, and fetching a
   matching result run off the UI thread, so a slow or unreachable MCRIT server no longer freezes
   Binary Ninja. A live query answered after the cursor moved to another function is cached but not
-  shown. Results already cached show at once. IDA still runs these requests on its main thread.
+  shown. Results already cached show at once. Upload and Get Match Result are disabled while their
+  request runs, and a failed request shows a warning. IDA still runs these requests on its main
+  thread.
 - Binary Ninja: "Fetch labels for matches" also runs off the UI thread; on a result with 150,000
   matched functions it froze Binary Ninja for about a minute.
 - The Function Overview renders large results about ten times faster: it sizes its rows once
@@ -31,7 +33,7 @@ Ninja applies to that plugin only.
   froze the UI for about 1.5 s against a remote server.
 - The bundled MCRIT client has the interface of MCRIT 1.12.0's client: `sample_group_only` only
   on the cross compare, the raising error modes, a default connect timeout, the job selectors of
-  `getQueueData` and the unique-block parameters. The plugin sets its own timeout, so requests
+  `getQueueData`, `getQueueCount` and the unique-block parameters. The plugin sets its own timeout, so requests
   behave as before.
 
 ## [2.0.0] - 2026-09-28

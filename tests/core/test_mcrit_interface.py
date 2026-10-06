@@ -99,6 +99,20 @@ def test_select_smda_backend_handles_empty_string():
     assert interface._select_smda_backend(_FakeBinaryInfo("")) is None
 
 
+@pytest.mark.parametrize("timeout, expected", [(30, 30), (0, None)])
+def test_the_configured_timeout_reaches_the_client(timeout, expected):
+    config = SimpleNamespace(
+        MCRIT_SERVER="http://127.0.0.1:8000",
+        MCRIT_REQUEST_TIMEOUT=timeout,
+        MCRITWEB_API_TOKEN="",
+        MCRITWEB_USERNAME="",
+    )
+
+    interface = McritInterface(SimpleNamespace(config=config), backend=None)
+
+    assert interface.mcrit_client.timeout == expected
+
+
 class TestCheckConnectionImpl:
     def test_returns_version_on_success(self):
         interface = _make_interface()
@@ -151,6 +165,18 @@ class TestQueryFunctionEntriesById:
 
         assert interface.queryFunctionEntriesById([7]) == {7: entry}
         assert interface.parent.matched_function_entries == {7: entry}
+
+    def test_leaves_a_dict_the_ui_is_iterating_unchanged(self):
+        interface = _make_interface()
+        old_entry = SimpleNamespace(function_labels=[])
+        interface.parent.matched_function_entries = {1: old_entry}
+        being_iterated = interface.parent.matched_function_entries
+        interface.mcrit_client.getFunctionsByIds.return_value = {7: old_entry}
+
+        interface.queryFunctionEntriesById([7])
+
+        assert being_iterated == {1: old_entry}
+        assert interface.parent.matched_function_entries == {1: old_entry, 7: old_entry}
 
 
 class TestServerErrors:
