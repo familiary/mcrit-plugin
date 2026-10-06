@@ -24,7 +24,17 @@ python -m pip install --upgrade ida-hcli
 hcli plugin install mcrit-ida
 ```
 
-`hcli plugin upgrade mcrit-ida` and `hcli plugin uninstall mcrit-ida` work as usual. To install a local build instead:
+`hcli plugin upgrade mcrit-ida` and `hcli plugin uninstall mcrit-ida` work as usual.
+
+Coming from 1.x: `hcli plugin upgrade` does not find 2.0.0, because 1.x was installed from the
+repository's old home (`danielplohmann/mcrit-plugin`). Uninstall it, then install again:
+
+```bash
+hcli plugin uninstall mcrit-ida
+hcli plugin install mcrit-ida
+```
+
+To install a local build instead:
 
 ```bash
 python scripts/ida/package_plugin.py --repo . --output ../mcrit-ida.zip
