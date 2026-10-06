@@ -1,4 +1,6 @@
+import threading
 import time
+from concurrent.futures import ThreadPoolExecutor
 
 import mcrit_plugin.core.McritTableColumn as McritTableColumn
 import mcrit_plugin.ui_qt.QtShim as QtShim
@@ -8,6 +10,7 @@ from mcrit_plugin.ui_qt.widgets.NumberQTableWidgetItem import NumberQTableWidget
 
 QMainWindow = QtShim.get_QMainWindow()
 QColor = QtShim.get_QColor()
+BLOCK_QUERY_WORKERS = 8
 
 
 def packRgb(rgb):
@@ -22,6 +25,8 @@ class BlockMatchWidget(QMainWindow):
         self.parent = parent
         self.scp = ScoreColorProvider(self.cc.backend)
         self.last_viewed_function = None
+        # counts the views asked for; only the latest one's answer is shown
+        self._request_number = 0
         self.last_viewed_block = None
         self._last_block_matches = None
         self.name = "Block Scope"
@@ -137,18 +142,19 @@ class BlockMatchWidget(QMainWindow):
             return family_infos.get(family_id)
         return None
 
-    def _ensure_remote_cache(self):
+    def _fetch_remote_cache(self):
+        """Request the family and sample lists if they are missing; touches no widget."""
         if self.parent.family_infos is None:
             self.parent.mcrit_interface.queryAllFamilyEntries()
         if self.parent.sample_infos is None:
             self.parent.mcrit_interface.queryAllSampleEntries()
-        if self.parent.family_infos is None or self.parent.sample_infos is None:
-            self.clearTable()
-            self.label_current_function_matches.setText(
-                "Remote family/sample info unavailable. Check server connection."
-            )
-            return False
-        return True
+        return self.parent.family_infos is not None and self.parent.sample_infos is not None
+
+    def _show_remote_cache_unavailable(self):
+        self.clearTable()
+        self.label_current_function_matches.setText(
+            "Remote family/sample info unavailable. Check server connection."
+        )
 
     def updateCurrentBlock(self, view):
         function_start = self.cc.backend.get_current_function(view)
@@ -220,15 +226,12 @@ class BlockMatchWidget(QMainWindow):
         self.table_block_matches.resizeRowToContents(0)
 
     def updateViewWithCurrentBlock(self):
-        if not self._ensure_remote_cache():
-            return
-        self.last_viewed_function = self.parent.current_function
+        self._request_number += 1
+        request_number = self._request_number
+        function_offset = self.parent.current_function
+        self.last_viewed_function = function_offset
         self.last_viewed_block = self.parent.current_block
-        if self.parent.current_block:
-            self.label_block_matches.setText(
-                "No Block Matches for: 0x%x" % self.parent.current_block
-            )
-        smda_function = self.parent.local_smda_report.getFunction(self.parent.current_function)
+        smda_function = self.parent.local_smda_report.getFunction(function_offset)
         if smda_function is None or smda_function.num_instructions < 4:
             self.clearTable()
             self.label_current_function_matches.setText(
@@ -240,25 +243,73 @@ class BlockMatchWidget(QMainWindow):
         pbh = FunctionCfgMatcher.getPicBlockHashesForFunction(
             self.parent.local_smda_report, smda_function, min_size=min_block_size
         )
-        block_matches_by_offset = {}
-        start = time.time()
-        num_queries = 0
-        lookup_failed = False
-        for entry in pbh:
-            if entry["hash"] not in self.parent.blockhash_matches and not lookup_failed:
-                pichash_matches = self.parent.mcrit_interface.getMatchesForPicBlockHash(
-                    entry["hash"]
+
+        def request():
+            if not self._fetch_remote_cache():
+                return False
+            self._lookupBlockHashes([entry["hash"] for entry in pbh])
+            return True
+
+        def show(remote_cache_ready):
+            # the cursor moved on or a newer view was asked for; the results stay cached
+            if (
+                self.parent.current_function != function_offset
+                or request_number != self._request_number
+            ):
+                return
+            if not remote_cache_ready:
+                # the next cursor move in this function tries again
+                self.last_viewed_function = None
+                self._show_remote_cache_unavailable()
+                return
+            if self.parent.current_block:
+                self.label_block_matches.setText(
+                    "No Block Matches for: 0x%x" % self.parent.current_block
                 )
-                num_queries += 1
-                # a failed query answers None; leave it uncached so the next visit retries, and
-                # skip this visit's other lookups, which would each wait out the same timeout
-                if pichash_matches is None:
-                    lookup_failed = True
-                else:
-                    self.parent.blockhash_matches[entry["hash"]] = pichash_matches
-            pichash_matches = self.parent.blockhash_matches.get(entry["hash"])
-            if pichash_matches is None:
-                pichash_matches = []
+            self._showBlockMatches(pbh)
+
+        # with every block cached, e.g. after a filter change, no request delays the table
+        if (
+            self.parent.family_infos is not None
+            and self.parent.sample_infos is not None
+            and all(entry["hash"] in self.parent.blockhash_matches for entry in pbh)
+        ):
+            show(True)
+        else:
+            self.cc.backend.run_request(request, show)
+
+    def _lookupBlockHashes(self, hashes):
+        """Query the uncached hashes concurrently; MCRIT answers one block hash per request."""
+        missing = [h for h in dict.fromkeys(hashes) if h not in self.parent.blockhash_matches]
+        if not missing:
+            return
+        failed = threading.Event()
+
+        def lookup(block_hash):
+            # after a failure the remaining lookups would each wait out the same timeout
+            if failed.is_set():
+                return None
+            matches = self.parent.mcrit_interface.getMatchesForPicBlockHash(block_hash)
+            if matches is None:
+                failed.set()
+            return matches
+
+        start = time.time()
+        with ThreadPoolExecutor(BLOCK_QUERY_WORKERS) as pool:
+            for block_hash, matches in zip(missing, pool.map(lookup, missing)):
+                # a failed query stays uncached so the next visit retries it
+                if matches is not None:
+                    self.parent.blockhash_matches[block_hash] = matches
+        duration = time.time() - start
+        print(
+            f"Querying {len(missing)} blocks took {duration:5.3f} seconds, "
+            f"or {duration / len(missing):5.3f} seconds per block."
+        )
+
+    def _showBlockMatches(self, pbh):
+        block_matches_by_offset = {}
+        for entry in pbh:
+            pichash_matches = self.parent.blockhash_matches.get(entry["hash"]) or []
             # cache this so we only query once per block
             if entry["offset"] not in self.parent.block_to_hash:
                 self.parent.block_to_hash[entry["offset"]] = entry["hash"]
@@ -274,11 +325,6 @@ class BlockMatchWidget(QMainWindow):
                 "summary": summary,
                 "has_library_matches": False,
             }
-        stop = time.time()
-        if num_queries > 0:
-            print(
-                f"Querying {num_queries} blocks took {stop - start:5.3f} seconds, or {(stop - start) / num_queries:5.3f} seconds per block."
-            )
         if block_matches_by_offset:
             # TODO when filtering, we should actually fully remove them by offset here, as we don't want to see such blocks in the summary later on
             set_families = set([])
