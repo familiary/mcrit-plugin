@@ -1,5 +1,6 @@
 """Tests for the McritInterface logic that runs without a disassembler or an MCRIT server."""
 
+import threading
 from types import SimpleNamespace
 from unittest.mock import MagicMock
 
@@ -57,6 +58,7 @@ def _make_interface(timeout=10):
     )
     inst.config = inst.parent.config
     inst._mcrit_server = "http://127.0.0.1:8000"
+    inst._cache_lock = threading.Lock()
     inst.mcrit_client = MagicMock()
     return inst
 
@@ -149,6 +151,18 @@ class TestQueryFunctionEntriesById:
         assert interface.queryFunctionEntriesById([7]) == {7: entry}
         assert interface.parent.matched_function_entries == {7: entry}
 
+    def test_leaves_a_dict_the_ui_is_iterating_unchanged(self):
+        interface = _make_interface()
+        old_entry = SimpleNamespace(function_labels=[])
+        interface.parent.matched_function_entries = {1: old_entry}
+        being_iterated = interface.parent.matched_function_entries
+        interface.mcrit_client.getFunctionsByIds.return_value = {7: old_entry}
+
+        interface.queryFunctionEntriesById([7])
+
+        assert being_iterated == {1: old_entry}
+        assert interface.parent.matched_function_entries == {1: old_entry, 7: old_entry}
+
 
 class TestServerErrors:
     def test_a_rejected_upload_reports_failure_without_a_traceback(self, capsys):
@@ -166,3 +180,43 @@ class TestServerErrors:
 
         assert interface.queryJobs(sample_id=23) is None
         interface.parent.local_widget.updateActivityInfo.assert_called_with("Job query failed.")
+
+
+class TestQueryRemoteFunction:
+    def _interface(self, sample_infos=None):
+        interface = _make_interface()
+        interface.parent.sample_infos = sample_infos
+        entry = MagicMock(sample_id=5)
+        interface.mcrit_client.getFunctionById.return_value = entry
+        return interface, entry
+
+    def test_the_sample_comes_from_the_downloaded_list(self):
+        sample = object()
+        interface, entry = self._interface(sample_infos={5: sample})
+
+        assert interface.queryRemoteFunction(9) == (entry, entry.toSmdaFunction(), sample)
+        interface.mcrit_client.getFunctionById.assert_called_once_with(9, with_xcfg=True)
+        interface.mcrit_client.getSampleById.assert_not_called()
+
+    def test_an_unlisted_sample_is_requested(self):
+        sample = object()
+        interface, entry = self._interface(sample_infos={})
+        interface.mcrit_client.getSampleById.return_value = sample
+
+        assert interface.queryRemoteFunction(9) == (entry, entry.toSmdaFunction(), sample)
+        interface.mcrit_client.getSampleById.assert_called_once_with(5)
+
+    def test_a_missing_function_or_sample_is_reported(self):
+        interface, _entry = self._interface()
+        interface.mcrit_client.getSampleById.return_value = None
+
+        assert interface.queryRemoteFunction(9) is None
+        interface.parent.local_widget.updateActivityInfo.assert_called_with(
+            "Failed to fetch sample entry 5."
+        )
+        interface.mcrit_client.getFunctionById.return_value = None
+
+        assert interface.queryRemoteFunction(9) is None
+        interface.parent.local_widget.updateActivityInfo.assert_called_with(
+            "Failed to fetch function entry 9."
+        )

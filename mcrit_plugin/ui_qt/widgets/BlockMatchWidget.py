@@ -22,6 +22,8 @@ class BlockMatchWidget(QMainWindow):
         self.parent = parent
         self.scp = ScoreColorProvider(self.cc.backend)
         self.last_viewed_function = None
+        # counts the views asked for; only the latest one's answer is shown
+        self._request_number = 0
         self.last_viewed_block = None
         self._last_block_matches = None
         self.name = "Block Scope"
@@ -137,18 +139,19 @@ class BlockMatchWidget(QMainWindow):
             return family_infos.get(family_id)
         return None
 
-    def _ensure_remote_cache(self):
+    def _fetch_remote_cache(self):
+        """Request the family and sample lists if they are missing; touches no widget."""
         if self.parent.family_infos is None:
             self.parent.mcrit_interface.queryAllFamilyEntries()
         if self.parent.sample_infos is None:
             self.parent.mcrit_interface.queryAllSampleEntries()
-        if self.parent.family_infos is None or self.parent.sample_infos is None:
-            self.clearTable()
-            self.label_current_function_matches.setText(
-                "Remote family/sample info unavailable. Check server connection."
-            )
-            return False
-        return True
+        return self.parent.family_infos is not None and self.parent.sample_infos is not None
+
+    def _show_remote_cache_unavailable(self):
+        self.clearTable()
+        self.label_current_function_matches.setText(
+            "Remote family/sample info unavailable. Check server connection."
+        )
 
     def updateCurrentBlock(self, view):
         function_start = self.cc.backend.get_current_function(view)
@@ -220,15 +223,12 @@ class BlockMatchWidget(QMainWindow):
         self.table_block_matches.resizeRowToContents(0)
 
     def updateViewWithCurrentBlock(self):
-        if not self._ensure_remote_cache():
-            return
-        self.last_viewed_function = self.parent.current_function
+        self._request_number += 1
+        request_number = self._request_number
+        function_offset = self.parent.current_function
+        self.last_viewed_function = function_offset
         self.last_viewed_block = self.parent.current_block
-        if self.parent.current_block:
-            self.label_block_matches.setText(
-                "No Block Matches for: 0x%x" % self.parent.current_block
-            )
-        smda_function = self.parent.local_smda_report.getFunction(self.parent.current_function)
+        smda_function = self.parent.local_smda_report.getFunction(function_offset)
         if smda_function is None or smda_function.num_instructions < 4:
             self.clearTable()
             self.label_current_function_matches.setText(
@@ -240,12 +240,16 @@ class BlockMatchWidget(QMainWindow):
         pbh = FunctionCfgMatcher.getPicBlockHashesForFunction(
             self.parent.local_smda_report, smda_function, min_size=min_block_size
         )
-        block_matches_by_offset = {}
-        start = time.time()
-        num_queries = 0
-        lookup_failed = False
-        for entry in pbh:
-            if entry["hash"] not in self.parent.blockhash_matches and not lookup_failed:
+
+        def request():
+            if not self._fetch_remote_cache():
+                return False
+            start = time.time()
+            num_queries = 0
+            lookup_failed = False
+            for entry in pbh:
+                if entry["hash"] in self.parent.blockhash_matches or lookup_failed:
+                    continue
                 pichash_matches = self.parent.mcrit_interface.getMatchesForPicBlockHash(
                     entry["hash"]
                 )
@@ -256,9 +260,47 @@ class BlockMatchWidget(QMainWindow):
                     lookup_failed = True
                 else:
                     self.parent.blockhash_matches[entry["hash"]] = pichash_matches
-            pichash_matches = self.parent.blockhash_matches.get(entry["hash"])
-            if pichash_matches is None:
-                pichash_matches = []
+            stop = time.time()
+            if num_queries > 0:
+                print(
+                    f"Querying {num_queries} blocks took {stop - start:5.3f} seconds, or {(stop - start) / num_queries:5.3f} seconds per block."
+                )
+            return True
+
+        def show(remote_cache_ready):
+            # the cursor moved on or a newer view was asked for; the results stay cached
+            if (
+                self.parent.current_function != function_offset
+                or request_number != self._request_number
+            ):
+                return
+            if not remote_cache_ready:
+                # the next cursor move in this function tries again
+                self.last_viewed_function = None
+                self._show_remote_cache_unavailable()
+                return
+            if self.parent.current_block:
+                self.label_block_matches.setText(
+                    "No Block Matches for: 0x%x" % self.parent.current_block
+                )
+            self._showBlockMatches(pbh)
+
+        # with every block cached, e.g. after a filter change, no request delays the table
+        if (
+            self.parent.family_infos is not None
+            and self.parent.sample_infos is not None
+            and all(entry["hash"] in self.parent.blockhash_matches for entry in pbh)
+        ):
+            show(True)
+        else:
+            self.cc.backend.run_request(
+                "MCRIT: querying block matches for function 0x%x" % function_offset, request, show
+            )
+
+    def _showBlockMatches(self, pbh):
+        block_matches_by_offset = {}
+        for entry in pbh:
+            pichash_matches = self.parent.blockhash_matches.get(entry["hash"]) or []
             # cache this so we only query once per block
             if entry["offset"] not in self.parent.block_to_hash:
                 self.parent.block_to_hash[entry["offset"]] = entry["hash"]
@@ -274,11 +316,6 @@ class BlockMatchWidget(QMainWindow):
                 "summary": summary,
                 "has_library_matches": False,
             }
-        stop = time.time()
-        if num_queries > 0:
-            print(
-                f"Querying {num_queries} blocks took {stop - start:5.3f} seconds, or {(stop - start) / num_queries:5.3f} seconds per block."
-            )
         if block_matches_by_offset:
             # TODO when filtering, we should actually fully remove them by offset here, as we don't want to see such blocks in the summary later on
             set_families = set([])
@@ -512,32 +549,31 @@ class BlockMatchWidget(QMainWindow):
                 function_id_b = int(self.table_block_matches.item(mi.row(), index).text())
         # print("double clicked row for function_id", function_id_b)
         if block_offset_b is not None and function_id_b is not None:
-            function_entry_b = self.parent.mcrit_interface.queryFunctionEntryById(function_id_b)
-            if function_entry_b is None:
-                self.parent.local_widget.updateActivityInfo(
-                    f"Failed to fetch function entry {function_id_b}."
-                )
-                return
-            smda_function_b = function_entry_b.toSmdaFunction()
-            sample_entry_b = self.parent.mcrit_interface.querySampleEntryById(
-                function_entry_b.sample_id
+            block_matches = self._last_block_matches
+            self.parent.local_widget.updateActivityInfo(
+                f"Fetching function {function_id_b} for the graph viewer..."
             )
-            if sample_entry_b is None:
-                self.parent.local_widget.updateActivityInfo(
-                    f"Failed to fetch sample entry {function_entry_b.sample_id}."
+
+            def show(remote):
+                if remote is None:
+                    return
+                function_entry_b, smda_function_b, sample_entry_b = remote
+                matched_color = packRgb(self.scp.roleColor(ThemeRole.CYAN, (0xC0, 0xF4, 0xFF)))
+                current_color = packRgb(self.scp.roleColor(ThemeRole.CURRENT, (0x00, 0xDD, 0xFF)))
+                coloring = {}
+                for offset, data in block_matches.items():
+                    for match in data["matches"]:
+                        if match[2] == function_entry_b.function_id:
+                            coloring[match[3]] = matched_color
+                coloring[block_offset_b] = current_color
+                self.cc.backend.show_function_graph(
+                    self, sample_entry_b, function_entry_b, smda_function_b, coloring
                 )
-                return
-            #
-            matched_color = packRgb(self.scp.roleColor(ThemeRole.CYAN, (0xC0, 0xF4, 0xFF)))
-            current_color = packRgb(self.scp.roleColor(ThemeRole.CURRENT, (0x00, 0xDD, 0xFF)))
-            coloring = {}
-            for offset, data in self._last_block_matches.items():
-                for match in data["matches"]:
-                    if match[2] == function_entry_b.function_id:
-                        coloring[match[3]] = matched_color
-            coloring[block_offset_b] = current_color
-            self.cc.backend.show_function_graph(
-                self, sample_entry_b, function_entry_b, smda_function_b, coloring
+
+            self.cc.backend.run_request(
+                "MCRIT: fetching remote function %d" % function_id_b,
+                lambda: self.parent.mcrit_interface.queryRemoteFunction(function_id_b),
+                show,
             )
 
     def _onTableBlockMatchesRightClicked(self, position):
