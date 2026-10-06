@@ -42,6 +42,8 @@ class BinjaBackend(Backend):
 
     def __init__(self, bv):
         self.bv = bv
+        # messages go to this file's log, not the global one
+        self.logger = Logger(bv.file.session_id, TITLE)
         self.view_frame = None
         self.cursor_offset = None
         self._input_hashes = None
@@ -173,13 +175,31 @@ class BinjaBackend(Backend):
                     task.progress = title
                     result = work()
                 except Exception:
-                    logger.log_error(f"{title} failed:\n{traceback.format_exc()}")
+                    backend.logger.log_error(f"{title} failed:\n{traceback.format_exc()}")
                     backend._on_main_thread(
                         lambda: backend.show_warning(f"{title} failed, see the log for details.")
                     )
                     return
                 backend._on_main_thread(lambda: on_done(result))
 
+        Task(title, False).start()
+
+    def run_request(self, title, work, on_done):
+        backend = self
+
+        class Task(binaryninja.BackgroundTaskThread):
+            def run(task):
+                try:
+                    result = work()
+                except Exception:
+                    backend.logger.log_error(f"{title} failed:\n{traceback.format_exc()}")
+                    backend._on_main_thread(
+                        lambda: backend.show_warning(f"{title} failed, see the log for details.")
+                    )
+                    return
+                backend._on_main_thread(lambda: on_done(result))
+
+        # no analysis wait, unlike run_background; without cancel, as a request cannot be stopped
         Task(title, False).start()
 
     def _on_main_thread(self, func):
