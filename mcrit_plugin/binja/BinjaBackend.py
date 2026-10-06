@@ -189,6 +189,9 @@ class BinjaBackend(Backend):
                 result = work()
             except Exception:
                 logger.log_error(f"MCRIT request failed:\n{traceback.format_exc()}")
+                self._on_main_thread(
+                    lambda: self.show_warning("MCRIT request failed, see the log for details.")
+                )
                 return
             self._on_main_thread(lambda: on_done(result))
 
