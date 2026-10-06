@@ -12,7 +12,7 @@ Ninja applies to that plugin only.
 
 - The bundled MCRIT client has the interface of MCRIT 1.12.0's client: `sample_group_only` only
   on the cross compare, the raising error modes, a default connect timeout, the job selectors of
-  `getQueueData` and the unique-block parameters. The plugin sets its own timeout, so requests
+  `getQueueData`, `getQueueCount` and the unique-block parameters. The plugin sets its own timeout, so requests
   behave as before.
 
 ## [2.0.0] - 2026-09-28
