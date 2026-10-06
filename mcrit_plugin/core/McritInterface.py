@@ -24,11 +24,12 @@ class McritInterface(object):
         self.parent = parent
         self.backend = backend
         self.config = parent.config
+        self._cache_lock = threading.Lock()
+        self._remote_info_lock = threading.Lock()
         self._mcrit_server = self.config.MCRIT_SERVER
         self.mcrit_client = McritClient(self.config.MCRIT_SERVER)
-        timeout_value = self.config.MCRIT_REQUEST_TIMEOUT
-        if timeout_value and timeout_value > 0:
-            self.mcrit_client.setTimeout(timeout_value)
+        # setTimeout maps 0 to no limit; skipping it would keep the client's 10 s connect timeout
+        self.mcrit_client.setTimeout(self.config.MCRIT_REQUEST_TIMEOUT)
         if self.config.MCRITWEB_API_TOKEN:
             self.mcrit_client.setApitoken(self.config.MCRITWEB_API_TOKEN)
         if self.config.MCRITWEB_USERNAME:
@@ -175,7 +176,6 @@ class McritInterface(object):
                     )
                 self.parent.remote_sample_entry = sample_entry
                 self.parent.remote_sample_id = sample_entry.sample_id
-                self.parent.local_widget.update()
             else:
                 self.parent.local_widget.updateActivityInfo("Upload failed.")
         except Exception as exc:
@@ -190,8 +190,12 @@ class McritInterface(object):
         else:
             self.parent.local_widget.updateActivityInfo("Querying jobs.")
         try:
-            # fetch jobs
-            jobs = self.mcrit_client.getQueueData(filter="Matches")
+            # fetch jobs; the server narrows them by the sample id as text, which also matches
+            # other numbers, and older servers do not select by sample_ids, so the exact test
+            # below stays
+            jobs = self.mcrit_client.getQueueData(
+                filter="Matches" if sample_id is None else str(sample_id)
+            )
             if jobs is None:
                 self.parent.local_widget.updateActivityInfo("Job query failed.")
                 return None
@@ -200,10 +204,13 @@ class McritInterface(object):
                 jobs = [
                     job
                     for job in jobs
-                    if "(" + str(sample_id) + ")" in job.parameters
-                    or "(" + str(sample_id) + "," in job.parameters
-                    or "," + str(sample_id) + "," in job.parameters
-                    or "," + str(sample_id) + ")" in job.parameters
+                    if "Matches" in job.parameters
+                    and (
+                        "(" + str(sample_id) + ")" in job.parameters
+                        or "(" + str(sample_id) + "," in job.parameters
+                        or "," + str(sample_id) + "," in job.parameters
+                        or "," + str(sample_id) + ")" in job.parameters
+                    )
                 ]
             if jobs:
                 self.parent.local_widget.updateActivityInfo("Success! Fetched Jobs.")
@@ -246,6 +253,22 @@ class McritInterface(object):
                 self.parent.local_widget.updateActivityInfo("Result query failed.")
         except Exception as exc:
             self._reportFailure("Result query", exc)
+
+    def ensureRemoteInformation(self):
+        """Download the family and sample lists unless the session has them. Callable from several
+        threads: one downloads while the others wait for it instead of repeating it."""
+        with self._remote_info_lock:
+            # the two lists are independent, so they download side by side
+            downloads = []
+            if self.parent.family_infos is None:
+                downloads.append(threading.Thread(target=self.queryAllFamilyEntries, daemon=True))
+            if self.parent.sample_infos is None:
+                downloads.append(threading.Thread(target=self.queryAllSampleEntries, daemon=True))
+            for download in downloads:
+                download.start()
+            for download in downloads:
+                download.join()
+        return self.parent.family_infos is not None and self.parent.sample_infos is not None
 
     def queryAllFamilyEntries(self):
         self.parent.local_widget.updateActivityInfo("Querying for FamilyEntries")
@@ -308,9 +331,11 @@ class McritInterface(object):
         if function_entries is None:
             return None
         if function_entries:
-            if self.parent.matched_function_entries is None:
-                self.parent.matched_function_entries = {}
-            self.parent.matched_function_entries.update(function_entries)
+            # requests run on worker threads while the UI iterates the cache: swap in a new dict
+            with self._cache_lock:
+                merged = dict(self.parent.matched_function_entries or {})
+                merged.update(function_entries)
+                self.parent.matched_function_entries = merged
         return function_entries
 
     def queryPicHashMatches(self, pichash):

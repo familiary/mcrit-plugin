@@ -8,6 +8,34 @@ Ninja applies to that plugin only.
 
 ## [Unreleased]
 
+### Changed
+
+- Binary Ninja: uploading the report, Function Scope and Block Scope queries, and fetching a
+  matching result run off the UI thread, so a slow or unreachable MCRIT server no longer freezes
+  Binary Ninja. A live query answered after the cursor moved to another function is cached but not
+  shown. Results already cached show at once. Upload and Get Match Result are disabled while their
+  request runs, and a failed request shows a warning. IDA still runs these requests on its main
+  thread.
+- Binary Ninja: "Fetch labels for matches" also runs off the UI thread; on a result with 150,000
+  matched functions it froze Binary Ninja for about a minute.
+- The Function Overview renders large results about ten times faster: it sizes its rows once
+  instead of row by row, and a new result or filter click renders the table once instead of two or
+  three times.
+- Binary Ninja: MCRIT requests show in the status bar as background tasks named after what they
+  do, such as "MCRIT: fetching labels for 151306 matched functions", like Binary Ninja's own
+  analysis tasks. The plugin's log messages go to the log of the file they concern.
+- Choosing a matching job asks the server for the jobs that mention the sample, instead of
+  downloading every job of the server and filtering them in the plugin.
+- Convert no longer waits for the family and sample lists: they download in the background after
+  the report is built, side by side instead of one after the other, and one download serves every
+  widget that needs them. The family chooser for an unknown sample opens once they are here. On
+  Binary Ninja, Convert also asks whether the server knows the sample in the background, which
+  froze the UI for about 1.5 s against a remote server.
+- The bundled MCRIT client has the interface of MCRIT 1.12.0's client: `sample_group_only` only
+  on the cross compare, the raising error modes, a default connect timeout, the job selectors of
+  `getQueueData`, `getQueueCount` and the unique-block parameters. The plugin sets its own timeout, so requests
+  behave as before.
+
 ## [2.0.0] - 2026-09-28
 
 ### Added

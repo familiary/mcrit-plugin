@@ -135,18 +135,15 @@ class FunctionMatchWidget(QMainWindow):
             return family_infos.get(family_id)
         return None
 
-    def _ensure_remote_cache(self):
-        if self.parent.family_infos is None:
-            self.parent.mcrit_interface.queryAllFamilyEntries()
-        if self.parent.sample_infos is None:
-            self.parent.mcrit_interface.queryAllSampleEntries()
-        if self.parent.family_infos is None or self.parent.sample_infos is None:
-            self.clearTable()
-            self.label_current_function_matches.setText(
-                "Remote family/sample info unavailable. Check server connection."
-            )
-            return False
-        return True
+    def _fetch_remote_cache(self):
+        """Request the family and sample lists if they are missing; touches no widget."""
+        return self.parent.mcrit_interface.ensureRemoteInformation()
+
+    def _show_remote_cache_unavailable(self):
+        self.clearTable()
+        self.label_current_function_matches.setText(
+            "Remote family/sample info unavailable. Check server connection."
+        )
 
     def updateCurrentFunction(self, view):
         function_start = self.cc.backend.get_current_function(view)
@@ -208,15 +205,66 @@ class FunctionMatchWidget(QMainWindow):
                 "Can only query functions with more than 10 instructions."
             )
             return
-        if not self._ensure_remote_cache():
-            return
+        function_offset = self.parent.current_function
+        score_threshold = int(self.sb_score_threshold.value())
+        outline = None
+        if function_offset not in self.parent.function_matches:
+            outline = self.parent.getLocalSmdaReportOutline()
+            outline.xcfg = {smda_function.offset: smda_function}
+            self.label_current_function_matches.setText(
+                "Querying matches for function 0x%x..." % function_offset
+            )
+
+        def request():
+            if not self._fetch_remote_cache():
+                return False
+            if outline is not None:
+                self.parent.mcrit_interface.querySmdaFunctionMatches(outline)
+            missing_ids = self._missingMatchedFunctionIds(function_offset, score_threshold)
+            if missing_ids:
+                self.parent.mcrit_interface.queryFunctionEntriesById(missing_ids)
+            return True
+
+        def show(remote_cache_ready):
+            # a live query answered after the cursor moved on; its result stays cached
+            if self.parent.current_function != function_offset:
+                return
+            if not remote_cache_ready:
+                self.last_viewed = None
+                self._show_remote_cache_unavailable()
+                return
+            self._showFunctionMatches(smda_function)
+
+        # with everything cached, e.g. after a filter change, no request delays the table
+        if (
+            outline is None
+            and self.parent.family_infos is not None
+            and self.parent.sample_infos is not None
+            and not self._missingMatchedFunctionIds(function_offset, score_threshold)
+        ):
+            show(True)
+        else:
+            self.cc.backend.run_request(
+                "MCRIT: querying matches for function 0x%x" % function_offset, request, show
+            )
+
+    def _missingMatchedFunctionIds(self, function_offset, score_threshold):
+        """Ids of the matches the name table lists whose entries are not cached yet."""
+        match_report_dict = self.parent.function_matches.get(function_offset)
+        if not match_report_dict:
+            return []
+        match_report = MatchingResult.fromDict(match_report_dict)
+        match_report.filterToFunctionScore(score_threshold)
+        cached_entries = self.parent.matched_function_entries or {}
+        return [
+            match.matched_function_id
+            for match in match_report.filtered_function_matches
+            if match.matched_function_id not in cached_entries
+        ]
+
+    def _showFunctionMatches(self, smda_function):
         self.current_function_offset = self.parent.current_function
         match_report = None
-        single_function_smda_report = self.parent.getLocalSmdaReportOutline()
-        single_function_smda_report.xcfg = {smda_function.offset: smda_function}
-        # check if pichash match data is already available in local cache
-        if smda_function.offset not in self.parent.function_matches:
-            self.parent.mcrit_interface.querySmdaFunctionMatches(single_function_smda_report)
         if smda_function.offset in self.parent.function_matches:
             match_report = MatchingResult.fromDict(
                 self.parent.function_matches[smda_function.offset]
@@ -382,10 +430,6 @@ class FunctionMatchWidget(QMainWindow):
             match.matched_function_id: match for match in match_report.filtered_function_matches
         }
         cached_entries = self.parent.matched_function_entries or {}
-        missing_ids = [fid for fid in function_matches_by_id if fid not in cached_entries]
-        if missing_ids:
-            self.parent.mcrit_interface.queryFunctionEntriesById(missing_ids)
-        cached_entries = self.parent.matched_function_entries or {}
         matched_entries = {}
         for function_id in function_matches_by_id.keys():
             matched_entry = cached_entries.get(function_id)
@@ -533,7 +577,8 @@ class FunctionMatchWidget(QMainWindow):
                 mi.row(), function_label_column_index
             ).text()
             with self.cc.backend.mutation("Apply MCRIT label"):
-                self.cc.backend.set_function_name(self.last_viewed, function_name)
+                # last_viewed moves on when a query starts, before the tables show its answer
+                self.cc.backend.set_function_name(self.current_function_offset, function_name)
 
     def _onTableFunctionMatchRightClicked(self, position):
         """
