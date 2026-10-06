@@ -32,8 +32,8 @@ Ninja applies to that plugin only.
   froze the UI for about 1.5 s against a remote server.
 - The bundled MCRIT client has the interface of MCRIT 1.12.0's client: `sample_group_only` only
   on the cross compare, the raising error modes, a default connect timeout, the job selectors of
-  `getQueueData`, `getQueueCount` and the unique-block parameters. The plugin sets its own timeout, so requests
-  behave as before.
+  `getQueueData`, `getQueueCount` and the unique-block parameters. The plugin sets its own
+  timeout, so requests behave as before.
 - "Fetch labels for matches" asks the server for 2,000 functions first, then 50,000 at a time, best
   matches first, and shows the labels of each chunk as it arrives instead of after the last one. A
   failed chunk stops the fetch; the functions not yet fetched are requested again by the next
