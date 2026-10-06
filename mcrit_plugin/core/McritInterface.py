@@ -24,6 +24,7 @@ class McritInterface(object):
         self.parent = parent
         self.backend = backend
         self.config = parent.config
+        self._cache_lock = threading.Lock()
         self._mcrit_server = self.config.MCRIT_SERVER
         self.mcrit_client = McritClient(self.config.MCRIT_SERVER)
         timeout_value = self.config.MCRIT_REQUEST_TIMEOUT
@@ -307,9 +308,11 @@ class McritInterface(object):
         if function_entries is None:
             return None
         if function_entries:
-            if self.parent.matched_function_entries is None:
-                self.parent.matched_function_entries = {}
-            self.parent.matched_function_entries.update(function_entries)
+            # requests run on worker threads while the UI iterates the cache: swap in a new dict
+            with self._cache_lock:
+                merged = dict(self.parent.matched_function_entries or {})
+                merged.update(function_entries)
+                self.parent.matched_function_entries = merged
         return function_entries
 
     def queryPicHashMatches(self, pichash):
