@@ -8,6 +8,20 @@ Ninja applies to that plugin only.
 
 ## [Unreleased]
 
+### Changed
+
+- Binary Ninja: uploading the report, Function Scope and Block Scope queries, and fetching a
+  matching result run off the UI thread, so a slow or unreachable MCRIT server no longer freezes
+  Binary Ninja. A live query answered after the cursor moved to another function is cached but not
+  shown. Results already cached show at once. Upload and Get Match Result are disabled while their
+  request runs, and a failed request shows a warning. IDA still runs these requests on its main
+  thread.
+- Binary Ninja: "Fetch labels for matches" also runs off the UI thread; on a result with 150,000
+  matched functions it froze Binary Ninja for about a minute.
+- The Function Overview renders large results about ten times faster: it sizes its rows once
+  instead of row by row, and a new result or filter click renders the table once instead of two or
+  three times.
+
 ## [2.0.0] - 2026-09-28
 
 ### Added
