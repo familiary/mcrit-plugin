@@ -8,6 +8,91 @@ Ninja applies to that plugin only.
 
 ## [Unreleased]
 
+### Changed
+
+- Binary Ninja: uploading the report, Function Scope and Block Scope queries, and fetching a
+  matching result run off the UI thread, so a slow or unreachable MCRIT server no longer freezes
+  Binary Ninja. A live query answered after the cursor moved to another function is cached but not
+  shown. Results already cached show at once. Upload and Get Match Result are disabled while their
+  request runs, and a failed request shows a warning.
+- Binary Ninja: "Fetch labels for matches" also runs off the UI thread; on a result with 150,000
+  matched functions it froze Binary Ninja for about a minute.
+- The Function Overview renders large results about ten times faster: it sizes its rows once
+  instead of row by row, and a new result or filter click renders the table once instead of two or
+  three times.
+- Binary Ninja: MCRIT requests show in the status bar as background tasks named after what they
+  do, such as "MCRIT: fetching labels for 2000 of 151306 matched functions", like Binary Ninja's
+  own analysis tasks. The plugin's log messages go to the log of the file they concern.
+- Choosing a matching job asks the server for the jobs that mention the sample, instead of
+  downloading every job of the server and filtering them in the plugin.
+- Convert no longer waits for the family and sample lists: they download in the background after
+  the report is built, side by side instead of one after the other, and one download serves every
+  widget that needs them. The family chooser for an unknown sample opens once they are here. On
+  Binary Ninja, Convert also asks whether the server knows the sample in the background, which
+  froze the UI for about 1.5 s against a remote server.
+- The bundled MCRIT client has the interface of MCRIT 1.12.0's client: `sample_group_only` only
+  on the cross compare, the raising error modes, a default connect timeout, the job selectors of
+  `getQueueData`, `getQueueCount` and the unique-block parameters. The plugin sets its own
+  timeout, so requests behave as before.
+- "Fetch labels for matches" asks the server for 2,000 functions first, then 50,000 at a time, best
+  matches first, and shows the labels of each chunk as it arrives instead of after the last one. A
+  failed chunk stops the fetch; the functions not yet fetched are requested again by the next
+  click.
+- The Function Overview keeps its rows in a table model and paints the label drop-downs, instead of
+  creating a combo box for every row. A filter click on a synthetic result of 20,000 functions takes about
+  one second instead of two minutes, and a drop-down opens when its cell is clicked.
+  The matches of a result are grouped by function once and each threshold and filter is aggregated
+  once, so with 221,000 matches over 705 functions clicking through the filters takes about 0.15 s
+  instead of 3 to 4 s.
+- Opening the graph of a function or block match fetches the remote function off the UI thread on
+  Binary Ninja, and takes its sample from the sample list already downloaded instead of asking the
+  server again. For a 3,955-instruction match against mcrit.malpedia.io, Binary Ninja froze for
+  about 3.5 s; the click now returns at once and the graph opens after about 2.1 s.
+- Requests to the MCRIT server reuse their connection instead of opening a new one each time, also
+  when many run at once, and
+  Block Scope looks up a function's block hashes eight at a time. Against a remote server, the
+  block lookups for a function with 166 distinct block hashes took 6 seconds instead of 166.
+- IDA: uploads, Function and Block Scope queries, matching results, label fetches and remote
+  graphs run on worker threads too, so a slow or unreachable MCRIT server no longer freezes IDA.
+  Answers that arrive after the MCRIT form was closed are dropped, and a failed request is reported
+  in a warning. Live queries wait until the cursor has rested for 150 ms, as on Binary Ninja.
+- Convert asks the server whether it knows the sample after the export instead of during it, so on
+  IDA the wait box no longer waits for the server.
+- A Function or Block Scope query that is still queued when the cursor has moved to another
+  function is skipped instead of sent, and Block Scope stops looking up a function's block hashes
+  once the cursor has left it.
+- IDA: Convert exports through smda's IDAPython backend with cheaper per-instruction reads, also
+  when the ida-domain package is installed, which smda would otherwise prefer. The report is
+  unchanged; exporting a 3,668-function binary takes 3.3 s instead of 6.9 s.
+- Each chunk of "Fetch labels for matches" updates the Function Overview from the matches of the
+  newly labeled functions instead of all matches again; with 221,000 matches it took up to a second
+  per chunk on IDA and now takes a fraction of that.
+- Function Scope keeps its matches in a table model instead of an item per cell, so a function
+  with 884 matches shows in about 0.2 s instead of 0.5 s on IDA, and so does the table of names
+  from the matched functions. Double clicking a match and copying its sample's SHA256 no longer need
+  the function id or sample id columns to be configured.
+- Block Scope's block summary and block match tables are table models too. Their offset and hash
+  columns sort by value instead of as text, which put 0x10 before 0x9, and the clicks no longer
+  depend on which columns are configured.
+- The Sample Match Summary's tables are table models too, and no longer measure the height of each
+  row: for a result with 4,071 matched samples, showing them took 235 ms and clicking a family with
+  1,956 samples 194 ms, and both now take a few milliseconds.
+- The Function Scope and Block Scope tables size their columns to their first 100 rows instead of
+  up to 1,000, which took most of the time a large table needed to show.
+- IDA: Convert, Upload and Export no longer hold IDA for the whole export. Only reading the database
+  runs on IDA's main thread, behind a short wait box; disassembling and hashing, about two thirds
+  of the export, run in the background, as on Binary Ninja. The report is unchanged.
+- With `use_smda_for_analysis` on, Convert no longer exports the disassembler's own analysis first
+  just to compare function sets: the comparison now reads the disassembler's function list, and
+  the export remains the fallback when SMDA's analysis yields no report.
+
+### Added
+
+- Binary Ninja: opening a matched function's graph, or a block match's function, now also tints the
+  matched basic blocks of the local function in Binary Ninja's own graph and linear views, through
+  the "MCRIT Matches" render layer (on by default; switch it off in the view's render layer menu).
+  The tint stays until another graph is opened or "MCRIT\Clear Match Coloring" is run.
+
 ## [2.0.0] - 2026-09-28
 
 ### Added

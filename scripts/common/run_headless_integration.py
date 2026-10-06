@@ -77,7 +77,6 @@ def run(input_path: Path, server: str, reference_sha256: str | None, timeout: in
     _check(context.remote_sample_entry is not None, "uploaded sample found by sha256")
     interface.queryAllFamilyEntries()
     interface.queryAllSampleEntries()
-    interface.queryFunctionEntriesBySampleId(context.remote_sample_id)
 
     job_id = interface.requestMatchingJob(context.remote_sample_id)
     _check(job_id, "matching job requested")

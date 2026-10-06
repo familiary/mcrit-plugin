@@ -188,7 +188,24 @@ def _widget_for_view(bv, frame=None):
     for widget in matches:
         if frame is not None and widget.backend.view_frame is frame:
             return widget
+    # a split pane the tab's widget has not been shown yet still belongs to that tab
+    tab_frames = _frames_in_tab_of(frame)
+    for widget in matches:
+        if any(widget.backend.view_frame is tab_frame for tab_frame in tab_frames):
+            return widget
     return matches[0] if matches else None
+
+
+def _frames_in_tab_of(frame):
+    """Every view frame of the tab that holds frame, split panes included."""
+    context = UIContext.contextForWidget(frame) if frame is not None else None
+    if context is None:
+        return []
+    for tab in context.getTabs():
+        frames = context.getAllViewFramesForTab(tab)
+        if any(tab_frame is frame for tab_frame in frames):
+            return frames
+    return []
 
 
 def _has_report(session):
@@ -226,6 +243,11 @@ _ACTIONS = [
     (
         "MCRIT\\Query Current Function",
         lambda session: session.function_match_widget.queryCurrentFunction(),
+        _has_report,
+    ),
+    (
+        "MCRIT\\Clear Match Coloring",
+        lambda session: session.cc.backend.clear_local_match_coloring(),
         _has_report,
     ),
     (

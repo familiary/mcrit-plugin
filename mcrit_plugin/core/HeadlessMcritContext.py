@@ -37,11 +37,8 @@ class HeadlessMcritContext:
         self.matching_job_id = None
         self.matching_report = None
         self.matched_function_entries = None
-        self.remote_function_mapping = {}
         self.sample_infos = None
         self.family_infos = None
         self.function_id_to_offset = {}
         self.function_matches = {}
-        self.pichash_matches = {}
-        self.pichash_match_summaries = {}
         self.mcrit_interface = McritInterface(self, backend)

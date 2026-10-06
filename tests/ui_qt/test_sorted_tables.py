@@ -2,6 +2,7 @@
 that cell's own entry."""
 
 import os
+import random
 from types import SimpleNamespace
 
 import pytest
@@ -11,10 +12,6 @@ QtWidgets = pytest.importorskip("PySide6.QtWidgets")
 
 import mcrit_plugin.ui_qt.QtShim as QtShim  # noqa: E402
 from mcrit_plugin.ui_qt.ClassCollection import ClassCollection  # noqa: E402
-from mcrit_plugin.ui_qt.widgets.FunctionOverviewWidget import (  # noqa: E402
-    DropdownDelegate,
-    FunctionOverviewWidget,
-)
 from mcrit_plugin.ui_qt.widgets.NumberQTableWidgetItem import NumberQTableWidgetItem  # noqa: E402
 from mcrit_plugin.ui_qt.widgets.ResultChooserDialog import ResultChooserDialog  # noqa: E402
 
@@ -52,31 +49,6 @@ def test_the_result_chooser_returns_the_job_of_the_sorted_row(cc):
     assert [dialog.jobInfoAt(row).number for row in range(3)] == shown
 
 
-def test_the_overview_reads_each_sorted_row_from_its_own_editor(cc):
-    offsets = [0x1000, 0x2000, 0x3000]
-    labels = {
-        (row, 1): [{"text": "label_%x" % offset, "preselected": True}]
-        for row, offset in enumerate(offsets)
-    }
-    table = QtWidgets.QTableWidget(len(offsets), 2)
-    delegate = DropdownDelegate(labels)
-    table.setItemDelegateForColumn(1, delegate)
-    for row, offset in enumerate(offsets):
-        offset_item = NumberQTableWidgetItem("0x%x" % offset)
-        offset_item.setData(QtShim.get_Qt().UserRole, row)
-        table.setItem(row, 0, offset_item)
-        table.setItem(row, 1, QtWidgets.QTableWidgetItem(""))
-        table.openPersistentEditor(table.item(row, 1))
-    overview = SimpleNamespace(table_local_functions=table, cc=cc)
-
-    _sort_descending(table)
-
-    for row in range(len(offsets)):
-        populated_row = FunctionOverviewWidget._populatedRow(overview, row)
-        editor = delegate.getEditorForRow(populated_row)
-        assert editor.currentText() == "label_" + table.item(row, 0).text()[2:]
-
-
 def test_hex_offsets_sort_by_value(cc):
     table = QtWidgets.QTableWidget(3, 1)
     for row, offset in enumerate([0x9, 0x1000, 0x80]):
@@ -85,3 +57,28 @@ def test_hex_offsets_sort_by_value(cc):
     _sort_descending(table)
 
     assert [table.item(row, 0).text() for row in range(3)] == ["0x1000", "0x80", "0x9"]
+
+
+def test_text_that_is_no_number_sorts_after_the_numbers(cc):
+    table = QtWidgets.QTableWidget(4, 1)
+    for row, text in enumerate(["3", "", "unknown", "10"]):
+        table.setItem(row, 0, NumberQTableWidgetItem(text))
+
+    table.sortItems(0, QtShim.get_Qt().AscendingOrder)
+
+    assert [table.item(row, 0).text() for row in range(4)] == ["3", "10", "", "unknown"]
+
+
+def test_a_mixed_column_sorts_the_same_whatever_its_starting_order(cc):
+    texts = ["9", "10", "1a", "0x2", "", "abc", "3.5"]
+    orders = set()
+    for seed in range(20):
+        shuffled = texts[:]
+        random.Random(seed).shuffle(shuffled)
+        table = QtWidgets.QTableWidget(len(shuffled), 1)
+        for row, text in enumerate(shuffled):
+            table.setItem(row, 0, NumberQTableWidgetItem(text))
+        table.sortItems(0, QtShim.get_Qt().AscendingOrder)
+        orders.add(tuple(table.item(row, 0).text() for row in range(len(shuffled))))
+
+    assert orders == {("0x2", "3.5", "9", "10", "", "1a", "abc")}

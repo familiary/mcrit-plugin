@@ -119,6 +119,7 @@ _make_module("smda.common.SmdaFunction", SmdaFunction=_StubSmdaFunction)
 _make_module("smda.common.BinaryInfo", BinaryInfo=_StubBinaryInfo)
 _make_module("smda.Disassembler", Disassembler=_StubDisassembler)
 _make_module("smda.ida")
+_make_module("smda.ida.BackendInterface", BackendInterface=object)
 _make_module("smda.ida.IdaInterface", IdaInterface=_StubIdaInterface)
 _make_module("smda.intel")
 _make_module(
