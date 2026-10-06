@@ -132,6 +132,18 @@ class TestQueryFunctionEntriesById:
         assert interface.queryFunctionEntriesById([7]) == {7: entry}
         assert interface.parent.matched_function_entries == {7: entry}
 
+    def test_leaves_a_dict_the_ui_is_iterating_unchanged(self):
+        interface = _make_interface()
+        old_entry = SimpleNamespace(function_labels=[])
+        interface.parent.matched_function_entries = {1: old_entry}
+        being_iterated = interface.parent.matched_function_entries
+        interface.mcrit_client.getFunctionsByIds.return_value = {7: old_entry}
+
+        interface.queryFunctionEntriesById([7])
+
+        assert being_iterated == {1: old_entry}
+        assert interface.parent.matched_function_entries == {1: old_entry, 7: old_entry}
+
 
 class TestServerErrors:
     def test_a_rejected_upload_reports_failure_without_a_traceback(self, capsys):

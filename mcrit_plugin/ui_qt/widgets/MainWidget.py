@@ -384,6 +384,8 @@ class MainWidget(QMainWindow):
         self.parent.local_smda_report.is_library = local_library
         if self.parent.local_smda_report:
             report = self.parent.local_smda_report
+            # a second click while the request runs would upload again
+            self.uploadSmdaAction.setEnabled(False)
             self.cc.backend.run_request(
                 "MCRIT: uploading the SMDA report",
                 lambda: self.parent.mcrit_interface.uploadReport(report),
@@ -395,6 +397,7 @@ class MainWidget(QMainWindow):
             )
 
     def _afterUpload(self, _result):
+        self.uploadSmdaAction.setEnabled(True)
         # check if remote sample exists
         if self.parent.remote_sample_id is not None:
             self.getMatchResultAction.setEnabled(True)
@@ -407,6 +410,8 @@ class MainWidget(QMainWindow):
                 "No remote Sample present yet, can't request a matching or query results."
             )
             return
+        # enabled again once the chosen result is shown, so no second dialog opens meanwhile
+        self.getMatchResultAction.setEnabled(False)
         self.cc.backend.run_request(
             "MCRIT: fetching matching jobs",
             lambda: self.parent.mcrit_interface.queryJobs(sample_id=sample_id),
@@ -415,6 +420,7 @@ class MainWidget(QMainWindow):
 
     def _chooseMatchingJob(self, sample_id, jobs):
         if jobs is None:
+            self.getMatchResultAction.setEnabled(True)
             return
         # check which job the user wants to use as reference
         dialog = self.ResultChooserDialog(self, job_infos=jobs)
@@ -447,6 +453,7 @@ class MainWidget(QMainWindow):
             self._showMatchingResult(False)
 
     def _showMatchingResult(self, focus_overview):
+        self.getMatchResultAction.setEnabled(True)
         if focus_overview:
             self.setTabFocus(self.parent.function_widget.name)
             self.hideLocalWidget()

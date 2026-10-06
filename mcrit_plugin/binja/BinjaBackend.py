@@ -203,6 +203,9 @@ class BinjaBackend(Backend):
                     result = work()
                 except Exception:
                     backend.logger.log_error(f"{title} failed:\n{traceback.format_exc()}")
+                    backend._on_main_thread(
+                        lambda: backend.show_warning(f"{title} failed, see the log for details.")
+                    )
                     return
                 backend._on_main_thread(lambda: on_done(result))
 

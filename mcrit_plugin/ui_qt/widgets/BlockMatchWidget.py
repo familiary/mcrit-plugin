@@ -25,6 +25,8 @@ class BlockMatchWidget(QMainWindow):
         self.parent = parent
         self.scp = ScoreColorProvider(self.cc.backend)
         self.last_viewed_function = None
+        # counts the views asked for; only the latest one's answer is shown
+        self._request_number = 0
         self.last_viewed_block = None
         self._last_block_matches = None
         self.name = "Block Scope"
@@ -204,6 +206,8 @@ class BlockMatchWidget(QMainWindow):
         return [McritTableColumn.MAP_COLUMN_TO_HEADER_STRING[col] for col in column_types]
 
     def updateViewWithCurrentBlock(self):
+        self._request_number += 1
+        request_number = self._request_number
         function_offset = self.parent.current_function
         self.last_viewed_function = function_offset
         self.last_viewed_block = self.parent.current_block
@@ -220,20 +224,23 @@ class BlockMatchWidget(QMainWindow):
             self.parent.local_smda_report, smda_function, min_size=min_block_size
         )
 
+        def superseded():
+            return (
+                self.parent.current_function != function_offset
+                or request_number != self._request_number
+            )
+
         def request():
-            if self.parent.current_function != function_offset:
+            if superseded():
                 return None
             if not self._fetch_remote_cache():
                 return False
-            self._lookupBlockHashes(
-                [entry["hash"] for entry in pbh],
-                stop=lambda: self.parent.current_function != function_offset,
-            )
+            self._lookupBlockHashes([entry["hash"] for entry in pbh], stop=superseded)
             return True
 
         def show(remote_cache_ready):
-            # a live query answered after the cursor moved on; its results stay cached
-            if remote_cache_ready is None or self.parent.current_function != function_offset:
+            # the cursor moved on or a newer view was asked for; the results stay cached
+            if remote_cache_ready is None or superseded():
                 return
             if not remote_cache_ready:
                 # the next cursor move in this function tries again
