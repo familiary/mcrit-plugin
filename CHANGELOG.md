@@ -36,8 +36,8 @@ Ninja applies to that plugin only.
   timeout, so requests behave as before.
 - "Fetch labels for matches" asks the server for 2,000 functions first, then 50,000 at a time, best
   matches first, and shows the labels of each chunk as it arrives instead of after the last one. A
-  failed chunk stops the fetch; the functions not yet fetched are requested again by the next
-  click.
+  failed chunk stops the fetch, and the next click asks only for the functions not fetched yet; a
+  click after a complete fetch asks for all of them again.
 - The Function Overview keeps its rows in a table model and paints the label drop-downs, instead of
   creating a combo box for every row. A filter click on a synthetic result of 20,000 functions takes about
   one second instead of two minutes, and a drop-down opens when its cell is clicked.
