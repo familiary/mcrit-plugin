@@ -19,6 +19,7 @@ from PySide6.QtWidgets import QFrame, QScrollArea, QVBoxLayout, QWidget
 
 from mcrit_plugin.binja.BinjaBackend import BinjaBackend, logger
 from mcrit_plugin.binja.config import clear_stored_secrets, config
+from mcrit_plugin.binja.MatchRenderLayer import MatchRenderLayer
 from mcrit_plugin.ui_qt.McritSession import McritSession
 
 SIDEBAR_NAME = "MCRIT"
@@ -73,6 +74,7 @@ class McritSidebarWidget(SidebarWidget):
 def _forget(widget):
     # background results must not reach the destroyed Qt widgets behind this session
     widget.backend.closed = True
+    MatchRenderLayer.clear(widget.backend.bv.file.session_id)
     if widget in _SIDEBAR_WIDGETS:
         _SIDEBAR_WIDGETS.remove(widget)
 

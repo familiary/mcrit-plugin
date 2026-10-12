@@ -1,9 +1,14 @@
+import bisect
 import threading
 
 import binaryninja
-from binaryninja.enums import RenderLayerDefaultEnableState
+from binaryninja.enums import (
+    HighlightColorStyle,
+    HighlightStandardColor,
+    RenderLayerDefaultEnableState,
+)
 
-# Binary Ninja composites highlights over the view background, like its own highlighting
+# Binary Ninja composites highlights over the view or graph background, like its own highlighting
 HIGHLIGHT_ALPHA = 128
 
 
@@ -21,14 +26,15 @@ class MatchRenderLayer(binaryninja.RenderLayer):
     )
 
     _lock = threading.Lock()
-    # session id -> sorted list of (start, end, 0xRRGGBB) address ranges
+    # session id -> (sorted range starts, the (start, end, 0xRRGGBB) ranges in the same order)
     _ranges = {}
 
     @classmethod
     def set_coloring(cls, session_id, ranges):
         with cls._lock:
             if ranges:
-                cls._ranges[session_id] = sorted(ranges)
+                ranges = sorted(ranges)
+                cls._ranges[session_id] = ([start for start, _, _ in ranges], ranges)
             else:
                 cls._ranges.pop(session_id, None)
 
@@ -39,11 +45,14 @@ class MatchRenderLayer(binaryninja.RenderLayer):
     @classmethod
     def color_at(cls, session_id, address):
         with cls._lock:
-            ranges = cls._ranges.get(session_id)
-        if not ranges:
+            coloring = cls._ranges.get(session_id)
+        if coloring is None or address is None:
             return None
-        for start, end, rgb in ranges:
-            if start <= address < end:
+        starts, ranges = coloring
+        position = bisect.bisect_right(starts, address) - 1
+        if position >= 0:
+            start, end, rgb = ranges[position]
+            if address < end:
                 return rgb
         return None
 
@@ -54,17 +63,40 @@ class MatchRenderLayer(binaryninja.RenderLayer):
         if source is None:
             return lines
         rgb = self.color_at(source.view.file.session_id, source.start)
-        if rgb is None:
-            return lines
-        highlight = binaryninja.HighlightColor(
-            red=(rgb >> 16) & 0xFF,
-            green=(rgb >> 8) & 0xFF,
-            blue=rgb & 0xFF,
-            alpha=HIGHLIGHT_ALPHA,
-        )
-        for line in lines:
-            line.highlight = highlight
+        if rgb is not None:
+            highlight = _highlight(rgb)
+            for line in lines:
+                _tint(line, highlight)
         return lines
+
+    def apply_to_high_level_il_body(self, function, lines):
+        # linear view hands HLIL and Pseudo-C function bodies over without basic blocks, so each
+        # line is placed by its own address
+        session_id = function.view.file.session_id
+        highlights = {}
+        for line in lines:
+            rgb = self.color_at(session_id, line.contents.address)
+            if rgb is not None:
+                if rgb not in highlights:
+                    highlights[rgb] = _highlight(rgb)
+                _tint(line.contents, highlights[rgb])
+        return lines
+
+
+def _highlight(rgb):
+    return binaryninja.HighlightColor(
+        red=(rgb >> 16) & 0xFF, green=(rgb >> 8) & 0xFF, blue=rgb & 0xFF, alpha=HIGHLIGHT_ALPHA
+    )
+
+
+def _tint(line, highlight):
+    """Tint a line unless the analyst highlighted it."""
+    current = line.highlight
+    if (
+        current.style == HighlightColorStyle.StandardHighlightColor
+        and current.color == HighlightStandardColor.NoHighlightColor
+    ):
+        line.highlight = highlight
 
 
 _registered = False

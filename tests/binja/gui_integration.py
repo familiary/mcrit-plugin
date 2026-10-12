@@ -134,6 +134,36 @@ class IntegrationTest:
             off_ui_thread == [True], f"{what}: the remote function is fetched off the UI thread"
         )
 
+    def check_linear_tint(self):
+        """Run the render layer over real linear view lines of the tinted function: disassembly
+        goes through its blocks, HLIL and Pseudo-C bodies through their line addresses."""
+        from binaryninja.enums import HighlightColorStyle
+        from binaryninja.lineardisassembly import LinearViewCursor, LinearViewObject
+
+        from mcrit_plugin.binja.MatchRenderLayer import MatchRenderLayer
+
+        starts, _ranges = MatchRenderLayer._ranges[self.bv.file.session_id]
+        function = self.bv.get_functions_containing(starts[0])[0]
+        layer = MatchRenderLayer()
+        for name, view_object in (
+            ("disassembly", LinearViewObject.single_function_disassembly(function)),
+            ("HLIL", LinearViewObject.single_function_hlil(function)),
+            ("Pseudo-C", LinearViewObject.single_function_language_representation(function)),
+        ):
+            cursor = LinearViewCursor(view_object)
+            tinted = False
+            while not tinted:
+                lines = layer.apply_to_linear_view_object(
+                    cursor.current_object, None, None, cursor.lines
+                )
+                tinted = any(
+                    line.contents.highlight.style == HighlightColorStyle.CustomHighlightColor
+                    for line in lines
+                )
+                if not cursor.next():
+                    break
+            self.check(tinted, f"the match tint reaches the {name} linear view")
+
     def single_click(self, table, row, column):
         self.select_cell(table, row, column)
         table.clicked.emit(table.model().index(row, column))
@@ -827,6 +857,7 @@ class IntegrationTest:
                 bool(MatchRenderLayer._ranges.get(self.bv.file.session_id)),
                 "double clicking a function match tints the local function's matched blocks",
             )
+            self.check_linear_tint()
 
         def match_right_click():
             columns = self.session.config.FUNCTION_MATCHES_TABLE_COLUMNS

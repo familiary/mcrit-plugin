@@ -8,6 +8,14 @@ Ninja applies to that plugin only.
 
 ## [Unreleased]
 
+### Added
+
+- Binary Ninja: opening a matched function's graph, or a block match's function, now also tints the
+  matched basic blocks of the local function in Binary Ninja's own graph and linear views,
+  including HLIL and Pseudo-C, through the "MCRIT Matches" render layer (on by default; switch it
+  off in the view's render layer menu). Lines you highlighted yourself keep their highlight. The
+  tint stays until another graph is opened or "MCRIT\Clear Match Coloring" is run.
+
 ### Changed
 
 - Binary Ninja: uploading the report, Function Scope and Block Scope queries, and fetching a
@@ -86,13 +94,6 @@ Ninja applies to that plugin only.
 - With `use_smda_for_analysis` on, Convert no longer exports the disassembler's own analysis first
   just to compare function sets: the comparison now reads the disassembler's function list, and
   the export remains the fallback when SMDA's analysis yields no report.
-
-### Added
-
-- Binary Ninja: opening a matched function's graph, or a block match's function, now also tints the
-  matched basic blocks of the local function in Binary Ninja's own graph and linear views, through
-  the "MCRIT Matches" render layer (on by default; switch it off in the view's render layer menu).
-  The tint stays until another graph is opened or "MCRIT\Clear Match Coloring" is run.
 
 ## [2.0.0] - 2026-09-28
 
