@@ -243,3 +243,12 @@ class TestQueryRemoteFunction:
         interface.parent.local_widget.updateActivityInfo.assert_called_once_with(
             "Fetching function 9 for the graph viewer failed (request timed out)."
         )
+
+    def test_a_cfg_that_cannot_be_read_is_reported_as_a_failed_fetch(self):
+        interface, entry = self._interface(sample_infos={5: object()})
+        entry.toSmdaFunction.side_effect = KeyError("xcfg")
+
+        assert interface.queryRemoteFunction(9) is None
+        interface.parent.local_widget.updateActivityInfo.assert_called_once_with(
+            "Fetching function 9 for the graph viewer failed (unexpected KeyError: 'xcfg')."
+        )

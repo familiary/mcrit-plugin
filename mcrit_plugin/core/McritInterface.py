@@ -385,11 +385,12 @@ class McritInterface(object):
                     f"Failed to fetch sample entry {function_entry.sample_id}."
                 )
                 return None
+            # a malformed CFG raises here; the widgets then still get their None answer
+            return function_entry, function_entry.toSmdaFunction(), sample_entry
         except Exception as exc:
             # the reason stays the last activity message
             self._reportFailure(f"Fetching function {function_id} for the graph viewer", exc)
             return None
-        return function_entry, function_entry.toSmdaFunction(), sample_entry
 
     def getMatchesForPicBlockHash(self, picblockhash):
         try:
