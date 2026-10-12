@@ -29,6 +29,9 @@ class BlockMatchWidget(QMainWindow):
         self._request_number = 0
         self.last_viewed_block = None
         self._last_block_matches = None
+        # the function and block the tables show; the cursor moves on without refilling them
+        self._shown_function = None
+        self._shown_block = None
         self.name = "Block Scope"
         self.icon = self.cc.QIcon(self.parent.config.ICON_FILE_PATH + "puzzle.png")
         self.central_widget = self.cc.QWidget()
@@ -394,6 +397,7 @@ class BlockMatchWidget(QMainWindow):
                     "No Block Matches for: 0x%x" % self.parent.current_block
                 )
         self._last_block_matches = block_matches_by_offset
+        self._shown_function = self.parent.current_function
         # populate tables with data
         self.populateBlockSummaryTable(block_matches_by_offset)
         self.populateBlockMatchTable(block_matches_by_offset, self.last_viewed_block)
@@ -481,6 +485,7 @@ class BlockMatchWidget(QMainWindow):
         """
         Populate the function name table with all names for the matches we found
         """
+        self._shown_block = block_offset
         if block_offset is not None:
             self.label_block_matches.setText("Block Matches for: 0x%x" % block_offset)
         self.table_block_matches.setSortingEnabled(False)
@@ -562,8 +567,8 @@ class BlockMatchWidget(QMainWindow):
         if block_offset_b is not None and function_id_b is not None:
             block_matches = self._last_block_matches
             # the remote function arrives later; the tint is for the function and block clicked
-            function_offset_a = self.parent.current_function
-            block_a = self.parent.current_block
+            function_offset_a = self._shown_function
+            block_a = self._shown_block
             self.parent.local_widget.updateActivityInfo(
                 f"Fetching function {function_id_b} for the graph viewer..."
             )
