@@ -55,7 +55,8 @@ class IdaViewHooks(ida_kernwin.View_Hooks):
     def __init__(self, form):
         super().__init__()
         self.form = form
-        self._view_title = None
+        # titles of the views that reported a cursor move since the last refresh, oldest first
+        self._view_titles = []
         self._last_move = 0.0
         self._timer = None
 
@@ -73,7 +74,10 @@ class IdaViewHooks(ida_kernwin.View_Hooks):
 
     def _schedule_refresh(self, view):
         # coalesce rapid cursor moves like the Binary Ninja sidebar; live queries hit the MCRIT server
-        self._view_title = ida_kernwin.get_widget_title(view)
+        title = ida_kernwin.get_widget_title(view)
+        # a hex or graph view reporting next must not hide a move in the disassembly
+        if title not in self._view_titles:
+            self._view_titles.append(title)
         self._last_move = time.monotonic()
         if self._timer is None:
             self._timer = ida_kernwin.register_timer(CURSOR_SETTLE_MS, self._on_cursor_settled)
@@ -83,16 +87,20 @@ class IdaViewHooks(ida_kernwin.View_Hooks):
         if remaining > 0:
             return remaining
         self._timer = None
-        # the view may have closed meanwhile, so it is looked up again instead of kept;
-        # find_widget only finds tabbed widgets, a floating view is usually the current one
-        view = ida_kernwin.get_current_widget()
-        if view is None or ida_kernwin.get_widget_title(view) != self._view_title:
-            view = ida_kernwin.find_widget(self._view_title) if self._view_title else None
-        if view is not None:
-            try:
-                self.refresh_widget(view)
-            except Exception:
-                traceback.print_exc()
+        titles, self._view_titles = self._view_titles, []
+        current = ida_kernwin.get_current_widget()
+        for title in titles:
+            # the view may have closed meanwhile, so it is looked up again instead of kept;
+            # find_widget only finds tabbed widgets, a floating view is usually the current one
+            if current is not None and ida_kernwin.get_widget_title(current) == title:
+                view = current
+            else:
+                view = ida_kernwin.find_widget(title) if title else None
+            if view is not None:
+                try:
+                    self.refresh_widget(view)
+                except Exception:
+                    traceback.print_exc()
         return -1  # unregisters the timer
 
     def unhook(self):

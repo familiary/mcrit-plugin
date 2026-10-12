@@ -93,10 +93,10 @@ def test_reopening_after_close_builds_a_new_form(monkeypatch):
     assert plugmod.form is forms[1]
 
 
-def test_cursor_moves_are_coalesced_into_one_refresh(monkeypatch):
-    """Live queries hit the MCRIT server, so a burst of cursor events refreshes the widgets once."""
+def _view_hooks(monkeypatch, titles):
+    """IdaViewHooks over stub views with the given titles, a fake clock and a timer list."""
     timers = []
-    views = {"IDA View-A": object()}
+    views = {title: object() for title in titles}
     kernwin = types.SimpleNamespace(
         PluginForm=_PluginForm,
         is_idaq=lambda: True,
@@ -104,7 +104,7 @@ def test_cursor_moves_are_coalesced_into_one_refresh(monkeypatch):
         register_timer=lambda interval, callback: timers.append(callback) or callback,
         unregister_timer=MagicMock(),
         get_widget_title=lambda view: next(t for t, v in views.items() if v is view),
-        get_current_widget=lambda: views["IDA View-A"],
+        get_current_widget=lambda: views[titles[0]],
         find_widget=views.get,
     )
     monkeypatch.setitem(
@@ -119,7 +119,29 @@ def test_cursor_moves_are_coalesced_into_one_refresh(monkeypatch):
     monkeypatch.setattr(module.time, "monotonic", lambda: now[0])
     widget = MagicMock()
     hooks = module.IdaViewHooks(types.SimpleNamespace(hook_subscribed_widgets=[widget]))
-    view = views["IDA View-A"]
+    return types.SimpleNamespace(
+        module=module,
+        hooks=hooks,
+        widget=widget,
+        views=views,
+        timers=timers,
+        now=now,
+        kernwin=kernwin,
+    )
+
+
+def test_cursor_moves_are_coalesced_into_one_refresh(monkeypatch):
+    """Live queries hit the MCRIT server, so a burst of cursor events refreshes the widgets once."""
+    setup = _view_hooks(monkeypatch, ["IDA View-A"])
+    module, hooks, widget, timers, now = (
+        setup.module,
+        setup.hooks,
+        setup.widget,
+        setup.timers,
+        setup.now,
+    )
+    kernwin = setup.kernwin
+    view = setup.views["IDA View-A"]
 
     for _ in range(5):
         hooks.view_curpos(view)
@@ -135,3 +157,19 @@ def test_cursor_moves_are_coalesced_into_one_refresh(monkeypatch):
     hooks.view_curpos(view)
     hooks.unhook()
     kernwin.unregister_timer.assert_called_once()
+
+
+def test_an_event_from_another_view_keeps_the_disassembly_move(monkeypatch):
+    setup = _view_hooks(monkeypatch, ["IDA View-A", "Hex View-1"])
+    disassembly, hex_view = setup.views["IDA View-A"], setup.views["Hex View-1"]
+
+    setup.hooks.view_loc_changed(disassembly, None, None)
+    setup.hooks.view_curpos(hex_view)  # a synced hex view, or a click there
+    setup.hooks.view_curpos(disassembly)
+    setup.now[0] += 0.2
+    assert setup.timers[0]() == -1
+
+    assert [call.args[0] for call in setup.widget.hook_refresh.call_args_list] == [
+        disassembly,
+        hex_view,
+    ]
