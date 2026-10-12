@@ -528,8 +528,10 @@ def _exercise_overview_widget(form, qt_application):
     widget.b_fetch_labels.click()
     _wait_until(
         qt_application,
+        # the automatic fetch may have cached labels already; wait for this fetch to end too
         lambda: (
-            table.model().rowCount() > 0
+            widget.b_fetch_labels.isEnabled()
+            and table.model().rowCount() > 0
             and any(
                 entry.function_labels for entry in (form.matched_function_entries or {}).values()
             )
