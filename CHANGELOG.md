@@ -30,8 +30,8 @@ Ninja applies to that plugin only.
   own analysis tasks. The plugin's log messages go to the log of the file they concern.
 - "Fetch labels for matches" asks the server for 2,000 functions first, then 50,000 at a time, best
   matches first, and shows the labels of each chunk as it arrives instead of after the last one. A
-  failed chunk stops the fetch; the functions not yet fetched are requested again by the next
-  click.
+  failed chunk stops the fetch, and the next click asks only for the functions not fetched yet; a
+  click after a complete fetch asks for all of them again.
 
 ## [2.0.0] - 2026-09-28
 

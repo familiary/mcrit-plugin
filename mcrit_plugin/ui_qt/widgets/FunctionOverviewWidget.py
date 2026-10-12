@@ -212,6 +212,8 @@ class FunctionOverviewWidget(QMainWindow):
         print("[|] loading FunctionOverviewWidget")
         self.last_selected_fields = {}  # offset -> selected label string
         self._label_requested_ids = set()
+        # a fetch stopped by a failed chunk; the next click then asks only for the rest
+        self._label_fetch_stopped = False
         self._label_fetch_generation = 0
         self._label_last_render = 0.0
         self._score_range_job_id = None
@@ -330,7 +332,7 @@ class FunctionOverviewWidget(QMainWindow):
                 best_scores.get(function_id, 0), function_match.matched_score
             )
         print("Number of matched remote functions: ", len(best_scores))
-        if force:
+        if force and not self._label_fetch_stopped:
             self._label_requested_ids = set()
         # with_label_only answers nothing for unlabeled functions, so the cache alone cannot tell
         # a pending id from one already known to be unlabeled
@@ -345,6 +347,7 @@ class FunctionOverviewWidget(QMainWindow):
         for start in range(LABEL_FIRST_CHUNK_SIZE, len(pending_ids), LABEL_CHUNK_SIZE):
             chunks.append(pending_ids[start : start + LABEL_CHUNK_SIZE])
         self._label_fetch_generation += 1
+        self._label_last_render = 0.0
         self.b_fetch_labels.setEnabled(False)
         self._fetchLabelChunk(self._label_fetch_generation, chunks, 0, len(pending_ids), 0)
 
@@ -354,22 +357,34 @@ class FunctionOverviewWidget(QMainWindow):
         )
 
         def done(fetched):
+            # a newer fetch took over; this chunk's request was sent anyway, as none can be cancelled
             if generation != self._label_fetch_generation:
                 return
-            last = index + 1 == len(chunks)
             if fetched is None:
+                self._label_fetch_stopped = True
+                self.parent.local_widget.updateActivityInfo(
+                    "Fetching labels stopped after %d of %d matched functions; "
+                    "fetch again for the rest." % (requested, total)
+                )
                 last = True
             else:
                 self._label_requested_ids.update(chunks[index])
+                last = index + 1 == len(chunks)
+                if last:
+                    self._label_fetch_stopped = False
+                    self.parent.local_widget.updateActivityInfo(
+                        "Fetched labels for %d matched functions." % total
+                    )
+                else:
+                    # the server works on the next chunk while this one renders
+                    self._fetchLabelChunk(
+                        generation, chunks, index + 1, total, requested + len(chunks[index])
+                    )
             if last or time.monotonic() - self._label_last_render >= LABEL_RENDER_INTERVAL:
                 self._label_last_render = time.monotonic()
                 self._showFetchedLabels()
             if last:
                 self.b_fetch_labels.setEnabled(True)
-            else:
-                self._fetchLabelChunk(
-                    generation, chunks, index + 1, total, requested + len(chunks[index])
-                )
 
         self.cc.backend.run_request(
             "MCRIT: fetching labels for %d of %d matched functions" % (len(chunks[index]), total),
