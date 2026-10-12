@@ -372,3 +372,14 @@ def test_the_next_chunk_is_requested_before_this_one_renders(monkeypatch, overvi
     on_done(work())
 
     assert pending_at_render == [1]
+
+
+def test_only_the_current_threshold_keeps_its_aggregates(overview):
+    widget, _backend, _session = overview
+    report = SimpleNamespace(function_matches=[_match(1, 10, 80), _match(2, 20, 95)])
+
+    for threshold in range(50, 101):
+        for filtered in (False, True):
+            widget._aggregateMatches(report, threshold, filtered, {})
+
+    assert set(widget._aggregates) == {(100, False), (100, True)}

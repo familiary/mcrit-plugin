@@ -2,12 +2,14 @@
 row, sorting moves rows without moving what they hold, and the label drop-down is painted."""
 
 import os
+import sys
 import time
 
 import pytest
 
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 QtWidgets = pytest.importorskip("PySide6.QtWidgets")
+from PySide6 import QtCore, QtGui, QtTest  # noqa: E402
 
 import mcrit_plugin.core.McritTableColumn as McritTableColumn  # noqa: E402
 import mcrit_plugin.ui_qt.QtShim as QtShim  # noqa: E402
@@ -153,3 +155,54 @@ def test_thousands_of_rows_fill_without_a_widget_per_row(app):
     assert view.model().rowCount() == 20000
     assert view.findChildren(QtWidgets.QComboBox) == []
     assert elapsed < 2
+
+
+def test_the_label_column_sorts_by_score_then_label(app):
+    view = OverviewTableView()
+    _fill(view, [_info(0x1000), _info(0x2000), _info(0x3000), _info(0x4000)])
+    for row, text in zip(range(4), ["100|b", "95|a", "-|-", "100|a"]):
+        view.table_model.rows[row].label_entries = [(100, "a"), (100, "b"), (95, "a")]
+        view.table_model.rows[row].selected_text = text
+
+    view.sortByColumn(LABEL_COLUMN, Qt.AscendingOrder)
+
+    assert [_cell(view, row, LABEL_COLUMN) for row in range(4)] == ["-|-", "95|a", "100|a", "100|b"]
+
+
+def test_a_click_whose_row_went_away_opens_no_editor(app):
+    view = OverviewTableView()
+    _fill(view, [_info(0x1000), _info(0x2000)])
+    view.resize(500, 160)
+    view.show()
+    index = view.model().index(1, LABEL_COLUMN)
+    release = QtGui.QMouseEvent(
+        QtCore.QEvent.MouseButtonRelease,
+        QtCore.QPointF(view.visualRect(index).center()),
+        QtCore.QPointF(view.visualRect(index).center()),
+        Qt.LeftButton,
+        Qt.LeftButton,
+        Qt.NoModifier,
+    )
+
+    edited = []
+    # the view also calls edit(index, trigger, event) itself; the click's timer passes the index only
+    view.edit = lambda cell, *args: (not args and edited.append(cell.row())) or False
+
+    view.label_delegate.editorEvent(release, view.model(), None, index)
+    _fill(view, [_info(0x3000)])  # a new result arrives before the click's timer fires
+    app.processEvents()
+
+    assert edited == []
+
+
+def test_the_edit_key_opens_the_label_drop_down(app):
+    view = OverviewTableView()
+    _fill(view, [_info(0x1000)])
+    view.resize(500, 160)
+    view.show()
+    view.setCurrentIndex(view.model().index(0, LABEL_COLUMN))
+
+    # Qt's edit key is Return on macOS and F2 elsewhere
+    QtTest.QTest.keyClick(view, Qt.Key_Return if sys.platform == "darwin" else Qt.Key_F2)
+
+    assert len(view.findChildren(QtWidgets.QComboBox)) == 1

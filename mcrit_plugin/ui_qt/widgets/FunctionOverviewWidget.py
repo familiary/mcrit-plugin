@@ -471,9 +471,9 @@ class FunctionOverviewWidget(QMainWindow):
         matches at or above the threshold, and with a label if filtered.
 
         Returns the aggregates by function id, the number of matches and the functions they come
-        from, and the number of functions with any match. Results are kept per threshold and
-        filter until the result or the labels change, since clicking through the filters asks for
-        the same ones again.
+        from, and the number of functions with any match. Results are kept per filter for the
+        current threshold until the result or the labels change, since clicking through the
+        filters asks for the same ones again.
         """
         grouped = self._groupMatches(match_report)
         key = (threshold_value, filtered)
@@ -513,6 +513,10 @@ class FunctionOverviewWidget(QMainWindow):
             matches_beyond_filters,
             set(aggregated_matches),
         )
+        # each threshold's aggregates hold every function's sets; stepping the spin box through
+        # them all would keep hundreds of MB for a large result
+        if any(cached_threshold != threshold_value for cached_threshold, _ in self._aggregates):
+            self._aggregates = {}
         self._aggregates[key] = (labeled_entries,) + result
         return result + (len(grouped),)
 
