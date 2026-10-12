@@ -35,6 +35,10 @@ Ninja applies to that plugin only.
   matches first, and shows the labels of each chunk as it arrives instead of after the last one. A
   failed chunk stops the fetch, and the next click asks only for the functions not fetched yet; a
   click after a complete fetch asks for all of them again.
+- Opening the graph of a function or block match fetches the remote function off the UI thread on
+  Binary Ninja, and takes its sample from the sample list already downloaded instead of asking the
+  server again. For a 3,955-instruction match against mcrit.malpedia.io, Binary Ninja froze for
+  about 3.5 s; the click now returns at once and the graph opens after about 2.1 s.
 - The Function Overview keeps its rows in a table model and paints the label drop-downs, instead of
   creating a combo box for every row. A filter click on a synthetic result of 20,000 functions takes about
   one second instead of two minutes, and a drop-down opens when its cell is clicked.
