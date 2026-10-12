@@ -41,9 +41,17 @@ class NumberQTableWidgetItem(QTableWidgetItem):
         @type other: I{NumberQTableWidgetItem}
         @return: (boolean) the numeric comparison of the items.
         """
-        return _numeric(self.text()) < _numeric(other.text())
+        # an exception raised here escapes into Qt's sort, which crashes PySide6 6.11
+        return _sort_key(self.text()) < _sort_key(other.text())
+
+
+def _sort_key(text):
+    """Numbers by value, then text; one key keeps the order consistent for mixed columns."""
+    try:
+        return (0, _numeric(text), "")
+    except ValueError:
+        return (1, 0, text)
 
 
 def _numeric(text):
-    # an exception raised here escapes into Qt's sort, which crashes PySide6 6.11
     return int(text, 16) if text.startswith("0x") else float(text)
