@@ -109,6 +109,12 @@ def build_row(source_row, info, column_types, label_entries, selected_text):
     )
 
 
+def _label_sort_key(row):
+    """A label cell, "score|label" or the opt-out "-|-", sorts by score, then label."""
+    score, _, label = row.selected_text.partition("|")
+    return (int(score) if score.isdigit() else -1, label)
+
+
 class OverviewTableModel(QAbstractTableModel):
     def __init__(self, backend=None, parent=None):
         super().__init__(parent)
@@ -136,9 +142,7 @@ class OverviewTableModel(QAbstractTableModel):
     def _sortRows(self, column, order):
         if column < len(self.headers):
             if column == self.label_column:
-                self.rows.sort(
-                    key=lambda row: row.selected_text, reverse=order == Qt.DescendingOrder
-                )
+                self.rows.sort(key=_label_sort_key, reverse=order == Qt.DescendingOrder)
             else:
                 self.rows.sort(
                     key=lambda row: row.sort_keys[column], reverse=order == Qt.DescendingOrder
@@ -274,9 +278,15 @@ class LabelDelegate(QStyledItemDelegate):
             and event.button() == Qt.LeftButton
             and self._isDropdown(index)
         ):
-            # editing from inside the event would replace the cell the view is still handling
-            QTimer.singleShot(0, lambda: self.view.edit(index))
+            # editing from inside the event would replace the cell the view is still handling;
+            # a reset or sort before the timer fires moves or removes the cell
+            cell = QtCore.QPersistentModelIndex(index)
+            QTimer.singleShot(0, lambda: self._editCell(cell))
         return False
+
+    def _editCell(self, cell):
+        if cell.isValid():
+            self.view.edit(cell.model().index(cell.row(), cell.column()))
 
     def createEditor(self, parent, option, index):
         if not self._isDropdown(index):
@@ -310,7 +320,8 @@ class OverviewTableView(QTableView):
         self.setSelectionMode(QtWidgets.QAbstractItemView.SingleSelection)
         # sizing a column to its contents asks for every cell otherwise, up to 1000 rows deep
         self.horizontalHeader().setResizeContentsPrecision(50)
-        self.setEditTriggers(QtWidgets.QAbstractItemView.NoEditTriggers)
+        # only the label drop-downs are editable; the edit key (F2, Return on macOS) opens one
+        self.setEditTriggers(QtWidgets.QAbstractItemView.EditKeyPressed)
         self.setSortingEnabled(True)
         self.setContextMenuPolicy(Qt.CustomContextMenu)
         self.label_delegate = LabelDelegate(self, self)
