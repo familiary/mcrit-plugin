@@ -15,7 +15,7 @@ from binaryninja.enums import (
     ThemeColor,
 )
 
-from mcrit_plugin.binja.MatchRenderLayer import MatchRenderLayer
+from mcrit_plugin.binja.MatchRenderLayer import HIGHLIGHT_ALPHA, MatchRenderLayer
 from mcrit_plugin.core.Backend import Backend
 from mcrit_plugin.core.ScoreColorProvider import ThemeRole
 
@@ -33,8 +33,6 @@ THEME_HIGHLIGHT_ROLES = {
 }
 # the standard highlight colors are meant as tints; at full strength they overpower any theme
 TINT_STRENGTH = 0.4
-# Binary Ninja composites node highlights over the graph background, like its own highlighting
-GRAPH_HIGHLIGHT_ALPHA = 128
 
 
 class BinjaBackend(Backend):
@@ -277,7 +275,6 @@ class BinjaBackend(Backend):
             context.refreshCurrentViewContents()
 
     def show_local_match_coloring(self, smda_function, coloring):
-        self.clear_local_match_coloring()
         ranges = []
         for block in smda_function.getBlocks():
             if block.offset in coloring:
@@ -345,7 +342,7 @@ class BinjaBackend(Backend):
                     red=(rgb >> 16) & 0xFF,
                     green=(rgb >> 8) & 0xFF,
                     blue=rgb & 0xFF,
-                    alpha=GRAPH_HIGHLIGHT_ALPHA,
+                    alpha=HIGHLIGHT_ALPHA,
                 )
             graph.append(node)
             nodes[block.offset] = node
