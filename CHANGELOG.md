@@ -25,6 +25,9 @@ Ninja applies to that plugin only.
 - The Function Overview renders large results about ten times faster: it sizes its rows once
   instead of row by row, and a new result or filter click renders the table once instead of two or
   three times.
+- Binary Ninja: MCRIT requests show in the status bar as background tasks named after what they
+  do, such as "MCRIT: fetching labels for 151306 matched functions", like Binary Ninja's own
+  analysis tasks. The plugin's log messages go to the log of the file they concern.
 - Requests to the MCRIT server reuse their connection instead of opening a new one each time, and
   Block Scope looks up a function's block hashes eight at a time. Against a remote server, the
   block lookups for a function with 166 distinct block hashes took 6 seconds instead of 166.

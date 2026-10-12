@@ -89,9 +89,9 @@ class Backend(ABC):
         """
         on_done(work())
 
-    def run_request(self, work, on_done):
+    def run_request(self, title, work, on_done):
         """Run work(), requests to the MCRIT server, off the UI thread where the disassembler
-        allows it, then on_done(result) on the UI thread.
+        allows it, then on_done(result) on the UI thread; title names it where progress is shown.
 
         work must not touch Qt widgets directly. The default runs synchronously.
         """

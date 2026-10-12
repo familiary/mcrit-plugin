@@ -21,7 +21,7 @@ class _DeferredBackend:
     def __init__(self):
         self.pending = []
 
-    def run_request(self, work, on_done):
+    def run_request(self, title, work, on_done):
         self.pending.append(lambda: on_done(work()))
 
 

@@ -20,7 +20,7 @@ class Backend:
     def __init__(self):
         self.pending = []
 
-    def run_request(self, work, on_done):
+    def run_request(self, title, work, on_done):
         self.pending.append((work, on_done))
 
     def theme_color(self, role, default):

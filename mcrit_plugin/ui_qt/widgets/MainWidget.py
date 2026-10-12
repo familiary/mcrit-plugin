@@ -367,7 +367,9 @@ class MainWidget(QMainWindow):
             # a second click while the request runs would upload again
             self.uploadSmdaAction.setEnabled(False)
             self.cc.backend.run_request(
-                lambda: self.parent.mcrit_interface.uploadReport(report), self._afterUpload
+                "MCRIT: uploading the SMDA report",
+                lambda: self.parent.mcrit_interface.uploadReport(report),
+                self._afterUpload,
             )
         else:
             self.parent.local_widget.updateActivityInfo(
@@ -391,6 +393,7 @@ class MainWidget(QMainWindow):
         # enabled again once the chosen result is shown, so no second dialog opens meanwhile
         self.getMatchResultAction.setEnabled(False)
         self.cc.backend.run_request(
+            "MCRIT: fetching matching jobs",
             lambda: self.parent.mcrit_interface.queryJobs(sample_id=sample_id),
             lambda jobs: self._chooseMatchingJob(sample_id, jobs),
         )
@@ -407,6 +410,7 @@ class MainWidget(QMainWindow):
         # if user wants to request a new matching, schedule it via client
         if dialog_result["is_requesting_matching_job"]:
             self.cc.backend.run_request(
+                "MCRIT: requesting a matching job",
                 lambda: self.parent.mcrit_interface.requestMatchingJob(
                     sample_id, force_update=True
                 ),
@@ -421,6 +425,7 @@ class MainWidget(QMainWindow):
                 self._showMatchingResult(True)
             else:
                 self.cc.backend.run_request(
+                    "MCRIT: downloading the matching result",
                     lambda: self.parent.mcrit_interface.getMatchingJobById(selected_job_id),
                     lambda _result: self._showMatchingResult(True),
                 )
