@@ -16,6 +16,10 @@ Ninja applies to that plugin only.
   shown. Results already cached show at once. Upload and Get Match Result are disabled while their
   request runs, and a failed request shows a warning. IDA still runs these requests on its main
   thread.
+- The bundled MCRIT client has the interface of MCRIT 1.12.0's client: `sample_group_only` only
+  on the cross compare, the raising error modes, a default connect timeout, the job selectors of
+  `getQueueData`, `getQueueCount` and the unique-block parameters. The plugin sets its own
+  timeout, so requests behave as before.
 - Binary Ninja: "Fetch labels for matches" also runs off the UI thread; on a result with 150,000
   matched functions it froze Binary Ninja for about a minute.
 - The Function Overview renders large results about ten times faster: it sizes its rows once
