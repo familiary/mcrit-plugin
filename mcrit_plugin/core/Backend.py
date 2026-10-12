@@ -9,6 +9,8 @@ class Backend(ABC):
     """
 
     name = ""
+    # set when the plugin's form or sidebar closes; background work stops early once it is
+    closed = False
     # identifies the producing plugin in uploaded SMDA reports and the UI, e.g. "MCRIT4IDA"
     plugin_name = ""
 

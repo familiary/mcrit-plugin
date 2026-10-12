@@ -231,6 +231,8 @@ class BlockMatchWidget(QMainWindow):
             return (
                 self.parent.current_function != function_offset
                 or request_number != self._request_number
+                # the lookups run on a thread pool the interpreter waits for when IDA quits
+                or self.cc.backend.closed
             )
 
         def request():

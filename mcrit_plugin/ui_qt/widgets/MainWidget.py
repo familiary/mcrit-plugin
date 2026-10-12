@@ -266,7 +266,8 @@ class MainWidget(QMainWindow):
         if local_smda_report is None:
             self._applyConvertedReport(None)
             return
-        # IDA exports on its main thread, so the request must not be part of the export
+        # IDA reads the database for the export behind a wait box on its main thread, so the
+        # request must not be part of the export
         self._building = True
 
         def done(_result):
