@@ -234,3 +234,12 @@ class TestQueryRemoteFunction:
         interface.parent.local_widget.updateActivityInfo.assert_called_with(
             "Failed to fetch function entry 9."
         )
+
+    def test_a_raising_request_keeps_its_reason(self):
+        interface, _entry = self._interface()
+        interface.mcrit_client.getFunctionById.side_effect = requests.exceptions.ReadTimeout()
+
+        assert interface.queryRemoteFunction(9) is None
+        interface.parent.local_widget.updateActivityInfo.assert_called_once_with(
+            "Fetching function 9 for the graph viewer failed (request timed out)."
+        )

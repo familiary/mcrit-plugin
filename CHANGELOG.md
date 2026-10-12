@@ -38,7 +38,10 @@ Ninja applies to that plugin only.
 - Opening the graph of a function or block match fetches the remote function off the UI thread on
   Binary Ninja, and takes its sample from the sample list already downloaded instead of asking the
   server again. For a 3,955-instruction match against mcrit.malpedia.io, Binary Ninja froze for
-  about 3.5 s; the click now returns at once and the graph opens after about 2.1 s.
+  about 3.5 s; the click now returns at once and the graph opens after about 2.1 s. On IDA the
+  click still waits for the remote function, but no longer for its sample. A second double click
+  on a match whose graph is still being fetched is ignored, and a failed fetch keeps its reason in
+  the activity line.
 
 ## [2.0.0] - 2026-09-28
 

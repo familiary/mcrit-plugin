@@ -29,6 +29,7 @@ class BlockMatchWidget(QMainWindow):
         self._request_number = 0
         self.last_viewed_block = None
         self._last_block_matches = None
+        self._graph_fetches = set()
         self.name = "Block Scope"
         self.icon = self.cc.QIcon(self.parent.config.ICON_FILE_PATH + "puzzle.png")
         self.central_widget = self.cc.QWidget()
@@ -559,13 +560,19 @@ class BlockMatchWidget(QMainWindow):
             elif column_type == McritTableColumn.FUNCTION_ID:
                 function_id_b = int(self.table_block_matches.item(mi.row(), index).text())
         # print("double clicked row for function_id", function_id_b)
-        if block_offset_b is not None and function_id_b is not None:
+        if (
+            block_offset_b is not None
+            and function_id_b is not None
+            and function_id_b not in self._graph_fetches
+        ):
+            self._graph_fetches.add(function_id_b)
             block_matches = self._last_block_matches
             self.parent.local_widget.updateActivityInfo(
                 f"Fetching function {function_id_b} for the graph viewer..."
             )
 
             def show(remote):
+                self._graph_fetches.discard(function_id_b)
                 if remote is None:
                     return
                 function_entry_b, smda_function_b, sample_entry_b = remote
@@ -579,6 +586,9 @@ class BlockMatchWidget(QMainWindow):
                 coloring[block_offset_b] = current_color
                 self.cc.backend.show_function_graph(
                     self, sample_entry_b, function_entry_b, smda_function_b, coloring
+                )
+                self.parent.local_widget.updateActivityInfo(
+                    f"Opened the graph of function {function_id_b}."
                 )
 
             self.cc.backend.run_request(
