@@ -463,7 +463,8 @@ class FunctionOverviewWidget(QMainWindow):
                 selected = [match for match in matches if match[0] >= threshold_value]
                 if selected:
                     cached[function_id] = _matchSets(offset, selected)
-            self._label_free_aggregates[threshold_value] = cached
+            # like _aggregates, only the current threshold is kept
+            self._label_free_aggregates = {threshold_value: cached}
         return cached
 
     def _aggregateMatches(self, match_report, threshold_value, filtered, labeled_entries):

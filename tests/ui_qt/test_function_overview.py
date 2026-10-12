@@ -383,3 +383,4 @@ def test_only_the_current_threshold_keeps_its_aggregates(overview):
             widget._aggregateMatches(report, threshold, filtered, {})
 
     assert set(widget._aggregates) == {(100, False), (100, True)}
+    assert set(widget._label_free_aggregates) == {100}
