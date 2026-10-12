@@ -20,6 +20,11 @@ Ninja applies to that plugin only.
   on the cross compare, the raising error modes, a default connect timeout, the job selectors of
   `getQueueData`, `getQueueCount` and the unique-block parameters. The plugin sets its own
   timeout, so requests behave as before.
+- Binary Ninja: "Fetch labels for matches" also runs off the UI thread; on a result with 150,000
+  matched functions it froze Binary Ninja for about a minute.
+- The Function Overview renders large results about ten times faster: it sizes its rows once
+  instead of row by row, and a new result or filter click renders the table once instead of two or
+  three times.
 
 ## [2.0.0] - 2026-09-28
 
