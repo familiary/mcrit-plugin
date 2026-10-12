@@ -112,3 +112,146 @@ def test_labels_are_fetched_through_the_request_runner(overview):
     widget.fetchLabels()
 
     assert backend.pending == []
+
+
+def _chunked(monkeypatch, overview):
+    import mcrit_plugin.ui_qt.widgets.FunctionOverviewWidget as module
+
+    monkeypatch.setattr(module, "LABEL_FIRST_CHUNK_SIZE", 1)
+    monkeypatch.setattr(module, "LABEL_CHUNK_SIZE", 1)
+    widget, backend, session = overview
+    queried = []
+    session.mcrit_interface.queryFunctionEntriesById = lambda ids, with_label_only: (
+        queried.append(list(ids)) or {}
+    )
+    return widget, backend, queried, module
+
+
+def test_labels_are_fetched_in_chunks_best_match_first(monkeypatch, overview):
+    widget, backend, queried, _module = _chunked(monkeypatch, overview)
+    calls = _count_populates(widget)
+
+    widget.b_fetch_labels.click()
+    work, on_done = backend.pending.pop()
+    on_done(work())
+
+    assert queried == [[20]]
+    assert not widget.b_fetch_labels.isEnabled()
+    assert len(calls) == 1  # the first chunk is shown at once
+    work, on_done = backend.pending.pop()
+    on_done(work())
+    assert queried == [[20], [10]]
+    assert widget.b_fetch_labels.isEnabled()
+    assert backend.pending == []
+
+
+def test_chunks_between_renders_do_not_repopulate_the_table(monkeypatch, overview):
+    widget, backend, queried, _module = _chunked(monkeypatch, overview)
+    widget.b_fetch_labels.click()
+    calls = _count_populates(widget)
+    widget._label_last_render = float("inf")  # a render just happened
+
+    work, on_done = backend.pending.pop()
+    on_done(work())
+
+    assert calls == []
+    work, on_done = backend.pending.pop()
+    on_done(work())
+    assert len(calls) == 1  # the last chunk always renders
+
+
+def test_a_failed_chunk_stops_the_fetch_and_the_next_click_asks_for_the_rest(monkeypatch, overview):
+    widget, backend, queried, _module = _chunked(monkeypatch, overview)
+    answers = iter([{}, None])
+    widget.parent.mcrit_interface.queryFunctionEntriesById = lambda ids, with_label_only: (
+        queried.append(list(ids)) or next(answers)
+    )
+
+    widget.b_fetch_labels.click()
+    work, on_done = backend.pending.pop()
+    on_done(work())
+    work, on_done = backend.pending.pop()
+    on_done(work())
+
+    assert queried == [[20], [10]]
+    assert backend.pending == []
+    assert widget._label_requested_ids == {20}
+    assert widget.b_fetch_labels.isEnabled()
+    widget.parent.mcrit_interface.queryFunctionEntriesById = lambda ids, with_label_only: (
+        queried.append(list(ids)) or {}
+    )
+
+    widget.b_fetch_labels.click()
+    work, on_done = backend.pending.pop()
+    on_done(work())
+
+    assert queried[2:] == [[10]]
+    assert widget._label_requested_ids == {10, 20}
+
+
+def test_a_click_after_a_complete_fetch_asks_for_everything_again(monkeypatch, overview):
+    widget, backend, queried, _module = _chunked(monkeypatch, overview)
+    widget.b_fetch_labels.click()
+    while backend.pending:
+        work, on_done = backend.pending.pop()
+        on_done(work())
+
+    widget.b_fetch_labels.click()
+    while backend.pending:
+        work, on_done = backend.pending.pop()
+        on_done(work())
+
+    assert queried == [[20], [10], [20], [10]]
+
+
+def test_the_activity_line_says_how_the_fetch_ended(monkeypatch, overview):
+    widget, backend, _queried, _module = _chunked(monkeypatch, overview)
+    activity = []
+    widget.parent.local_widget.updateActivityInfo = activity.append
+    widget.b_fetch_labels.click()
+    while backend.pending:
+        work, on_done = backend.pending.pop()
+        on_done(work())
+
+    assert activity[-1] == "Fetched labels for 2 matched functions."
+
+
+def test_a_new_fetch_shows_its_first_chunk_at_once(monkeypatch, overview):
+    widget, backend, _queried, _module = _chunked(monkeypatch, overview)
+    widget._label_last_render = float("inf")  # as if the table had just rendered
+    calls = _count_populates(widget)
+
+    widget.b_fetch_labels.click()
+    work, on_done = backend.pending.pop()
+    on_done(work())
+
+    assert len(calls) == 1
+
+
+def test_later_chunks_are_larger_than_the_first(monkeypatch, overview):
+    widget, backend, queried, module = _chunked(monkeypatch, overview)
+    monkeypatch.setattr(module, "LABEL_CHUNK_SIZE", 5)
+    widget.parent.getMatchingReport().function_matches.extend(
+        _match(10 + n, 100 + n, 10 + n) for n in range(6)
+    )
+
+    widget.b_fetch_labels.click()
+    while backend.pending:
+        work, on_done = backend.pending.pop()
+        on_done(work())
+
+    assert [len(ids) for ids in queried] == [1, 5, 2]
+    assert queried[0] == [20]
+
+
+def test_the_next_chunk_is_requested_before_this_one_renders(monkeypatch, overview):
+    widget, backend, _queried, _module = _chunked(monkeypatch, overview)
+    pending_at_render = []
+    original = widget._showFetchedLabels
+    widget._showFetchedLabels = lambda: (pending_at_render.append(len(backend.pending)), original())
+
+    widget.b_fetch_labels.click()
+    work, on_done = backend.pending.pop()
+    on_done(work())
+
+    assert pending_at_render == [1]
