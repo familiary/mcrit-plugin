@@ -280,9 +280,14 @@ class MainWidget(QMainWindow):
         return local_smda_report
 
     def _applyConvertedReport(self, local_smda_report):
-        if self.parent.local_smda_report is None:
+        first_conversion = self.parent.local_smda_report is None
+        if first_conversion:
             self.parent.local_smda_report = local_smda_report
-            # the lists are needed once matches show up, so convert does not wait for them
+        if first_conversion and (
+            self.parent.local_smda_report is None or self.parent.remote_sample_entry is not None
+        ):
+            # the lists are needed once matches show up, so convert does not wait for them; for
+            # an unknown sample the family chooser below downloads them instead
             self.cc.backend.run_request(
                 "MCRIT: downloading family and sample lists",
                 self.parent.getRemoteSampleInformation,
@@ -309,12 +314,20 @@ class MainWidget(QMainWindow):
                 self._building = True
                 self.cc.backend.run_request(
                     "MCRIT: downloading family and sample lists",
-                    self.parent.getRemoteSampleInformation,
+                    self._downloadListsForChooser,
                     lambda _result: self._askSmdaInfo(),
                 )
                 return
             self._enableMatchWidgets()
         self.parent.local_widget.update()
+
+    def _downloadListsForChooser(self):
+        try:
+            return self.parent.getRemoteSampleInformation()
+        except Exception:
+            # a raising request never reaches _askSmdaInfo; the next Convert may try again
+            self._building = False
+            raise
 
     def _askSmdaInfo(self):
         dialog = self.SmdaInfoDialog(self)
