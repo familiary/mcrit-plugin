@@ -1,8 +1,8 @@
 # AGENTS.md — MCRIT plugins for IDA Pro and Binary Ninja
 
-This repository ships two plugins for MCRIT (MinHash-based Code Relationship & Investigation Toolkit), built from one shared code base: one for **IDA Pro** (9.0+) and one for **Binary Ninja** (6.0+). Both provide a GUI for interactive code-similarity analysis against an **existing** MCRIT server: querying functions/blocks, syncing labels, and visualizing matches. They are *clients* of the MCRIT core service (see [mcrit](https://github.com/danielplohmann/mcrit)), not the server itself — the server runs elsewhere and is contacted over its REST API.
+This repository ships two plugins for MCRIT (MinHash-based Code Relationship & Investigation Toolkit), built from one shared code base: one for **IDA Pro** (9.0+) and one for **Binary Ninja** (6.0+). Both provide a GUI for interactive code-similarity analysis against an **existing** MCRIT server: querying functions/blocks, syncing labels, and visualizing matches. They are *clients* of the MCRIT core service (see [mcrit](https://github.com/familiary/mcrit)), not the server itself — the server runs elsewhere and is contacted over its REST API.
 
-For the MCRIT methodology (PicHash/MinHash, LSH banding) see the [mcrit `AGENTS.md`](https://github.com/danielplohmann/mcrit/blob/main/AGENTS.md) and the [README](README.md).
+For the MCRIT methodology (PicHash/MinHash, LSH banding) see the [mcrit `AGENTS.md`](https://github.com/familiary/mcrit/blob/main/AGENTS.md) and the [README](README.md).
 
 ## Repository layout
 
@@ -82,7 +82,7 @@ These mirror the MCRIT core vocabulary (the plugin is a client of them):
 
 ## Related repositories (reference only)
 
-- [mcrit](https://github.com/danielplohmann/mcrit) — core server, worker, Python client, CLI (this plugin is a client of it).
+- [mcrit](https://github.com/familiary/mcrit) — core server, worker, Python client, CLI (this plugin is a client of it).
 - [mcrit-web](https://github.com/fkie-cad/mcritweb) — Flask browser front-end + user management.
-- [docker-mcrit](https://github.com/danielplohmann/docker-mcrit) — containerized full-stack deployment.
-- [mcrit-data](https://github.com/danielplohmann/mcrit-data) — ready-to-use reference data.
+- [docker-mcrit](https://github.com/familiary/docker-mcrit) — containerized full-stack deployment.
+- [mcrit-data](https://github.com/familiary/mcrit-data) — ready-to-use reference data.
