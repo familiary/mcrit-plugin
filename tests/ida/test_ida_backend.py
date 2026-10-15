@@ -11,37 +11,38 @@ from unittest.mock import MagicMock
 import pytest
 
 
-class _Timers:
-    """ida_kernwin's register_timer/unregister_timer; fire() runs the callback like IDA's loop does."""
+class _Waker:
+    """The queued Qt signal that hands results to the main thread; fire() runs the delivery the
+    way Qt's event loop does once a worker has woken it."""
 
     def __init__(self):
         self.callback = None
-        self.unregistered = False
+        self.wakes = 0
 
-    def register(self, interval, callback):
+    def create(self, callback):
         self.callback = callback
         return self
 
-    def unregister(self, timer):
-        self.unregistered = True
-        self.callback = None
-        return True
+    def wake(self):
+        self.wakes += 1
 
     def fire(self):
-        if self.callback() == -1:
-            self.callback = None
+        self.callback()
+
+
+def _no_ida_timers(interval, callback):
+    raise AssertionError("IDA hangs in register_timer called inside another timer's callback")
 
 
 @pytest.fixture
 def backend(monkeypatch):
-    timers = _Timers()
+    waker = _Waker()
     kernwin = types.SimpleNamespace(
         show_wait_box=MagicMock(),
         hide_wait_box=MagicMock(),
         warning=MagicMock(),
-        register_timer=timers.register,
-        unregister_timer=timers.unregister,
-        timers=timers,
+        register_timer=_no_ida_timers,
+        waker=waker,
     )
     for name in ("ida_bytes", "ida_expr", "ida_funcs", "ida_idaapi", "ida_nalt", "ida_undo", "idc"):
         monkeypatch.setitem(sys.modules, name, types.ModuleType(name))
@@ -49,6 +50,7 @@ def backend(monkeypatch):
     monkeypatch.setitem(sys.modules, "ida_hexrays", None)
     monkeypatch.delitem(sys.modules, "mcrit_plugin.ida.IdaBackend", raising=False)
     module = importlib.import_module("mcrit_plugin.ida.IdaBackend")
+    monkeypatch.setattr(module, "_main_thread_waker", waker.create)
     return module.IdaBackend(), kernwin
 
 
@@ -71,7 +73,7 @@ def test_run_background_runs_work_on_a_worker_like_a_request(backend):
 
     instance.run_background("Export", work, on_done)
     _finish_work(instance)
-    kernwin.timers.fire()
+    kernwin.waker.fire()
 
     assert worker[0] is not threading.current_thread()
     on_done.assert_called_once_with("report")
@@ -86,7 +88,7 @@ def test_run_background_reports_a_failure_instead_of_raising(backend):
 
     instance.run_background("Export", work, on_done)
     _finish_work(instance)
-    kernwin.timers.fire()
+    kernwin.waker.fire()
 
     kernwin.warning.assert_called_once_with("Export failed, see the Output window for details.")
     on_done.assert_not_called()
@@ -167,7 +169,7 @@ def test_ask_save_file_passes_the_prompt_unchanged(backend):
     kernwin.ask_file.assert_called_once_with(1, "sample.smda", "Save as")
 
 
-def test_run_request_runs_work_on_a_worker_and_on_done_on_the_timer(backend):
+def test_run_request_runs_work_on_a_worker_and_on_done_on_the_main_thread(backend):
     instance, kernwin = backend
     on_done = MagicMock()
     worker = []
@@ -180,11 +182,60 @@ def test_run_request_runs_work_on_a_worker_and_on_done_on_the_timer(backend):
     _finish_work(instance)
     on_done.assert_not_called()
 
-    kernwin.timers.fire()
+    kernwin.waker.fire()
 
     assert worker[0] is not threading.current_thread()
     on_done.assert_called_once_with("answer")
-    assert kernwin.timers.callback is None, "the timer stops once nothing is pending"
+    assert kernwin.waker.wakes == 1, "each result wakes the main thread once"
+
+
+def test_a_request_started_inside_an_ida_timer_callback_does_not_register_a_timer(backend):
+    """The cursor-settle timer starts live queries; IDA 9.4 hung in register_timer there."""
+    instance, kernwin = backend
+    on_done = MagicMock()
+
+    def settle_timer_callback():
+        instance.run_request("Live query", lambda: "matches", on_done)
+        return -1
+
+    assert settle_timer_callback() == -1  # the fixture's register_timer would raise
+    _finish_work(instance)
+    kernwin.waker.fire()
+
+    on_done.assert_called_once_with("matches")
+
+
+def test_the_waker_runs_its_callback_on_the_thread_that_created_it(monkeypatch):
+    QtWidgets = pytest.importorskip("PySide6.QtWidgets")
+    for name in (
+        "ida_bytes",
+        "ida_expr",
+        "ida_funcs",
+        "ida_idaapi",
+        "ida_kernwin",
+        "ida_nalt",
+        "ida_undo",
+        "idc",
+    ):
+        monkeypatch.setitem(sys.modules, name, types.ModuleType(name))
+    monkeypatch.setitem(sys.modules, "ida_hexrays", None)
+    monkeypatch.delitem(sys.modules, "mcrit_plugin.ida.IdaBackend", raising=False)
+    module = importlib.import_module("mcrit_plugin.ida.IdaBackend")
+    # the Qt tests share one QApplication; a QCoreApplication here would make theirs abort
+    application = QtWidgets.QApplication.instance() or QtWidgets.QApplication([])
+    ran_on = []
+
+    waker = module._main_thread_waker(lambda: ran_on.append(threading.current_thread()))
+    worker = threading.Thread(target=waker.wake)
+    worker.start()
+    worker.join(5)
+    assert ran_on == [], "the callback waits for the main thread's event loop"
+
+    deadline = time.monotonic() + 5
+    while not ran_on and time.monotonic() < deadline:
+        application.processEvents()
+        time.sleep(0.01)
+    assert ran_on == [threading.main_thread()]
 
 
 def test_run_request_reports_a_failure_by_its_title(backend):
@@ -196,7 +247,7 @@ def test_run_request_reports_a_failure_by_its_title(backend):
 
     instance.run_request("MCRIT: querying matches", work, on_done)
     _finish_work(instance)
-    kernwin.timers.fire()
+    kernwin.waker.fire()
 
     kernwin.warning.assert_called_once_with(
         "MCRIT: querying matches failed, see the Output window for details."
@@ -204,7 +255,7 @@ def test_run_request_reports_a_failure_by_its_title(backend):
     on_done.assert_not_called()
 
 
-def test_a_request_started_by_on_done_keeps_the_timer_running(backend):
+def test_a_request_started_by_on_done_is_delivered(backend):
     instance, kernwin = backend
     second = MagicMock()
 
@@ -213,15 +264,13 @@ def test_a_request_started_by_on_done_keeps_the_timer_running(backend):
 
     instance.run_request("first", lambda: "one", first)
     _finish_work(instance)
-    kernwin.timers.fire()
+    kernwin.waker.fire()
     # the second worker may answer before the first delivery pass ends; then it is delivered in it
     if not second.called:
-        assert kernwin.timers.callback is not None
         _finish_work(instance)
-        kernwin.timers.fire()
+        kernwin.waker.fire()
 
     second.assert_called_once_with("two")
-    assert kernwin.timers.callback is None
 
 
 def test_results_wait_while_on_done_shows_a_dialog(backend):
@@ -229,20 +278,20 @@ def test_results_wait_while_on_done_shows_a_dialog(backend):
     order = []
 
     def first(result):
-        # a modal dialog's event loop fires the timer again
-        kernwin.timers.callback()
+        # a modal dialog's event loop delivers the next wake inside on_done
+        kernwin.waker.fire()
         order.append("first")
 
     instance.run_request("first", lambda: 1, first)
     _finish_work(instance)
     instance.run_request("nested", lambda: 2, lambda result: order.append("nested"))
     _finish_work(instance)
-    kernwin.timers.fire()
+    kernwin.waker.fire()
 
     assert order == ["first", "nested"]
 
 
-def test_close_drops_pending_results_and_stops_the_timer(backend):
+def test_close_drops_pending_results(backend):
     instance, kernwin = backend
     on_done = MagicMock()
 
@@ -250,8 +299,8 @@ def test_close_drops_pending_results_and_stops_the_timer(backend):
     workers = list(instance._workers)
     _finish_work(instance)
     instance.close()
+    kernwin.waker.fire()
 
-    assert kernwin.timers.unregistered
     on_done.assert_not_called()
     for worker in workers:
         worker.join(5)
@@ -279,7 +328,7 @@ def test_an_on_done_that_raises_does_not_stop_later_results(backend):
     instance.run_request("broken", lambda: 1, broken)
     instance.run_request("later", lambda: 2, later)
     _finish_work(instance)
-    kernwin.timers.fire()
+    kernwin.waker.fire()
 
     later.assert_called_once_with(2)
 

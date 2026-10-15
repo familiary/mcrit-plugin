@@ -2,7 +2,7 @@
   "IDAMetadataDescriptorVersion": 1,
   "plugin": {
     "name": "mcrit-ida",
-    "version": "2.1.0",
+    "version": "2.1.1",
     "entryPoint": "ida_mcrit.py",
     "idaVersions": ">=9.0",
     "description": "Integration with MCRIT server for code similarity analysis.",

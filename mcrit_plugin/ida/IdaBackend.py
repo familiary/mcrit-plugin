@@ -25,7 +25,6 @@ except ImportError:
 
 # bounds the threads fast cursor moves start; Block Scope parallelises its own lookups
 REQUEST_WORKERS = 4
-DELIVERY_INTERVAL_MS = 20
 
 
 def _address_or_none(ea):
@@ -64,6 +63,29 @@ def _on_main_thread(method):
         return result
 
     return wrapper
+
+
+def _main_thread_waker(callback):
+    """An object whose wake() any thread may call to have callback run on the main thread.
+
+    It is a queued Qt signal rather than an IDA timer: IDA 9.4 never returns from register_timer
+    called inside another timer's callback, and the cursor-settle timer starts live queries."""
+    import mcrit_plugin.ui_qt.QtShim as QtShim
+
+    QtCore = QtShim.get_QtCore()
+
+    class _Waker(QtCore.QObject):
+        woken = QtShim.get_Signal()()
+
+        def wake(self):
+            self.woken.emit()
+
+    waker = _Waker()
+    queued = (
+        getattr(QtCore.Qt, "QueuedConnection", None) or QtCore.Qt.ConnectionType.QueuedConnection
+    )
+    waker.woken.connect(callback, queued)
+    return waker
 
 
 def _smda_ida_interface():
@@ -134,7 +156,7 @@ class IdaBackend(Backend):
         self._workers = []
         self._deliveries = queue.SimpleQueue()
         self._pending = 0
-        self._timer = None
+        self._waker = None
         self._delivering = False
 
     @_on_main_thread
@@ -280,9 +302,13 @@ class IdaBackend(Backend):
 
     def run_request(self, title, work, on_done):
         """IDA's API is main-thread only: work, the requests, runs on a worker thread and must not
-        call it; a main-thread timer hands each result to on_done."""
+        call it; a queued Qt signal hands each result to on_done on the main thread. Called on the
+        main thread, also from inside an IDA timer callback."""
         if self.closed:
             return
+        if self._waker is None:
+            # created on the main thread, so its queued signal is delivered there
+            self._waker = _main_thread_waker(self._deliver)
         if not self._workers:
             # daemon threads: the interpreter joins a ThreadPoolExecutor's threads at exit, so
             # quitting IDA during a slow request would wait for it
@@ -294,8 +320,6 @@ class IdaBackend(Backend):
                 self._workers.append(worker)
         self._pending += 1
         self._requests.put((title, work, on_done))
-        if self._timer is None:
-            self._timer = ida_kernwin.register_timer(DELIVERY_INTERVAL_MS, self._deliver)
 
     def _work(self):
         while True:
@@ -310,12 +334,13 @@ class IdaBackend(Backend):
             except Exception:
                 traceback.print_exc()
                 self._deliveries.put((None, title))
+            self._waker.wake()
 
     def _deliver(self):
-        # a dialog opened by on_done runs a nested event loop in which this timer fires again;
-        # the other results wait until it closes
+        # a dialog opened by on_done runs a nested event loop in which further wakes arrive; their
+        # results wait until it closes and this loop picks them up
         if self._delivering:
-            return DELIVERY_INTERVAL_MS
+            return
         self._delivering = True
         try:
             while not self.closed:
@@ -333,10 +358,6 @@ class IdaBackend(Backend):
                     traceback.print_exc()
         finally:
             self._delivering = False
-        if self.closed or not self._pending:
-            self._timer = None
-            return -1  # unregisters the timer
-        return DELIVERY_INTERVAL_MS
 
     def close(self):
         """Drop the results still to come; called when the MCRIT form closes."""
@@ -344,9 +365,6 @@ class IdaBackend(Backend):
         for _worker in self._workers:
             self._requests.put(None)
         self._workers = []
-        if self._timer is not None and not self._delivering:
-            ida_kernwin.unregister_timer(self._timer)
-            self._timer = None
 
     def run_on_ui_thread(self, func):
         result = []

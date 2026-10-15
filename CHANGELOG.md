@@ -27,6 +27,16 @@ Ninja applies to that plugin only.
 - The toolbar and tab icons take the theme's text color, so they are visible on dark themes;
   disabled toolbar icons show dimmed instead of almost black.
 
+## [2.1.1] - 2026-10-15
+
+### Fixed
+
+- IDA: with Live Function Queries on, moving to another function, e.g. by double clicking it in
+  a list, could freeze IDA for good. The live query started inside IDA's cursor-settle timer and
+  registered a second IDA timer there, a call IDA 9.4 never returns from. Results of MCRIT
+  requests now reach IDA's main thread through a queued Qt signal instead, so no request
+  registers an IDA timer. Introduced in 2.1.0.
+
 ## [2.1.0] - 2026-10-15
 
 ### Added
@@ -326,7 +336,8 @@ Recorded as they were written in the README at the time, newest first.
 - Initial standalone release.
 - IDA 9.2 (PySide6) compatibility.
 
-[Unreleased]: https://github.com/familiary/mcrit-plugin/compare/ida-v2.1.0...HEAD
+[Unreleased]: https://github.com/familiary/mcrit-plugin/compare/ida-v2.1.1...HEAD
+[2.1.1]: https://github.com/familiary/mcrit-plugin/compare/ida-v2.1.0...ida-v2.1.1
 [2.1.0]: https://github.com/familiary/mcrit-plugin/compare/ida-v2.0.0...ida-v2.1.0
 [2.0.0]: https://github.com/familiary/mcrit-plugin/compare/v1.1.10...ida-v2.0.0
 [1.1.10]: https://github.com/familiary/mcrit-plugin/compare/v1.1.9...v1.1.10
