@@ -80,7 +80,17 @@ def test_a_new_result_populates_the_table_once(overview):
 
     assert len(calls) == 1
     assert widget.sb_minhash_threshold.value() == 80
-    assert widget.table_local_functions.rowCount() == 2
+    assert widget.table_local_functions.model().rowCount() == 2
+
+
+def test_without_labels_the_label_cells_show_a_dash(overview):
+    widget, _backend, _session = overview
+
+    widget.update()
+
+    model = widget.table_local_functions.model()
+    label_column = model.columnCount() - 1
+    assert [model.index(row, label_column).data() for row in range(model.rowCount())] == ["-", "-"]
 
 
 def test_a_filter_click_populates_the_table_once(overview):
@@ -244,6 +254,91 @@ def test_later_chunks_are_larger_than_the_first(monkeypatch, overview):
     assert queried[0] == [20]
 
 
+def _reference_aggregate(report, threshold, filtered, labeled):
+    """The aggregation as it was written before the matches were grouped and cached."""
+    aggregated = {}
+    beyond = 0
+    for match in report.function_matches:
+        if match.matched_score < threshold:
+            continue
+        if filtered and match.matched_function_id not in labeled:
+            continue
+        beyond += 1
+        info = aggregated.setdefault(
+            match.function_id,
+            {
+                "offset": match.offset,
+                "families": set(),
+                "samples": set(),
+                "functions": set(),
+                "library_matches": set(),
+                "labels": set(),
+            },
+        )
+        info["families"].add(match.matched_family_id)
+        info["samples"].add(match.matched_sample_id)
+        info["functions"].add(match.matched_function_id)
+        if match.match_is_library:
+            info["library_matches"].add(match.matched_function_id)
+        for label in getattr(labeled.get(match.matched_function_id), "function_labels", []):
+            info["labels"].add(
+                (int(match.matched_score), label.function_label, label.username, label.timestamp)
+            )
+    return aggregated, beyond
+
+
+def test_the_grouped_aggregation_matches_the_per_match_loop(overview):
+    import random
+
+    widget, _backend, _session = overview
+    rng = random.Random(7)
+    matches = [
+        SimpleNamespace(
+            function_id=rng.randrange(20),
+            offset=0,
+            matched_function_id=rng.randrange(60),
+            matched_family_id=rng.randrange(4),
+            matched_sample_id=rng.randrange(6),
+            matched_score=rng.randrange(50, 100),
+            match_is_library=rng.random() < 0.2,
+        )
+        for _ in range(500)
+    ]
+    for match in matches:
+        match.offset = 0x1000 + match.function_id
+    report = SimpleNamespace(function_matches=matches)
+    label = lambda n: SimpleNamespace(function_label="n%d" % n, username="u", timestamp="t")  # noqa: E731
+    labeled = {
+        fid: SimpleNamespace(function_labels=[label(fid), label(fid + 100)])
+        for fid in range(0, 60, 3)
+    }
+
+    for threshold in (50, 75, 99, 100):
+        for filtered in (False, True):
+            aggregated, beyond, functions, total = widget._aggregateMatches(
+                report, threshold, filtered, labeled
+            )
+            expected, expected_beyond = _reference_aggregate(report, threshold, filtered, labeled)
+            assert aggregated == expected
+            assert beyond == expected_beyond
+            assert functions == set(expected)
+            assert total == len({match.function_id for match in matches})
+
+
+def test_new_labels_are_not_served_from_the_aggregation_cache(overview):
+    widget, _backend, _session = overview
+    report = SimpleNamespace(function_matches=[_match(1, 10, 80)])
+    entry = SimpleNamespace(
+        function_labels=[SimpleNamespace(function_label="a", username="u", timestamp="t")]
+    )
+
+    without = widget._aggregateMatches(report, 0, False, {})[0]
+    with_label = widget._aggregateMatches(report, 0, False, {10: entry})[0]
+
+    assert without[1]["labels"] == set()
+    assert {label[1] for label in with_label[1]["labels"]} == {"a"}
+
+
 def test_the_next_chunk_is_requested_before_this_one_renders(monkeypatch, overview):
     widget, backend, _queried, _module = _chunked(monkeypatch, overview)
     pending_at_render = []
@@ -255,3 +350,14 @@ def test_the_next_chunk_is_requested_before_this_one_renders(monkeypatch, overvi
     on_done(work())
 
     assert pending_at_render == [1]
+
+
+def test_only_the_current_threshold_keeps_its_aggregates(overview):
+    widget, _backend, _session = overview
+    report = SimpleNamespace(function_matches=[_match(1, 10, 80), _match(2, 20, 95)])
+
+    for threshold in range(50, 101):
+        for filtered in (False, True):
+            widget._aggregateMatches(report, threshold, filtered, {})
+
+    assert set(widget._aggregates) == {(100, False), (100, True)}

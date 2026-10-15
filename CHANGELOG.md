@@ -8,6 +8,14 @@ Ninja applies to that plugin only.
 
 ## [Unreleased]
 
+### Added
+
+- Binary Ninja: opening a matched function's graph, or a block match's function, now also tints the
+  matched basic blocks of the local function in Binary Ninja's own graph and linear views,
+  including HLIL and Pseudo-C, through the "MCRIT Matches" render layer (on by default; switch it
+  off in the view's render layer menu). Lines you highlighted yourself keep their highlight. The
+  tint stays until another graph is opened or "MCRIT\Clear Match Coloring" is run.
+
 ### Changed
 
 - Binary Ninja: uploading the report, Function Scope and Block Scope queries, and fetching a
@@ -39,6 +47,13 @@ Ninja applies to that plugin only.
   Binary Ninja, and takes its sample from the sample list already downloaded instead of asking the
   server again. For a 3,955-instruction match against mcrit.malpedia.io, Binary Ninja froze for
   about 3.5 s; the click now returns at once and the graph opens after about 2.1 s.
+- The Function Overview keeps its rows in a table model and paints the label drop-downs, instead of
+  creating a combo box for every row. A filter click on a synthetic result of 20,000 functions
+  takes about one second instead of two minutes. A drop-down opens when its cell is clicked or
+  with the edit key (F2, Return on macOS), and the label column sorts by score, then label. The
+  matches of a result are grouped by function once, and each filter is aggregated once for the
+  current threshold, so with 221,000 matches over 705 functions clicking through the filters takes
+  about 0.15 s instead of 3 to 4 s.
 - Choosing a matching job asks the server for the jobs that mention the sample, instead of
   downloading every job of the server and filtering them in the plugin.
 - Convert no longer waits for the family and sample lists: they download in the background after
