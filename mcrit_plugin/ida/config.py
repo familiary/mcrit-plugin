@@ -19,4 +19,10 @@ def _get_setting(key):
         raise KeyError(key) from exc
 
 
+def set_setting(key, value):
+    ida_settings.set_plugin_setting(
+        PLUGIN_NAME, key, value if isinstance(value, bool) else str(value)
+    )
+
+
 config = McritConfig(VERSION, _get_setting)

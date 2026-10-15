@@ -6,6 +6,7 @@ code inspired by and based on IDAscope
 
 import time
 import traceback
+import weakref
 
 import ida_idaapi
 import ida_kernwin
@@ -17,10 +18,14 @@ from mcrit_plugin.ui_qt.McritSession import McritSession
 IdaBackend = None
 
 
+def _has_gui():
+    is_idaq = getattr(ida_kernwin, "is_idaq", None)
+    return callable(is_idaq) and bool(is_idaq())
+
+
 def _require_gui():
     """Fail clearly when a GUI-only plugin action is invoked through IDALib."""
-    is_idaq = getattr(ida_kernwin, "is_idaq", None)
-    if not callable(is_idaq) or not is_idaq():
+    if not _has_gui():
         raise RuntimeError("MCRIT4IDA's Qt interface requires the IDA GUI")
 
 
@@ -207,12 +212,49 @@ def show_mcrit_form():
     return form
 
 
+SETTINGS_ACTION = "mcrit4ida:settings"
+
+
+def _register_settings_action(plugmod):
+    """Edit > Plugins > MCRIT4IDA Settings..., beside the plugin's own entry."""
+    # a strong reference from IDA's action registry would keep the plugmod, and its form, alive
+    plugmod_ref = weakref.ref(plugmod)
+
+    class SettingsHandler(ida_kernwin.action_handler_t):
+        def activate(self, ctx):
+            current = plugmod_ref()
+            if current is not None:
+                current.run(0)
+                if current.form is not None:
+                    current.form.main_widget._onSettingsButtonClicked()
+            return 1
+
+        def update(self, ctx):
+            return ida_kernwin.AST_ENABLE_ALWAYS
+
+    ida_kernwin.unregister_action(SETTINGS_ACTION)
+    ida_kernwin.register_action(
+        ida_kernwin.action_desc_t(
+            SETTINGS_ACTION,
+            "MCRIT4IDA Settings...",
+            SettingsHandler(),
+            None,
+            "Set the MCRIT server, API token and other plugin settings.",
+            -1,
+        )
+    )
+    ida_kernwin.attach_action_to_menu("Edit/Plugins/", SETTINGS_ACTION, ida_kernwin.SETMENU_APP)
+
+
 class Mcrit4IdaPlugmod(ida_idaapi.plugmod_t):
     """Per-database plugin instance (PLUGIN_MULTI); owns the form it opened."""
 
     def __init__(self):
         super().__init__()
         self.form = None
+        self._settings_action = _has_gui()
+        if self._settings_action:
+            _register_settings_action(self)
 
     def run(self, arg):
         # a closed form still holds the previous session's reports, so reopening needs a new form
@@ -224,6 +266,9 @@ class Mcrit4IdaPlugmod(ida_idaapi.plugmod_t):
 
     def __del__(self):
         # called when the database closes; IDA normally closes the form first (OnClose -> release)
+        if self._settings_action:
+            ida_kernwin.detach_action_from_menu("Edit/Plugins/", SETTINGS_ACTION)
+            ida_kernwin.unregister_action(SETTINGS_ACTION)
         if self.form is not None:
             self.form.release()
             self.form = None

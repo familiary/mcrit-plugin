@@ -217,6 +217,7 @@ def _has_report(session):
 # (action name, handler(session) or None to only open the sidebar, enabled(session) or None when always available)
 _ACTIONS = [
     ("MCRIT\\Show Sidebar", None, None),
+    ("MCRIT\\Settings", lambda session: session.main_widget._onSettingsButtonClicked(), None),
     (
         "MCRIT\\Convert to SMDA Report",
         lambda session: session.main_widget._onConvertSmdaButtonClicked(),

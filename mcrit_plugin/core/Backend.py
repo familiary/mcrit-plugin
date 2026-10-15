@@ -119,6 +119,23 @@ class Backend(ABC):
     def show_warning(self, message):
         """Modal warning."""
 
+    # shown under the plugin's own connection form, e.g. where the remaining settings live
+    settings_hint = ""
+    # what rebuilds the session, so a new server can take over
+    reopen_hint = "reopen MCRIT"
+
+    def open_settings(self, config):
+        """Open the disassembler's own settings UI on this plugin and return its QWidget, or True
+        when it opened but cannot be watched for closing.
+
+        None means there is none, and the plugin shows its own connection form instead.
+        """
+        return None
+
+    def save_settings(self, values):
+        """Store the connection form's values (setting key -> value) in the settings store."""
+        raise NotImplementedError
+
     def theme_color(self, role, default):
         """RGB tuple for a ScoreColorProvider.ThemeRole; None keeps the widget's own color and is
         valid only for TEXT_ON_TINT.
