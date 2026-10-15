@@ -755,11 +755,20 @@ def _navigate_to(form, offset, qt_application):
         _check(ida_kernwin.jumpto(offset), "jumpto moved the IDA cursor to 0x%x" % offset)
         via = "view hook and settle timer"
     else:
-        # autonomous mode (-A) has no view to follow; drive the same refresh the view hook would
+        # autonomous mode (-A) has no view to follow; drive the same refresh the view hook would,
+        # from inside an IDA timer callback like the settle timer, where run_request once hung
         form.current_function = offset
-        form.function_match_widget.hook_refresh(None, use_current_function=True)
-        form.block_match_widget.hook_refresh(None, use_current_block=True)
-        via = "direct refresh, no disassembly view"
+        fired = []
+
+        def refresh_from_timer():
+            fired.append(True)
+            form.function_match_widget.hook_refresh(None, use_current_function=True)
+            form.block_match_widget.hook_refresh(None, use_current_block=True)
+            return -1  # unregisters the timer
+
+        ida_kernwin.register_timer(1, refresh_from_timer)
+        _wait_until(qt_application, lambda: fired, "an IDA timer callback started the refresh")
+        via = "refresh from an IDA timer callback, no disassembly view"
     _process_events(qt_application, rounds=2)
     expected = "0x%x" % offset
     block_widget = form.block_match_widget
