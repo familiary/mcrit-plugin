@@ -8,6 +8,25 @@ Ninja applies to that plugin only.
 
 ## [Unreleased]
 
+### Added
+
+- A Settings button on the toolbar, a "Change..." link on the remote server line, and a Settings
+  entry in the menus (IDA: Edit → Plugins → MCRIT4IDA Settings...; Binary Ninja: Plugins → MCRIT →
+  Settings). In IDA they open the Plugin Settings Manager on mcrit-ida when `ida-settings-editor`
+  is installed; in Binary Ninja, Settings on the MCRIT group. Without the settings editor, IDA shows
+  the plugin's own form for the server, API token, username and timeout; it saves only the fields
+  you changed, greys out the ones `config_override.json` forces, and connects again at once.
+  Closing the settings window or tab opened this way also picks up a changed token, username or
+  timeout without reopening the plugin. A changed server is picked up the same way until the plugin
+  holds results from the current one; after that, it says so, and reopening the plugin switches.
+- A failed connection check while the server is still the default `http://127.0.0.1:8000/` points
+  at the Settings button.
+
+### Fixed
+
+- The toolbar and tab icons take the theme's text color, so they are visible on dark themes;
+  disabled toolbar icons show dimmed instead of almost black.
+
 ## [2.1.1] - 2026-10-15
 
 ### Fixed

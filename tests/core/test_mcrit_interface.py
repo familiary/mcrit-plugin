@@ -42,6 +42,7 @@ def _make_interface(timeout=10):
     inst._mcrit_server = "http://127.0.0.1:8000"
     inst._cache_lock = threading.Lock()
     inst._remote_info_lock = threading.Lock()
+    inst._check_id = 0
     inst.mcrit_client = MagicMock()
     return inst
 
@@ -287,3 +288,210 @@ class TestQueryRemoteFunction:
         interface.parent.local_widget.updateActivityInfo.assert_called_once_with(
             "Fetching function 9 for the graph viewer failed (unexpected KeyError: 'xcfg')."
         )
+
+
+class TestReloadSettings:
+    @staticmethod
+    def _interface(server="http://127.0.0.1:8000/"):
+        config = SimpleNamespace(
+            MCRIT_SERVER=server,
+            MCRIT_REQUEST_TIMEOUT=10,
+            MCRITWEB_API_TOKEN="",
+            MCRITWEB_USERNAME="",
+        )
+        parent = SimpleNamespace(
+            config=config,
+            local_widget=MagicMock(),
+            remote_sample_id=None,
+            remote_sample_entry=None,
+            matching_report=None,
+            matched_function_entries=None,
+            function_matches={},
+            blockhash_matches={},
+            sample_infos=None,
+            family_infos=None,
+        )
+        interface = McritInterface(parent, backend=None)
+        interface.checkConnection = MagicMock()
+        return interface, config
+
+    def test_unchanged_settings_keep_the_client(self):
+        interface, _config = self._interface()
+        client = interface.mcrit_client
+
+        interface.reloadSettings()
+
+        assert interface.mcrit_client is client
+        interface.checkConnection.assert_not_called()
+
+    def test_a_changed_server_and_token_build_a_new_client_and_check_it(self):
+        interface, config = self._interface()
+        old_client = interface.mcrit_client
+        config.MCRIT_SERVER = "https://mcrit.example.com/"
+        config.MCRITWEB_API_TOKEN = "token"
+
+        interface.reloadSettings()
+
+        assert interface.mcrit_client is not old_client
+        assert interface.mcrit_client.mcrit_server == "https://mcrit.example.com/"
+        assert interface.mcrit_client.headers["apitoken"] == "token"
+        assert interface.server == "https://mcrit.example.com/"
+        interface.checkConnection.assert_called_once_with(async_=True)
+
+    def test_recheck_checks_unchanged_settings_again_on_the_same_client(self):
+        interface, _config = self._interface()
+        client = interface.mcrit_client
+
+        interface.reloadSettings(recheck=True)
+
+        assert interface.mcrit_client is client
+        interface.checkConnection.assert_called_once_with(async_=True)
+
+    @pytest.mark.parametrize(
+        "field, value",
+        [
+            ("remote_sample_id", 23),
+            ("remote_sample_entry", object()),
+            ("matching_report", object()),
+            ("matched_function_entries", {7: object()}),
+            ("function_matches", {0x401000: {}}),
+            ("blockhash_matches", {1: []}),
+            ("sample_infos", {}),
+            ("family_infos", {}),
+        ],
+    )
+    def test_a_new_server_waits_for_a_reopen_while_results_of_the_old_one_are_held(
+        self, field, value
+    ):
+        interface, config = self._interface()
+        client = interface.mcrit_client
+        setattr(interface.parent, field, value)
+        config.MCRIT_SERVER = "https://mcrit.example.com/"
+
+        assert interface.reloadSettings() == "https://mcrit.example.com/"
+
+        assert interface.mcrit_client is client
+        assert interface.server == "http://127.0.0.1:8000/"
+        interface.checkConnection.assert_not_called()
+
+    def test_the_rest_of_the_settings_apply_while_the_new_server_waits(self):
+        interface, config = self._interface()
+        interface.parent.remote_sample_id = 23
+        config.MCRIT_SERVER = "https://mcrit.example.com/"
+        config.MCRITWEB_API_TOKEN = "token"
+
+        assert interface.reloadSettings() == "https://mcrit.example.com/"
+        assert interface.mcrit_client.headers["apitoken"] == "token"
+        assert interface.server == "http://127.0.0.1:8000/"
+
+        config.MCRITWEB_API_TOKEN = "token2"
+        interface.reloadSettings()
+
+        assert interface.mcrit_client.headers["apitoken"] == "token2"
+        assert interface.checkConnection.call_count == 2
+
+
+def test_a_check_that_answers_after_the_settings_changed_is_dropped():
+    config = SimpleNamespace(
+        MCRIT_SERVER="http://old:8000/",
+        MCRIT_REQUEST_TIMEOUT=10,
+        MCRITWEB_API_TOKEN="",
+        MCRITWEB_USERNAME="",
+        SERVER_IS_DEFAULT=False,
+    )
+    local_widget = MagicMock()
+    interface = McritInterface(SimpleNamespace(config=config, local_widget=local_widget), None)
+    old_client = interface.mcrit_client
+    started = threading.Event()
+    release = threading.Event()
+
+    class _Backend:
+        @staticmethod
+        def run_on_ui_thread(func):
+            func()
+
+    interface.backend = _Backend()
+
+    def slow_version():
+        started.set()
+        release.wait(5)
+        return "1.0.0"
+
+    old_client.getVersion = slow_version
+    threads_before = set(threading.enumerate())
+    interface.checkConnection(async_=True)
+    assert started.wait(5)
+    interface._buildClient(("http://new:8000/", 10, "", ""))
+    release.set()
+    for thread in set(threading.enumerate()) - threads_before:
+        thread.join(5)
+
+    assert not any(
+        "successful" in call.args[0] for call in local_widget.updateActivityInfo.call_args_list
+    )
+
+
+def test_an_older_check_on_the_same_client_does_not_overwrite_a_newer_one():
+    interface = _make_interface()
+    interface.config.SERVER_IS_DEFAULT = False
+    pending = []
+    interface.backend = SimpleNamespace(run_on_ui_thread=lambda func: pending.append(func))
+    interface.mcrit_client.getVersion.side_effect = [
+        requests.exceptions.Timeout("slow"),
+        "1.15.0",
+    ]
+    threads_before = set(threading.enumerate())
+
+    interface.checkConnection(async_=True)
+    for thread in set(threading.enumerate()) - threads_before:
+        thread.join(5)
+    interface.checkConnection(async_=True)
+    for thread in set(threading.enumerate()) - threads_before:
+        thread.join(5)
+    for apply in reversed(pending):
+        apply()
+
+    messages = [
+        call.args[0] for call in interface.parent.local_widget.updateActivityInfo.call_args_list
+    ]
+    assert messages[-1] == "Connection check successful!"
+    assert not any("timed out" in message for message in messages)
+
+
+@pytest.mark.parametrize(
+    "method, args, request_name, field",
+    [
+        ("querySampleSha256", ("abc",), "getSampleBySha256", "remote_sample_entry"),
+        ("queryAllFamilyEntries", (), "getFamilies", "family_infos"),
+        ("queryAllSampleEntries", (), "getSamples", "sample_infos"),
+    ],
+)
+def test_an_answer_from_a_replaced_client_is_not_stored(method, args, request_name, field):
+    interface = _make_interface()
+    interface.parent.remote_sample_entry = None
+    interface.parent.family_infos = None
+    interface.parent.sample_infos = None
+    old_client = interface.mcrit_client
+
+    def answer_after_the_swap(*_args, **_kwargs):
+        interface.mcrit_client = MagicMock()
+        return {1: "from the old server"}
+
+    getattr(old_client, request_name).side_effect = answer_after_the_swap
+
+    getattr(interface, method)(*args)
+
+    assert getattr(interface.parent, field) is None
+
+
+@pytest.mark.parametrize("server_is_default, hinted", [(True, True), (False, False)])
+def test_a_failed_check_points_at_settings_only_while_no_server_is_set(server_is_default, hinted):
+    interface = _make_interface()
+    interface.config.SERVER_IS_DEFAULT = server_is_default
+    interface.mcrit_client.getVersion.side_effect = requests.exceptions.ConnectionError("refused")
+
+    interface.checkConnection()
+
+    message = interface.parent.local_widget.updateActivityInfo.call_args_list[-1].args[0]
+    assert message.startswith("Connection check failed (server unreachable).")
+    assert ("Settings button" in message) == hinted
