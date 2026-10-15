@@ -556,3 +556,13 @@ class TestRawFunctionLookups:
         _recording(client, answer)
 
         assert client.getFunctionById(5) is answer
+
+
+def test_the_session_pools_enough_connections_for_concurrent_requests():
+    from mcrit_plugin.core.minimcrit.client.McritClient import SESSION_POOL_SIZE, McritClient
+
+    client = McritClient("https://mcrit.example/api/")
+
+    adapter = client._session.get_adapter("https://mcrit.example/api/status")
+    assert adapter._pool_maxsize == SESSION_POOL_SIZE
+    assert SESSION_POOL_SIZE > 10

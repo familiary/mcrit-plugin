@@ -4,11 +4,14 @@ MCRIT4IDA - integration with MCRIT server
 code inspired by and based on IDAscope
 """
 
+import time
+import traceback
+
 import ida_idaapi
 import ida_kernwin
 from ida_kernwin import PluginForm
 
-from mcrit_plugin.ida.config import MCRIT4IDA_PLUGIN_ONLY, config
+from mcrit_plugin.ida.config import config
 from mcrit_plugin.ui_qt.McritSession import McritSession
 
 IdaBackend = None
@@ -40,6 +43,7 @@ def _load_dependencies():
 
 MCRIT4IDA = None
 NAME = "MCRIT4IDA v%s" % config.VERSION
+CURSOR_SETTLE_MS = 150
 
 
 class IdaViewHooks(ida_kernwin.View_Hooks):
@@ -51,18 +55,59 @@ class IdaViewHooks(ida_kernwin.View_Hooks):
     def __init__(self, form):
         super().__init__()
         self.form = form
+        # titles of the views that reported a cursor move since the last refresh, oldest first
+        self._view_titles = []
+        self._last_move = 0.0
+        self._timer = None
 
     def view_curpos(self, view):
-        self.refresh_widget(view)
+        self._schedule_refresh(view)
 
     def view_dblclick(self, view, event):
-        self.refresh_widget(view)
+        self._schedule_refresh(view)
 
     def view_click(self, view, event):
-        self.refresh_widget(view)
+        self._schedule_refresh(view)
 
     def view_loc_changed(self, view, now, was):
-        self.refresh_widget(view)
+        self._schedule_refresh(view)
+
+    def _schedule_refresh(self, view):
+        # coalesce rapid cursor moves like the Binary Ninja sidebar; live queries hit the MCRIT server
+        title = ida_kernwin.get_widget_title(view)
+        # a hex or graph view reporting next must not hide a move in the disassembly
+        if title not in self._view_titles:
+            self._view_titles.append(title)
+        self._last_move = time.monotonic()
+        if self._timer is None:
+            self._timer = ida_kernwin.register_timer(CURSOR_SETTLE_MS, self._on_cursor_settled)
+
+    def _on_cursor_settled(self):
+        remaining = CURSOR_SETTLE_MS - int((time.monotonic() - self._last_move) * 1000)
+        if remaining > 0:
+            return remaining
+        self._timer = None
+        titles, self._view_titles = self._view_titles, []
+        current = ida_kernwin.get_current_widget()
+        for title in titles:
+            # the view may have closed meanwhile, so it is looked up again instead of kept;
+            # find_widget only finds tabbed widgets, a floating view is usually the current one
+            if current is not None and ida_kernwin.get_widget_title(current) == title:
+                view = current
+            else:
+                view = ida_kernwin.find_widget(title) if title else None
+            if view is not None:
+                try:
+                    self.refresh_widget(view)
+                except Exception:
+                    traceback.print_exc()
+        return -1  # unregisters the timer
+
+    def unhook(self):
+        if self._timer is not None:
+            ida_kernwin.unregister_timer(self._timer)
+            self._timer = None
+        return super().unhook()
 
     def refresh_widget(self, view):
         if not self.form:
@@ -116,6 +161,7 @@ class Mcrit4IdaForm(PluginForm, McritSession):
     def release(self):
         """Unhook and drop module references; safe to call more than once."""
         self.released = True
+        self.cc.backend.close()
         if self.view_hook is not None:
             self.view_hook.unhook()
             self.view_hook = None
@@ -212,10 +258,6 @@ def main():
         except Exception:
             pass
         MCRIT4IDA = None
-
-    if MCRIT4IDA_PLUGIN_ONLY:
-        print("MCRIT4IDA: configured as plugin-only mode, ignoring main function of script.")
-        return
 
     MCRIT4IDA = show_mcrit_form()
 

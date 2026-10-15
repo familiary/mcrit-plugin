@@ -68,6 +68,9 @@ class HeadlessBackend(Backend):
         binary_info.code_areas = loader.getCodeAreas()
         return binary_info
 
+    def get_function_offsets(self):
+        return {function.offset for function in self._disassembly().getFunctions()}
+
     def get_function_symbols(self):
         symbols = {
             function.offset: function.function_name

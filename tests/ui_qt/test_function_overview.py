@@ -339,6 +339,28 @@ def test_new_labels_are_not_served_from_the_aggregation_cache(overview):
     assert {label[1] for label in with_label[1]["labels"]} == {"a"}
 
 
+def test_a_label_update_reuses_the_label_free_aggregation(overview, monkeypatch):
+    import mcrit_plugin.ui_qt.widgets.FunctionOverviewWidget as overview_module
+
+    widget, _backend, _session = overview
+    report = SimpleNamespace(function_matches=[_match(1, 10, 80), _match(2, 11, 90)])
+    widget._aggregateMatches(report, 0, False, {})
+    calls = []
+    original = overview_module._matchSets
+    monkeypatch.setattr(
+        overview_module, "_matchSets", lambda *args: calls.append(args) or original(*args)
+    )
+    entry = SimpleNamespace(
+        function_labels=[SimpleNamespace(function_label="a", username="u", timestamp="t")]
+    )
+
+    aggregated = widget._aggregateMatches(report, 0, False, {10: entry})[0]
+
+    assert calls == [], "only the labels are recomputed when labels arrive"
+    assert {label[1] for label in aggregated[1]["labels"]} == {"a"}
+    assert aggregated[2]["labels"] == set()
+
+
 def test_the_next_chunk_is_requested_before_this_one_renders(monkeypatch, overview):
     widget, backend, _queried, _module = _chunked(monkeypatch, overview)
     pending_at_render = []
@@ -361,3 +383,4 @@ def test_only_the_current_threshold_keeps_its_aggregates(overview):
             widget._aggregateMatches(report, threshold, filtered, {})
 
     assert set(widget._aggregates) == {(100, False), (100, True)}
+    assert set(widget._label_free_aggregates) == {100}

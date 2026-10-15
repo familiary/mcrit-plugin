@@ -185,7 +185,6 @@ def _exercise_live_mcrit():
     _assert(context.remote_sample_entry is not None, "MCRIT SHA256 lookup returned no sample")
     interface.queryAllFamilyEntries()
     interface.queryAllSampleEntries()
-    interface.queryFunctionEntriesBySampleId(context.remote_sample_id)
 
     job_id = interface.requestMatchingJob(context.remote_sample_id)
     _assert(job_id, "MCRIT matching request returned no job id")

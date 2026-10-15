@@ -73,6 +73,15 @@ def _process_events(qt_application, rounds=1):
         qt_application.processEvents()
 
 
+def _wait_until(qt_application, condition, message, timeout=30):
+    """Pump Qt until condition() holds; run_request answers arrive on IDA's main thread."""
+    deadline = time.monotonic() + timeout
+    while not condition() and time.monotonic() < deadline:
+        qt_application.processEvents()
+        time.sleep(0.05)
+    _check(condition(), message)
+
+
 def _release_qt_objects(form, qt_application):
     # qexit() calls exit() without returning to Qt's event loop; deferred deletes still queued
     # then run during C++ static destruction and abort IDA (seen with macOS style animations).
@@ -381,22 +390,25 @@ def _check_input_sha256(form):
 
 def _convert(form, qt_application):
     main_widget = form.main_widget
+
+    def expected_family():
+        remote = form.remote_sample_entry
+        return remote.family if remote is not None else "mcrit-plugin-ci"
+
+    # the family chooser opens once the family and sample lists arrive in the background
     with _smda_info_adapter(main_widget):
         main_widget.parseSmdaAction.trigger()
-    _process_events(qt_application, rounds=2)
+        _wait_until(
+            qt_application,
+            lambda: (
+                form.local_smda_report is not None
+                and form.local_smda_report.family == expected_family()
+            ),
+            "the report carries the family from the dialog, or from the known remote sample",
+        )
     report = form.local_smda_report
-    _check(report is not None, "Convert action produced an SMDA report")
     _check(len(list(report.getFunctions())) > 0, "SMDA report contains functions")
     _check(report.smda_version.startswith("MCRIT4IDA"), "report records the IDA producer")
-    _check(
-        report.family
-        == (
-            form.remote_sample_entry.family
-            if form.remote_sample_entry is not None
-            else "mcrit-plugin-ci"
-        ),
-        "the report carries the family from the dialog, or from the known remote sample",
-    )
     _write_report_artifact(report)
     _check(
         main_widget.uploadSmdaAction.isEnabled()
@@ -427,15 +439,20 @@ def _upload_and_match(form, report, qt_application):
     main_widget = form.main_widget
 
     main_widget.uploadSmdaAction.trigger()
-    _check(form.remote_sample_id is not None, "Upload SMDA action returned a sample id")
+    _wait_until(
+        qt_application,
+        lambda: form.remote_sample_id is not None,
+        "Upload SMDA action returned a sample id",
+    )
     _wait_for_functions(client, form.remote_sample_id, qt_application)
-    _check(
-        main_widget.getMatchResultAction.isEnabled(), "Fetch Matching Result enabled after upload"
+    _wait_until(
+        qt_application,
+        main_widget.getMatchResultAction.isEnabled,
+        "Fetch Matching Result enabled after upload",
     )
     interface.querySampleSha256(report.sha256)
     interface.queryAllFamilyEntries()
     interface.queryAllSampleEntries()
-    interface.queryFunctionEntriesBySampleId(form.remote_sample_id)
     _check(form.remote_sample_entry is not None, "uploaded sample found by sha256")
 
     job_ids = []
@@ -450,9 +467,13 @@ def _upload_and_match(form, report, qt_application):
     try:
         with _result_dialog_adapter(main_widget, "request"):
             main_widget.getMatchResultAction.trigger()
+            _wait_until(
+                qt_application,
+                lambda: bool(job_ids and job_ids[-1]),
+                "Create Matching Job returned a job id",
+            )
     finally:
         client.requestMatchesForSample = original_request
-    _check(bool(job_ids and job_ids[-1]), "Create Matching Job returned a job id")
 
     result = _await_result(client, job_ids[-1], qt_application)
     _check(isinstance(result, dict), "matching job finished")
@@ -469,9 +490,14 @@ def _upload_and_match(form, report, qt_application):
 
     with _result_dialog_adapter(main_widget, "select", job_ids[-1]):
         main_widget.getMatchResultAction.trigger()
-    _check(form.matching_report is not None, "result chooser loaded the MatchingResult")
-    _check(
-        main_widget.tabs.currentWidget() is form.function_widget,
+        _wait_until(
+            qt_application,
+            lambda: form.matching_report is not None,
+            "result chooser loaded the MatchingResult",
+        )
+    _wait_until(
+        qt_application,
+        lambda: main_widget.tabs.currentWidget() is form.function_widget,
         "Function Overview shown with results",
     )
     return job_ids[-1]
@@ -500,11 +526,17 @@ def _exercise_overview_widget(form, qt_application):
     )
 
     widget.b_fetch_labels.click()
-    _process_events(qt_application, rounds=2)
-    _check(table.model().rowCount() > 0, "Fetch labels for matches populated the Function Overview")
-    _check(
-        any(entry.function_labels for entry in (form.matched_function_entries or {}).values()),
-        "Fetch labels for matches returned labels from the server",
+    _wait_until(
+        qt_application,
+        # the automatic fetch may have cached labels already; wait for this fetch to end too
+        lambda: (
+            widget.b_fetch_labels.isEnabled()
+            and table.model().rowCount() > 0
+            and any(
+                entry.function_labels for entry in (form.matched_function_entries or {}).values()
+            )
+        ),
+        "Fetch labels for matches populated the Function Overview with server labels",
     )
 
     baseline = table.model().rowCount()
@@ -668,41 +700,45 @@ def _exercise_sample_widget(form, qt_application):
         "setTabFocus reaches the Sample Match Summary tab",
     )
     _check(
-        families.rowCount() > 0,
+        families.model().rowCount() > 0,
         "Sample Match Summary lists best matches once a result is loaded",
     )
 
-    baseline = families.rowCount()
+    baseline = families.model().rowCount()
     widget.cb_filter_library.setChecked(True)
     _check(
-        families.rowCount() <= baseline,
+        families.model().rowCount() <= baseline,
         "Sample Match Summary library filter does not widen the table",
     )
     widget.cb_filter_library.setChecked(False)
     _check(
-        families.rowCount() == baseline, "Sample Match Summary library filter restores the table"
+        families.model().rowCount() == baseline,
+        "Sample Match Summary library filter restores the table",
     )
 
-    family = families.item(0, 2).text()
+    family = families.model().index(0, 2).data()
     _single_click(families, 0, 2)
     _check(widget.last_family_selected == family, "clicking a family row selects that family")
     _check(
         f'"{family}"' in widget.label_sample_matches_family.text(),
         "the sample table header names the selected family",
     )
-    _check(samples.rowCount() > 0, "the selected family lists its sample matches")
+    _check(samples.model().rowCount() > 0, "the selected family lists its sample matches")
 
-    rows = families.rowCount()
-    for column in range(families.columnCount()):
+    rows = families.model().rowCount()
+    for column in range(families.model().columnCount()):
         families.sortByColumn(column, _qt_order(form, descending=True))
         _check(
-            families.rowCount() == rows,
+            families.model().rowCount() == rows,
             f"Sample Match Summary keeps all rows sorting column {column}",
         )
 
-    before = families.rowCount()
+    before = families.model().rowCount()
     _double_click(families, 0, 2)
-    _check(families.rowCount() == before, "double clicking a family row leaves the table untouched")
+    _check(
+        families.model().rowCount() == before,
+        "double clicking a family row leaves the table untouched",
+    )
 
 
 ################################################################################
@@ -726,15 +762,17 @@ def _navigate_to(form, offset, qt_application):
         via = "direct refresh, no disassembly view"
     _process_events(qt_application, rounds=2)
     expected = "0x%x" % offset
-    block_label = form.block_match_widget.label_current_function_matches.text()
-    function_label = form.function_match_widget.label_current_function_matches.text()
-    _check(
-        expected in block_label,
-        f"Block Scope header follows the cursor to {expected} via {via} ({block_label!r})",
+    block_widget = form.block_match_widget
+    function_widget = form.function_match_widget
+    _wait_until(
+        qt_application,
+        lambda: expected in block_widget.label_current_function_matches.text(),
+        f"Block Scope header follows the cursor to {expected} via {via}",
     )
-    _check(
-        expected in function_label,
-        f"Function Scope header follows the cursor to {expected} via {via} ({function_label!r})",
+    _wait_until(
+        qt_application,
+        lambda: expected in function_widget.label_current_function_matches.text(),
+        f"Function Scope header follows the cursor to {expected} via {via}",
     )
 
 
@@ -767,7 +805,7 @@ def _exercise_navigation(form, report, qt_application):
     _navigate_to(form, target.offset, qt_application)
     _navigate_to(form, second_target.offset, qt_application)
     _check(
-        form.function_match_widget.table_function_matches.rowCount() > 0,
+        form.function_match_widget.table_function_matches.model().rowCount() > 0,
         "the second function queried successfully and lists matches",
     )
     return target, second_target
@@ -787,33 +825,44 @@ def _exercise_function_widget(form, second_target, qt_application):
     form.main_widget.setTabFocus(widget.name)
 
     widget.b_query_single.click()
-    _process_events(qt_application, rounds=2)
-    _check(matches.rowCount() > 0, "Query current function lists matches for the cursor")
+    _wait_until(
+        qt_application,
+        lambda: matches.model().rowCount() > 0,
+        "Query current function lists matches",
+    )
     _check(
         "0x%x" % second_target.offset in widget.label_current_function_matches.text(),
         "Function Scope header names the queried function",
     )
 
-    baseline = matches.rowCount()
+    baseline = matches.model().rowCount()
     widget.sb_score_threshold.setValue(100)
-    _check(matches.rowCount() <= baseline, "Function Scope min-score spinbox narrows matches")
+    _check(
+        matches.model().rowCount() <= baseline, "Function Scope min-score spinbox narrows matches"
+    )
     widget.sb_score_threshold.setValue(widget.sb_score_threshold.minimum())
-    _check(matches.rowCount() == baseline, "Function Scope min-score spinbox restores matches")
+    _check(
+        matches.model().rowCount() == baseline, "Function Scope min-score spinbox restores matches"
+    )
 
-    baseline = matches.rowCount()
+    baseline = matches.model().rowCount()
     widget.cb_filter_library.setChecked(False)
     widget.cb_filter_library.click()
     _check(
         widget.cb_filter_library.isChecked(), "Function Scope library filter checkbox toggles on"
     )
     _check(
-        matches.rowCount() <= baseline, "Function Scope library filter does not widen the matches"
+        matches.model().rowCount() <= baseline,
+        "Function Scope library filter does not widen the matches",
     )
     widget.cb_filter_library.click()
-    _check(matches.rowCount() == baseline, "Function Scope library filter restores the matches")
+    _check(
+        matches.model().rowCount() == baseline, "Function Scope library filter restores the matches"
+    )
 
     with _capture_graph_show() as graphs:
         _double_click(matches, 0, 0)
+        _wait_until(qt_application, lambda: len(graphs) >= 1, "the CFG graph opened")
     _check(len(graphs) == 1, "double clicking a function match opens the CFG graph")
     _check(bool(graphs[0][1] and graphs[0][2]), "the function graph renders text and hints")
 
@@ -821,27 +870,30 @@ def _exercise_function_widget(form, second_target, qt_application):
     sha256_column = McritTableColumn.columnTypeToIndex(McritTableColumn.SHA256, columns)
     sample_column = McritTableColumn.columnTypeToIndex(McritTableColumn.SAMPLE_ID, columns)
     _check(sha256_column is not None, "Function Scope has a SHA256 column")
-    matches.setCurrentCell(0, sha256_column)
-    sample_id = int(matches.item(0, sample_column).text())
+    _select_cell(matches, 0, sha256_column)
+    sample_id = int(matches.model().index(0, sample_column).data())
     matches.customContextMenuRequested.emit(form.cc.QtCore.QPoint(0, 0))
     _check(
         form.cc.QApplication.clipboard().text() == form.sample_infos[sample_id].sha256,
         "right clicking the SHA256 column copies the full hash to the clipboard",
     )
 
-    _check(names.rowCount() > 0, "Names from Matched Functions lists labels for the matches")
+    _check(
+        names.model().rowCount() > 0, "Names from Matched Functions lists labels for the matches"
+    )
     name_columns = form.config.FUNCTION_NAMES_TABLE_COLUMNS
     id_column = McritTableColumn.columnTypeToIndex(McritTableColumn.FUNCTION_ID, name_columns)
     label_column = McritTableColumn.columnTypeToIndex(McritTableColumn.FUNCTION_LABEL, name_columns)
     with _capture_graph_show() as graphs:
         _double_click(names, 0, id_column)
+        _wait_until(qt_application, lambda: len(graphs) >= 1, "the CFG graph opened")
     _check(len(graphs) == 1, "double clicking a name's function id opens the CFG graph")
 
     import ida_undo
 
     backend = form.cc.backend
     original_name = backend.get_function_name(second_target.offset)
-    label = names.item(0, label_column).text()
+    label = names.model().index(0, label_column).data()
     _double_click(names, 0, label_column)
     _check(
         backend.get_function_name(second_target.offset) == label,
@@ -868,31 +920,38 @@ def _exercise_block_widget(form, second_target, qt_application):
     form.main_widget.setTabFocus(widget.name)
 
     widget.b_query_single.click()
-    _process_events(qt_application, rounds=2)
-    _check(summary.rowCount() > 0, "Query current basic block lists the blocks")
+    _wait_until(
+        qt_application,
+        lambda: summary.model().rowCount() > 0,
+        "Query current basic block lists the blocks",
+    )
     _check(
         "0x%x" % second_target.offset in widget.label_current_function_matches.text(),
         "Block Scope header names the queried function",
     )
 
-    baseline = summary.rowCount()
+    baseline = summary.model().rowCount()
     widget.sb_blocksize_threshold.setValue(widget.sb_blocksize_threshold.maximum())
-    _check(summary.rowCount() <= baseline, "Block Scope min-size spinbox narrows the block summary")
+    _check(
+        summary.model().rowCount() <= baseline,
+        "Block Scope min-size spinbox narrows the block summary",
+    )
     widget.sb_blocksize_threshold.setValue(4)
     _check(
-        summary.rowCount() == baseline, "Block Scope min-size spinbox restores the block summary"
+        summary.model().rowCount() == baseline,
+        "Block Scope min-size spinbox restores the block summary",
     )
 
-    baseline = summary.rowCount()
+    baseline = summary.model().rowCount()
     widget.cb_filter_library.setChecked(False)
     widget.cb_filter_library.click()
     _check(widget.cb_filter_library.isChecked(), "Block Scope library filter checkbox toggles on")
     _check(
-        summary.rowCount() <= baseline,
+        summary.model().rowCount() <= baseline,
         "Block Scope library filter does not widen the block summary",
     )
     widget.cb_filter_library.click()
-    _check(summary.rowCount() == baseline, "Block Scope library filter restores the blocks")
+    _check(summary.model().rowCount() == baseline, "Block Scope library filter restores the blocks")
 
     offset_column = McritTableColumn.columnTypeToIndex(
         McritTableColumn.OFFSET, form.config.BLOCK_SUMMARY_TABLE_COLUMNS
@@ -903,20 +962,20 @@ def _exercise_block_widget(form, second_target, qt_application):
     matched_row = next(
         (
             row
-            for row in range(summary.rowCount())
-            if int(summary.item(row, functions_column).text()) > 0
+            for row in range(summary.model().rowCount())
+            if int(summary.model().index(row, functions_column).data()) > 0
         ),
         None,
     )
     _check(matched_row is not None, "at least one block of the function has matches")
-    offset = int(summary.item(matched_row, offset_column).text(), 16)
+    offset = int(summary.model().index(matched_row, offset_column).data(), 16)
     _single_click(summary, matched_row, offset_column)
     _check(form.current_block == offset, "clicking a block summary row selects that block")
     _check(
         "0x%x" % offset in widget.label_block_matches.text(),
         "the block matches header names the selected block",
     )
-    _check(matches.rowCount() > 0, "the selected block lists its matches")
+    _check(matches.model().rowCount() > 0, "the selected block lists its matches")
 
     _expect_jump(
         form,
@@ -927,6 +986,7 @@ def _exercise_block_widget(form, second_target, qt_application):
 
     with _capture_graph_show() as graphs:
         _double_click(matches, 0, 0)
+        _wait_until(qt_application, lambda: len(graphs) >= 1, "the CFG graph opened")
     _check(len(graphs) == 1, "double clicking a block match opens the CFG graph")
     _check(bool(graphs[0][1] and graphs[0][2]), "the block graph renders text and hints")
 
@@ -935,7 +995,7 @@ def _exercise_block_widget(form, second_target, qt_application):
     )
     clipboard = form.cc.QApplication.clipboard()
     before = clipboard.text()
-    matches.setCurrentCell(0, 0)
+    _select_cell(matches, 0, 0)
     matches.customContextMenuRequested.emit(form.cc.QtCore.QPoint(0, 0))
     _check(
         sha256_column is None and clipboard.text() == before,
@@ -955,21 +1015,23 @@ def _exercise_export(form, qt_application):
         if artifact_dir is not None
         else Path(tempfile.gettempdir()) / "mcrit-ida-integration.smda"
     )
+    export_path.unlink(missing_ok=True)
     form.cc.backend.ask_save_file = lambda default_name, prompt: str(export_path)
     try:
         form.main_widget.exportSmdaAction.trigger()
+        # the report is exported off the main thread; the save dialog opens once it is built
+        _wait_until(
+            qt_application,
+            lambda: "exported to" in form.local_widget.label_mcrit_activity_info.text(),
+            "Export SMDA report reports the path in the activity info",
+        )
     finally:
         del form.cc.backend.ask_save_file
-    _process_events(qt_application, rounds=2)
     _check(
         export_path.is_file() and export_path.stat().st_size > 0,
         "Export SMDA report wrote the report to the chosen path",
     )
     json.loads(export_path.read_text(encoding="utf-8"))
-    _check(
-        "exported to" in form.local_widget.label_mcrit_activity_info.text(),
-        "Export SMDA report reports the path in the activity info",
-    )
     if artifact_dir is None:
         export_path.unlink(missing_ok=True)
 

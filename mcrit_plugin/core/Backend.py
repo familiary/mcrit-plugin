@@ -9,6 +9,8 @@ class Backend(ABC):
     """
 
     name = ""
+    # set when the plugin's form or sidebar closes; background work stops early once it is
+    closed = False
     # identifies the producing plugin in uploaded SMDA reports and the UI, e.g. "MCRIT4IDA"
     plugin_name = ""
 
@@ -39,6 +41,10 @@ class Backend(ABC):
     @abstractmethod
     def get_function_symbols(self):
         """Dict of function start address -> current function name."""
+
+    @abstractmethod
+    def get_function_offsets(self):
+        """Start addresses of the functions export_smda_report would export, without exporting."""
 
     @abstractmethod
     def get_cursor_address(self):

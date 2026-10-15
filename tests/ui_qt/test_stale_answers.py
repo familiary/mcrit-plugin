@@ -18,6 +18,8 @@ from mcrit_plugin.ui_qt.ClassCollection import ClassCollection  # noqa: E402
 class _DeferredBackend:
     """Holds each request's on_done until the test answers it."""
 
+    closed = False
+
     def __init__(self):
         self.pending = []
 
@@ -64,3 +66,34 @@ def test_block_scope_shows_only_the_latest_block_size(cc, monkeypatch):
         answer()
 
     assert shown == [8]
+
+
+def test_block_lookups_stop_once_the_form_closed(cc, monkeypatch):
+    backend = _DeferredBackend()
+    cc.backend = backend
+    function = SimpleNamespace(offset=0x1000, num_instructions=20)
+    queried = []
+    session = SimpleNamespace(
+        cc=cc,
+        config=McritConfig("0.0.0"),
+        current_function=0x1000,
+        current_block=0x1000,
+        local_smda_report=SimpleNamespace(getFunction=lambda offset: function),
+        family_infos=None,
+        sample_infos=None,
+        blockhash_matches={},
+        mcrit_interface=SimpleNamespace(getMatchesForPicBlockHash=queried.append),
+    )
+    widget = BlockMatchWidgetModule.BlockMatchWidget(session)
+    monkeypatch.setattr(
+        BlockMatchWidgetModule.FunctionCfgMatcher,
+        "getPicBlockHashesForFunction",
+        lambda report, smda_function, min_size: [{"hash": n, "offset": n} for n in range(20)],
+    )
+    monkeypatch.setattr(widget, "_fetch_remote_cache", lambda: True)
+
+    widget.updateViewWithCurrentBlock()
+    backend.closed = True  # quitting IDA closes the form first
+    backend.pending.pop()()
+
+    assert queried == []

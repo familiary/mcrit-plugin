@@ -18,26 +18,6 @@ class _FakeBinaryInfo:
         self.architecture = architecture
 
 
-class _FakeSmdaFunction:
-    """Fake SmdaFunction for testing."""
-
-    def __init__(self, offset):
-        """Initialize with a function offset."""
-        self.offset = offset
-
-
-class _FakeSmdaReport:
-    """Fake SmdaReport for testing."""
-
-    def __init__(self, functions):
-        """Initialize with a list of functions."""
-        self._functions = functions
-
-    def getFunctions(self):
-        """Return the list of functions."""
-        return self._functions
-
-
 def _make_interface(timeout=10):
     """Build a McritInterface instance bypassing __init__ to avoid IDA-specific setup.
 

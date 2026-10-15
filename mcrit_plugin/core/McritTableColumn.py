@@ -72,3 +72,8 @@ def columnTypeToIndex(column_type: int, configured_columns: List[int]) -> Option
         if ctype == column_type:
             return index
     return None
+
+
+# rows that resizeColumnsToContents measures (Qt's default is 1000); the match tables list their
+# best matches first, and measuring every row of a large table took most of its rendering time
+FIT_COLUMNS_TO_ROWS = 100

@@ -338,20 +338,6 @@ class McritInterface(object):
                 self.parent.matched_function_entries = merged
         return function_entries
 
-    def queryPicHashMatches(self, pichash):
-        try:
-            if pichash not in self.parent.pichash_matches:
-                pichash_matches = self.mcrit_client.getMatchesForPicHash(pichash)
-                if pichash_matches:
-                    self.parent.pichash_matches.update({pichash: pichash_matches})
-                pichash_match_summary = self.mcrit_client.getMatchesForPicHash(
-                    pichash, summary=True
-                )
-                if pichash_match_summary:
-                    self.parent.pichash_match_summaries.update({pichash: pichash_match_summary})
-        except Exception as exc:
-            self._reportFailure("queryPicHashMatches", exc)
-
     def queryAllSampleEntries(self):
         self.parent.local_widget.updateActivityInfo("Querying for SampleEntries")
         try:
@@ -365,25 +351,6 @@ class McritInterface(object):
                 self.parent.local_widget.updateActivityInfo("queryAllSampleEntries query failed")
         except Exception as exc:
             self._reportFailure("queryAllSampleEntries", exc)
-
-    def queryFunctionEntriesBySampleId(self, sample_id):
-        self.parent.local_widget.updateActivityInfo("Querying for remote FunctionEntry mapping")
-        try:
-            functions_for_sample = self.mcrit_client.getFunctionsBySampleId(sample_id)
-            if functions_for_sample:
-                self.parent.remote_function_mapping = {
-                    function_entry.function_id: function_entry
-                    for function_entry in functions_for_sample
-                }
-                self.parent.local_widget.updateActivityInfo(
-                    "Success! Fetched remote FunctionEntry mapping."
-                )
-            else:
-                self.parent.local_widget.updateActivityInfo(
-                    "queryFunctionEntriesBySampleId query failed."
-                )
-        except Exception as exc:
-            self._reportFailure("queryFunctionEntriesBySampleId", exc)
 
     def queryRemoteFunction(self, function_id):
         """(function entry with its CFG, its SmdaFunction, its sample entry), or None after reporting

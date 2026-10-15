@@ -679,25 +679,25 @@ class IntegrationTest:
                 "setTabFocus reaches the Sample Match Summary tab",
             )
             self.check(
-                families.rowCount() > 0,
+                families.model().rowCount() > 0,
                 "Sample Match Summary lists best matches once a result is loaded",
             )
 
         def filter_checkbox():
-            baseline = families.rowCount()
+            baseline = families.model().rowCount()
             widget.cb_filter_library.setChecked(True)
             self.check(
-                families.rowCount() <= baseline,
+                families.model().rowCount() <= baseline,
                 "Sample Match Summary library filter does not widen the table",
             )
             widget.cb_filter_library.setChecked(False)
             self.check(
-                families.rowCount() == baseline,
+                families.model().rowCount() == baseline,
                 "Sample Match Summary library filter restores the table",
             )
 
         def family_selection():
-            family = families.item(0, 2).text()
+            family = families.model().index(0, 2).data()
             self.single_click(families, 0, 2)
             self.check(
                 widget.last_family_selected == family,
@@ -707,22 +707,24 @@ class IntegrationTest:
                 f'"{family}"' in widget.label_sample_matches_family.text(),
                 "the sample table header names the selected family",
             )
-            self.check(samples.rowCount() > 0, "the selected family lists its sample matches")
+            self.check(
+                samples.model().rowCount() > 0, "the selected family lists its sample matches"
+            )
 
         def sorting():
-            rows = families.rowCount()
-            for column in range(families.columnCount()):
+            rows = families.model().rowCount()
+            for column in range(families.model().columnCount()):
                 families.sortByColumn(column, self.session.cc.QtCore.Qt.DescendingOrder)
                 self.check(
-                    families.rowCount() == rows,
+                    families.model().rowCount() == rows,
                     f"Sample Match Summary keeps all rows sorting column {column}",
                 )
 
         def double_click_is_inert():
-            before = families.rowCount()
+            before = families.model().rowCount()
             self.double_click(families, 0, 2)
             self.check(
-                families.rowCount() == before,
+                families.model().rowCount() == before,
                 "double clicking a family row leaves the table untouched",
             )
 
@@ -790,7 +792,7 @@ class IntegrationTest:
     def after_second_navigation(self):
         widget = self.session.function_match_widget
         self.check(
-            widget.table_function_matches.rowCount() > 0,
+            widget.table_function_matches.model().rowCount() > 0,
             "the second function queried successfully and lists matches",
         )
         self.step(self.exercise_function_scope)
@@ -808,7 +810,8 @@ class IntegrationTest:
         def query_button():
             widget.b_query_single.click()
             self.check(
-                matches.rowCount() > 0, "Query current function lists matches for the cursor"
+                matches.model().rowCount() > 0,
+                "Query current function lists matches for the cursor",
             )
             self.check(
                 "0x%x" % self.second_target.start in widget.label_current_function_matches.text(),
@@ -816,18 +819,20 @@ class IntegrationTest:
             )
 
         def score_spinbox():
-            baseline = matches.rowCount()
+            baseline = matches.model().rowCount()
             widget.sb_score_threshold.setValue(100)
             self.check(
-                matches.rowCount() <= baseline, "Function Scope min-score spinbox narrows matches"
+                matches.model().rowCount() <= baseline,
+                "Function Scope min-score spinbox narrows matches",
             )
             widget.sb_score_threshold.setValue(widget.sb_score_threshold.minimum())
             self.check(
-                matches.rowCount() == baseline, "Function Scope min-score spinbox restores matches"
+                matches.model().rowCount() == baseline,
+                "Function Scope min-score spinbox restores matches",
             )
 
         def library_filter():
-            baseline = matches.rowCount()
+            baseline = matches.model().rowCount()
             widget.cb_filter_library.setChecked(False)
             widget.cb_filter_library.click()
             self.check(
@@ -835,12 +840,12 @@ class IntegrationTest:
                 "Function Scope library filter checkbox toggles on",
             )
             self.check(
-                matches.rowCount() <= baseline,
+                matches.model().rowCount() <= baseline,
                 "Function Scope library filter does not widen the matches",
             )
             widget.cb_filter_library.click()
             self.check(
-                matches.rowCount() == baseline,
+                matches.model().rowCount() == baseline,
                 "Function Scope library filter restores the matches",
             )
 
@@ -860,8 +865,8 @@ class IntegrationTest:
 
             sha256_column = McritTableColumn.columnTypeToIndex(McritTableColumn.SHA256, columns)
             sample_column = McritTableColumn.columnTypeToIndex(McritTableColumn.SAMPLE_ID, columns)
-            matches.setCurrentCell(0, sha256_column)
-            sample_id = int(matches.item(0, sample_column).text())
+            self.select_cell(matches, 0, sha256_column)
+            sample_id = int(matches.model().index(0, sample_column).data())
             matches.customContextMenuRequested.emit(QPoint(0, 0))
             expected = self.session.sample_infos[sample_id].sha256
             self.check(
@@ -871,7 +876,8 @@ class IntegrationTest:
 
         def name_table():
             self.check(
-                names.rowCount() > 0, "Names from Matched Functions lists labels for the matches"
+                names.model().rowCount() > 0,
+                "Names from Matched Functions lists labels for the matches",
             )
             import mcrit_plugin.core.McritTableColumn as McritTableColumn
 
@@ -883,7 +889,7 @@ class IntegrationTest:
             self.double_click_graph(names, 0, id_column, "double clicking a name's function id")
             backend = self.session.cc.backend
             original_name = backend.get_function_name(self.second_target.start)
-            label = names.item(0, label_column).text()
+            label = names.model().index(0, label_column).data()
             self.double_click(names, 0, label_column)
             self.check(
                 backend.get_function_name(self.second_target.start) == label,
@@ -968,27 +974,27 @@ class IntegrationTest:
 
         def query_button():
             widget.b_query_single.click()
-            self.check(summary.rowCount() > 0, "Query current basic block lists the blocks")
+            self.check(summary.model().rowCount() > 0, "Query current basic block lists the blocks")
             self.check(
                 "0x%x" % self.second_target.start in widget.label_current_function_matches.text(),
                 "Block Scope header names the queried function",
             )
 
         def size_spinbox():
-            baseline = summary.rowCount()
+            baseline = summary.model().rowCount()
             widget.sb_blocksize_threshold.setValue(widget.sb_blocksize_threshold.maximum())
             self.check(
-                summary.rowCount() <= baseline,
+                summary.model().rowCount() <= baseline,
                 "Block Scope min-size spinbox narrows the block summary",
             )
             widget.sb_blocksize_threshold.setValue(4)
             self.check(
-                summary.rowCount() == baseline,
+                summary.model().rowCount() == baseline,
                 "Block Scope min-size spinbox restores the block summary",
             )
 
         def library_filter():
-            baseline = summary.rowCount()
+            baseline = summary.model().rowCount()
             widget.cb_filter_library.setChecked(False)
             widget.cb_filter_library.click()
             self.check(
@@ -996,22 +1002,27 @@ class IntegrationTest:
                 "Block Scope library filter checkbox toggles on",
             )
             self.check(
-                summary.rowCount() <= baseline,
+                summary.model().rowCount() <= baseline,
                 "Block Scope library filter does not widen the block summary",
             )
             widget.cb_filter_library.click()
             self.check(
-                summary.rowCount() == baseline, "Block Scope library filter restores the blocks"
+                summary.model().rowCount() == baseline,
+                "Block Scope library filter restores the blocks",
             )
 
         def summary_click():
             matched_row = next(
-                (row for row in range(summary.rowCount()) if int(summary.item(row, 5).text()) > 0),
+                (
+                    row
+                    for row in range(summary.model().rowCount())
+                    if int(summary.model().index(row, 5).data()) > 0
+                ),
                 None,
             )
             self.check(matched_row is not None, "at least one block of the function has matches")
             self.summary_row = matched_row
-            offset = int(summary.item(matched_row, 0).text(), 16)
+            offset = int(summary.model().index(matched_row, 0).data(), 16)
             self.single_click(summary, matched_row, 0)
             self.check(
                 self.session.current_block == offset,
@@ -1021,10 +1032,10 @@ class IntegrationTest:
                 "0x%x" % offset in widget.label_block_matches.text(),
                 "the block matches header names the selected block",
             )
-            self.check(matches.rowCount() > 0, "the selected block lists its matches")
+            self.check(matches.model().rowCount() > 0, "the selected block lists its matches")
 
         def summary_double_click():
-            offset = int(summary.item(self.summary_row, 0).text(), 16)
+            offset = int(summary.model().index(self.summary_row, 0).data(), 16)
             self.double_click(summary, self.summary_row, 0)
             self.check(
                 self.session.cc.backend.get_cursor_address() == offset,
@@ -1041,7 +1052,7 @@ class IntegrationTest:
             sha256_column = McritTableColumn.columnTypeToIndex(McritTableColumn.SHA256, columns)
             clipboard = self.session.cc.QApplication.clipboard()
             before = clipboard.text()
-            matches.setCurrentCell(0, 0)
+            self.select_cell(matches, 0, 0)
             matches.customContextMenuRequested.emit(QPoint(0, 0))
             self.check(
                 sha256_column is None and clipboard.text() == before,
@@ -1211,10 +1222,10 @@ class IntegrationTest:
                 "YARA rule copied" in activity.text()
             ),
             "MCRIT\\Query Current Function": lambda: (
-                self.session.function_match_widget.table_function_matches.rowCount() > 0
+                self.session.function_match_widget.table_function_matches.model().rowCount() > 0
             ),
             "MCRIT\\Query Current Block": lambda: (
-                self.session.block_match_widget.table_block_summary.rowCount() > 0
+                self.session.block_match_widget.table_block_summary.model().rowCount() > 0
             ),
             "MCRIT\\Clear Match Coloring": lambda: (
                 not MatchRenderLayer._ranges.get(self.bv.file.session_id)
