@@ -750,10 +750,10 @@ def _navigate_to(form, offset, qt_application):
     import ida_kernwin
 
     if _has_disassembly_view():
+        # IDA's own cursor hook and settle timer start the refresh, as for a user; the live query
+        # then starts inside a timer callback, where registering another IDA timer hung IDA 9.4
         _check(ida_kernwin.jumpto(offset), "jumpto moved the IDA cursor to 0x%x" % offset)
-        _process_events(qt_application, rounds=4)
-        form.view_hook.refresh_widget(ida_kernwin.get_current_widget())
-        via = "view hook"
+        via = "view hook and settle timer"
     else:
         # autonomous mode (-A) has no view to follow; drive the same refresh the view hook would
         form.current_function = offset
