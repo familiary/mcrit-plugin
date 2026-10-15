@@ -8,6 +8,14 @@ Ninja applies to that plugin only.
 
 ## [Unreleased]
 
+### Fixed
+
+- IDA: with Live Function Queries on, moving to another function, e.g. by double clicking it in
+  a list, could freeze IDA for good. The live query started inside IDA's cursor-settle timer and
+  registered a second IDA timer there, a call IDA 9.4 never returns from. Results of MCRIT
+  requests now reach IDA's main thread through a queued Qt signal instead, so no request
+  registers an IDA timer. Introduced in 2.1.0.
+
 ## [2.1.0] - 2026-10-15
 
 ### Added
