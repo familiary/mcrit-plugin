@@ -180,8 +180,10 @@ plugin at its root without `ida-plugin.json`, then validates `plugin.json` with 
 same release action.
 
 - The release pushes to `main`, which needs the ruleset bypass under "Maintainer configuration".
-- Versions `1.1.4`, `1.1.5` and `1.1.7`–`1.1.10` cannot be used: earlier tags already name them,
-  and the action refuses to reuse a version a tag already names.
+- Versions `1.1.4`, `1.1.5`, `1.1.7`–`1.1.10` and `1.4.5` cannot be used: earlier tags already
+  name them, and the action refuses to reuse a version a tag already names. Nor can the version
+  already in `plugin.json`: the action only releases a version greater than it, so the first
+  release went out as 1.0.1, not 1.0.0.
 - After the first release, open an issue on
   [Vector35/community-plugins](https://github.com/Vector35/community-plugins/issues/new/choose) to get
   the plugin listed.
