@@ -279,7 +279,9 @@ class Job(object):
 
     @property
     def last_error(self):
-        return self._data["last_error"]
+        # .get(): the client wraps server answers in this class, and a job that never errored
+        # does not carry the field
+        return self._data.get("last_error")
 
     @property
     def finished_at(self):

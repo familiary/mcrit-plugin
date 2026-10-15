@@ -23,6 +23,14 @@ Ninja applies to that plugin only.
   Binary Ninja. A live query answered after the cursor moved to another function is cached but not
   shown. Results already cached show at once. Upload and Get Match Result are disabled while their
   request runs, and a failed request shows a warning.
+- The bundled MCRIT client has the interface of MCRIT 1.15.0's client: `sample_group_only` only
+  on the cross compare, the raising error modes, a default connect timeout, the job selectors of
+  `getQueueData`, `getQueueCount` and the unique-block parameters. The plugin sets its own
+  timeout, so requests behave as before. Since 1.12.0's client it also treats a 2xx whose body is
+  not JSON, such as a proxy's login page, as a failed answer instead of raising a JSON error;
+  `awaitResult` raises `JobFailedError` for a job that ends without a result; `modifyFamily` takes
+  `actors` and sends JSON; the matching requests take `shortlist_size`, `band_df_cutoff` and
+  `preset`; and `getJobCount` and `deleteQueueData` encode their query strings.
 - Binary Ninja: "Fetch labels for matches" also runs off the UI thread; on a result with 150,000
   matched functions it froze Binary Ninja for about a minute.
 - The Function Overview renders large results about ten times faster: it sizes its rows once
@@ -31,21 +39,20 @@ Ninja applies to that plugin only.
 - Binary Ninja: MCRIT requests show in the status bar as background tasks named after what they
   do, such as "MCRIT: fetching labels for 2000 of 151306 matched functions", like Binary Ninja's
   own analysis tasks. The plugin's log messages go to the log of the file they concern.
-- Choosing a matching job asks the server for the jobs that mention the sample, instead of
-  downloading every job of the server and filtering them in the plugin.
-- Convert no longer waits for the family and sample lists: they download in the background after
-  the report is built, side by side instead of one after the other, and one download serves every
-  widget that needs them. The family chooser for an unknown sample opens once they are here. On
-  Binary Ninja, Convert also asks whether the server knows the sample in the background, which
-  froze the UI for about 1.5 s against a remote server.
-- The bundled MCRIT client has the interface of MCRIT 1.12.0's client: `sample_group_only` only
-  on the cross compare, the raising error modes, a default connect timeout, the job selectors of
-  `getQueueData`, `getQueueCount` and the unique-block parameters. The plugin sets its own
-  timeout, so requests behave as before.
+- Requests to the MCRIT server reuse their connection instead of opening a new one each time, also
+  when many run at once, and Block Scope looks up a function's block hashes eight at a time. Against
+  a remote server, the block lookups for a function with 166 distinct block hashes took 6 seconds
+  instead of 166.
 - "Fetch labels for matches" asks the server for 2,000 functions first, then 50,000 at a time, best
   matches first, and shows the labels of each chunk as it arrives instead of after the last one. A
   failed chunk stops the fetch, and the next click asks only for the functions not fetched yet; a
   click after a complete fetch asks for all of them again.
+- Opening the graph of a function or block match fetches the remote function off the UI thread on
+  Binary Ninja, and takes its sample from the sample list already downloaded instead of asking the
+  server again. For a 3,955-instruction match against mcrit.malpedia.io, Binary Ninja froze for
+  about 3.5 s; the click now returns at once and the graph opens after about 2.1 s. A second double
+  click on a match whose graph is still being fetched is ignored, and a failed fetch keeps its
+  reason in the activity line.
 - The Function Overview keeps its rows in a table model and paints the label drop-downs, instead of
   creating a combo box for every row. A filter click on a synthetic result of 20,000 functions
   takes about one second instead of two minutes. A drop-down opens when its cell is clicked or
@@ -53,14 +60,13 @@ Ninja applies to that plugin only.
   matches of a result are grouped by function once, and each filter is aggregated once for the
   current threshold, so with 221,000 matches over 705 functions clicking through the filters takes
   about 0.15 s instead of 3 to 4 s.
-- Opening the graph of a function or block match fetches the remote function off the UI thread on
-  Binary Ninja, and takes its sample from the sample list already downloaded instead of asking the
-  server again. For a 3,955-instruction match against mcrit.malpedia.io, Binary Ninja froze for
-  about 3.5 s; the click now returns at once and the graph opens after about 2.1 s.
-- Requests to the MCRIT server reuse their connection instead of opening a new one each time, also
-  when many run at once, and
-  Block Scope looks up a function's block hashes eight at a time. Against a remote server, the
-  block lookups for a function with 166 distinct block hashes took 6 seconds instead of 166.
+- Choosing a matching job asks the server for the jobs that mention the sample, instead of
+  downloading every job of the server and filtering them in the plugin.
+- Convert no longer waits for the family and sample lists: they download in the background after
+  the report is built, side by side instead of one after the other, and one download serves every
+  widget that needs them. The family chooser for an unknown sample opens once they are here. On
+  Binary Ninja, Convert also asks whether the server knows the sample in the background, which
+  froze the UI for about 1.5 s against a remote server.
 - IDA: uploads, Function and Block Scope queries, matching results, label fetches and remote
   graphs run on worker threads too, so a slow or unreachable MCRIT server no longer freezes IDA.
   Answers that arrive after the MCRIT form was closed are dropped, and a failed request is reported
@@ -94,6 +100,12 @@ Ninja applies to that plugin only.
 - With `use_smda_for_analysis` on, Convert no longer exports the disassembler's own analysis first
   just to compare function sets: the comparison now reads the disassembler's function list, and
   the export remains the fallback when SMDA's analysis yields no report.
+
+### Fixed
+
+- The bundled MCRIT client's `modifyFamily`, `modifySample`, `requestMatchesForMappedBinary` and
+  `requestMatchesForUnmappedBinary` raised `TypeError` on every call: they passed the request body
+  positionally to the client's request wrappers, which take it only by keyword.
 
 ## [2.0.0] - 2026-09-28
 

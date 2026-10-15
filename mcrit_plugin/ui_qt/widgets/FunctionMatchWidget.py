@@ -23,6 +23,8 @@ class FunctionMatchWidget(QMainWindow):
         self.central_widget = self.cc.QWidget()
         self.setCentralWidget(self.central_widget)
         self.current_function_offset = None
+        # remote function ids whose graph is being fetched
+        self._graph_fetches = set()
         self.label_current_function_matches = self.cc.QLabel("Matches for: <function_offset>")
         self.cb_filter_library = self.cc.QCheckBox("Filter out Library Matches")
         self.cb_filter_library.setEnabled(False)
@@ -502,11 +504,16 @@ class FunctionMatchWidget(QMainWindow):
 
     def _showMatchGraph(self, smda_report_a, smda_function_a, remote_function_id):
         """Fetch the remote function off the UI thread, then match it and show its graph."""
+        # a repeated double click while the fetch runs would open the same graph twice
+        if remote_function_id in self._graph_fetches:
+            return
+        self._graph_fetches.add(remote_function_id)
         self.parent.local_widget.updateActivityInfo(
             f"Fetching function {remote_function_id} for the graph viewer..."
         )
 
         def show(remote):
+            self._graph_fetches.discard(remote_function_id)
             if remote is None:
                 return
             function_entry_b, smda_function_b, sample_entry_b = remote
@@ -520,6 +527,9 @@ class FunctionMatchWidget(QMainWindow):
             coloring = self._blockColoring(colorings["b"])
             self.cc.backend.show_function_graph(
                 self, sample_entry_b, function_entry_b, smda_function_b, coloring
+            )
+            self.parent.local_widget.updateActivityInfo(
+                f"Opened the graph of function {remote_function_id}."
             )
 
         self.cc.backend.run_request(

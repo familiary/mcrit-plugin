@@ -22,6 +22,23 @@ class JobTerminatedError(Exception):
     pass
 
 
+class JobFailedError(Exception):
+    """A job the client waited for used up its attempts without producing a result.
+
+    Like JobTerminatedError it is raised whatever error mode the client was built in: the
+    failure is the queue's answer about the job, not one HTTP status a mode could decide over.
+    Carries the job id and the queue's ``last_error`` for the job, which is None when no
+    attempt recorded one - a lock expiry can use up the last attempt on its own."""
+
+    def __init__(self, job_id, last_error=None):
+        self.job_id = job_id
+        self.last_error = last_error
+        message = f"job {job_id} failed"
+        if last_error:
+            message += f": {last_error}"
+        super().__init__(message)
+
+
 def isJobTerminated(job):
     if job is None:
         return True
@@ -80,7 +97,7 @@ class McritConflict(McritRequestError):
 
 class McritServerError(McritClientError):
     """The server failed to answer the request (500, 501, an unexpected status, or a 2xx
-    whose body reports ``"status": "failed"``)."""
+    whose body reports ``"status": "failed"`` or is not JSON)."""
 
 
 _REQUEST_ERRORS = {
@@ -115,7 +132,9 @@ def failure_message(response):
 
 def handle_response(response, raise_client_errors=False, raise_server_errors=False) -> Any:
     """The ``data`` of a successful answer, ``None`` for a failed one, unless a raising mode
-    turns the failure into a McritRequestError (4xx) or McritServerError."""
+    turns the failure into a McritRequestError (4xx) or McritServerError. A 2xx that does not
+    report ``"status": "successful"`` - including one whose body is not JSON at all, as a
+    proxy's login page - is a failed answer."""
     data = None
     status = response.status_code
     url = getattr(response, "url", "") or ""
@@ -127,8 +146,17 @@ def handle_response(response, raise_client_errors=False, raise_server_errors=Fal
         if raise_client_errors:
             raise request_error_for(status)(status, failure_message(response), url)
     elif status in [200, 202]:
-        json_response = response.json()
-        if "status" in json_response and json_response["status"] == "successful":
+        # a proxy's error or login page, or an empty answer, arrives as a 2xx too; it is a
+        # failed answer like any other, not a ValueError out of the client
+        try:
+            json_response = response.json()
+        except ValueError:
+            LOGGER.warning(
+                "McritClient received status code %d from MCRIT with a body that is not JSON.",
+                status,
+            )
+            json_response = None
+        if isinstance(json_response, dict) and json_response.get("status") == "successful":
             data = json_response["data"]
         elif raise_server_errors:
             raise McritServerError(status, failure_message(response), url)
@@ -220,6 +248,9 @@ class McritClient:
         band_matches_required=None,
         exclude_self_matches=False,
         sample_group_only=False,
+        shortlist_size=None,
+        band_df_cutoff=None,
+        preset=None,
     ):
         params = {}
         if minhash_threshold is not None:
@@ -234,6 +265,14 @@ class McritClient:
             params["exclude_self_matches"] = True
         if sample_group_only:
             params["sample_group_only"] = True
+        # left out, the server applies its configured value
+        if shortlist_size is not None:
+            params["shortlist_size"] = shortlist_size
+        if band_df_cutoff is not None:
+            params["band_df_cutoff"] = band_df_cutoff
+        # a named bundle of knobs (hunt, identification); knobs given explicitly still win
+        if preset is not None:
+            params["preset"] = preset
         return params
 
     def respawn(self):
@@ -289,6 +328,12 @@ class McritClient:
         base_addr=None,
         bitness=None,
     ) -> Tuple[SampleEntry, Optional[str]]:
+        """Submit a binary for disassembly and indexing.
+
+        filename, family and version are spliced into the query string as given, so a caller passes
+        them percent-encoded (urllib.parse.quote(value, safe="")); MCRITweb does exactly that. They
+        are deliberately not handed to requests as params, which would encode them a second time.
+        """
         query_fields = []
         if filename is not None:
             query_fields.append(f"filename={filename}")
@@ -314,15 +359,24 @@ class McritClient:
     ### Families
     ###########################################
 
-    def modifyFamily(self, family_id, family_name=None, is_library=None):
+    def modifyFamily(self, family_id, family_name=None, is_library=None, actors=None):
+        """
+        Modify a family: rename it, mark it as library, or set the actors it is attributed to
+        <actors> is a list of names; an empty list clears them
+        """
         update_dict = {}
         if family_name is not None:
             update_dict["family_name"] = family_name
         if is_library is not None:
             update_dict["is_library"] = is_library
+        if actors is not None:
+            update_dict["actors"] = list(actors)
+        # JSON, since a list of actors does not survive form encoding
         response = self._put(
-            f"{self.mcrit_server}/families/{family_id}", update_dict, headers=self.headers
+            f"{self.mcrit_server}/families/{family_id}", json=update_dict, headers=self.headers
         )
+        if self.raw:
+            return response
         return self._handle(response)
 
     def getFamily(self, family_id: int, with_samples=True) -> Optional[FamilyEntry]:
@@ -404,7 +458,7 @@ class McritClient:
         if is_library is not None:
             update_dict["is_library"] = is_library
         response = self._put(
-            f"{self.mcrit_server}/samples/{sample_id}", update_dict, headers=self.headers
+            f"{self.mcrit_server}/samples/{sample_id}", data=update_dict, headers=self.headers
         )
         return self._handle(response)
 
@@ -511,8 +565,6 @@ class McritClient:
         if self.raw:
             return response
         data = self._handle(response)
-        if self.raw:
-            return data
         if data is not None:
             return True
         return False
@@ -526,9 +578,9 @@ class McritClient:
         response = self._get(
             f"{self.mcrit_server}/functions/{function_id}{query_with_xcfg}", headers=self.headers
         )
-        data = self._handle(response)
         if self.raw:
             return response
+        data = self._handle(response)
         if data is not None:
             return FunctionEntry.fromDict(data)
 
@@ -543,6 +595,9 @@ class McritClient:
         pichash_size=None,
         band_matches_required=None,
         force_recalculation=False,
+        shortlist_size=None,
+        band_df_cutoff=None,
+        preset=None,
     ) -> str:
         smda_json = smda_report.toDict()
         params = self._getMatchingRequestParams(
@@ -550,6 +605,9 @@ class McritClient:
             pichash_size=pichash_size,
             force_recalculation=force_recalculation,
             band_matches_required=band_matches_required,
+            shortlist_size=shortlist_size,
+            band_df_cutoff=band_df_cutoff,
+            preset=preset,
         )
         response = self._post(
             f"{self.mcrit_server}/query", json=smda_json, headers=self.headers, params=params
@@ -567,6 +625,9 @@ class McritClient:
         band_matches_required=None,
         disassemble_locally=True,
         force_recalculation=False,
+        shortlist_size=None,
+        band_df_cutoff=None,
+        preset=None,
     ) -> str:
         if disassemble_locally:
             disassembler = Disassembler()
@@ -579,6 +640,9 @@ class McritClient:
                 pichash_size=pichash_size,
                 band_matches_required=band_matches_required,
                 force_recalculation=force_recalculation,
+                shortlist_size=shortlist_size,
+                band_df_cutoff=band_df_cutoff,
+                preset=preset,
             )
 
         params = self._getMatchingRequestParams(
@@ -586,10 +650,13 @@ class McritClient:
             pichash_size=pichash_size,
             force_recalculation=force_recalculation,
             band_matches_required=band_matches_required,
+            shortlist_size=shortlist_size,
+            band_df_cutoff=band_df_cutoff,
+            preset=preset,
         )
         response = self._post(
             f"{self.mcrit_server}/query/binary/mapped/{base_address}",
-            binary,
+            data=binary,
             headers=self.headers,
             params=params,
         )
@@ -605,6 +672,9 @@ class McritClient:
         band_matches_required=None,
         disassemble_locally=True,
         force_recalculation=False,
+        shortlist_size=None,
+        band_df_cutoff=None,
+        preset=None,
     ) -> str:
         if disassemble_locally:
             disassembler = Disassembler()
@@ -617,6 +687,9 @@ class McritClient:
                 pichash_size=pichash_size,
                 band_matches_required=band_matches_required,
                 force_recalculation=force_recalculation,
+                shortlist_size=shortlist_size,
+                band_df_cutoff=band_df_cutoff,
+                preset=preset,
             )
 
         params = self._getMatchingRequestParams(
@@ -624,10 +697,13 @@ class McritClient:
             pichash_size=pichash_size,
             force_recalculation=force_recalculation,
             band_matches_required=band_matches_required,
+            shortlist_size=shortlist_size,
+            band_df_cutoff=band_df_cutoff,
+            preset=preset,
         )
 
         response = self._post(
-            f"{self.mcrit_server}/query/binary", binary, headers=self.headers, params=params
+            f"{self.mcrit_server}/query/binary", data=binary, headers=self.headers, params=params
         )
         if self.raw:
             return response
@@ -640,12 +716,18 @@ class McritClient:
         pichash_size=None,
         band_matches_required=None,
         force_recalculation=False,
+        shortlist_size=None,
+        band_df_cutoff=None,
+        preset=None,
     ) -> None:
         params = self._getMatchingRequestParams(
             minhash_threshold=minhash_threshold,
             pichash_size=pichash_size,
             force_recalculation=force_recalculation,
             band_matches_required=band_matches_required,
+            shortlist_size=shortlist_size,
+            band_df_cutoff=band_df_cutoff,
+            preset=preset,
         )
         response = self._get(
             f"{self.mcrit_server}/matches/sample/{sample_id}", headers=self.headers, params=params
@@ -662,12 +744,16 @@ class McritClient:
         pichash_size=None,
         band_matches_required=None,
         force_recalculation=False,
+        band_df_cutoff=None,
+        preset=None,
     ) -> str:
         params = self._getMatchingRequestParams(
             minhash_threshold=minhash_threshold,
             pichash_size=pichash_size,
             force_recalculation=force_recalculation,
             band_matches_required=band_matches_required,
+            band_df_cutoff=band_df_cutoff,
+            preset=preset,
         )
         response = self._get(
             f"{self.mcrit_server}/matches/sample/{sample_id}/{other_sample_id}",
@@ -686,13 +772,19 @@ class McritClient:
         pichash_size=None,
         band_matches_required=None,
         force_recalculation=False,
+        band_df_cutoff=None,
+        preset=None,
     ) -> None:
+        # no shortlist_size: a cross compare is restricted to the samples it names, and a shortlist
+        # ranked over the whole corpus could only drop some of them
         params = self._getMatchingRequestParams(
             minhash_threshold=minhash_threshold,
             pichash_size=pichash_size,
             force_recalculation=force_recalculation,
             band_matches_required=band_matches_required,
             sample_group_only=sample_group_only,
+            band_df_cutoff=band_df_cutoff,
+            preset=preset,
         )
         response = self._get(
             f"{self.mcrit_server}/matches/sample/cross/{','.join([str(id) for id in sample_ids])}",
@@ -720,6 +812,9 @@ class McritClient:
         force_recalculation=None,
         band_matches_required=None,
         exclude_self_matches=False,
+        shortlist_size=None,
+        band_df_cutoff=None,
+        preset=None,
     ):
         """Get all matches for a SmdaReport with a single SmdaFunction.
 
@@ -737,6 +832,12 @@ class McritClient:
             required to consider a candidate function a MinHash match.
         :param exclude_self_matches: when True, omit matches against the
             same sample/function as the query.
+        :param shortlist_size: optional size of the two-stage matching shortlist;
+            left out, the server applies its configured value.
+        :param band_df_cutoff: optional cutoff above which a band's posting list
+            is skipped; left out, the server applies its configured value.
+        :param preset: optional named bundle of matching knobs (hunt,
+            identification); knobs given explicitly still win.
         :return: when ``self.raw`` is True, the raw ``requests.Response``;
             otherwise the parsed ``data`` payload (typically a dict
             representing a ``MatchingResult``) or ``None`` if the request
@@ -748,6 +849,9 @@ class McritClient:
             force_recalculation=force_recalculation,
             band_matches_required=band_matches_required,
             exclude_self_matches=exclude_self_matches,
+            shortlist_size=shortlist_size,
+            band_df_cutoff=band_df_cutoff,
+            preset=preset,
         )
         response = self._post(
             f"{self.mcrit_server}/query/function",
@@ -833,13 +937,8 @@ class McritClient:
         return None
 
     def getJobCount(self, filter=None):
-        query_string = ""
-        if isinstance(filter, str) and filter is not None:
-            if len(query_string) == 0:
-                query_string = f"?filter={filter}"
-            else:
-                query_string += f"&filter={filter}"
-        response = self._get(f"{self.mcrit_server}/jobs{query_string}", headers=self.headers)
+        params = {"filter": filter} if isinstance(filter, str) else {}
+        response = self._get(f"{self.mcrit_server}/jobs", params=params, headers=self.headers)
         if self.raw:
             return response
         data = self._handle(response)
@@ -944,23 +1043,14 @@ class McritClient:
         Delete Jobs that match given provided criteria
         Supported by mcritweb API pass-through
         """
-        query_string = ""
-        if isinstance(method, str) and method is not None:
-            if len(query_string) == 0:
-                query_string = f"?method={method}"
-            else:
-                query_string += f"&method={method}"
-        if isinstance(created_before, datetime.datetime) and created_before is not None:
-            if len(query_string) == 0:
-                query_string = f"?created_before={created_before.strftime('%Y-%m-%dT%H:%M:%S')}"
-            else:
-                query_string += f"&created_before={created_before.strftime('%Y-%m-%dT%H:%M:%S')}"
-        if isinstance(finished_before, datetime.datetime) and finished_before is not None:
-            if len(query_string) == 0:
-                query_string = f"?finished_before={finished_before.strftime('%Y-%m-%dT%H:%M:%S')}"
-            else:
-                query_string += f"&finished_before={finished_before.strftime('%Y-%m-%dT%H:%M:%S')}"
-        response = self._delete(f"{self.mcrit_server}/jobs/{query_string}", headers=self.headers)
+        params = {}
+        if isinstance(method, str):
+            params["method"] = method
+        if isinstance(created_before, datetime.datetime):
+            params["created_before"] = created_before.strftime("%Y-%m-%dT%H:%M:%S")
+        if isinstance(finished_before, datetime.datetime):
+            params["finished_before"] = finished_before.strftime("%Y-%m-%dT%H:%M:%S")
+        response = self._delete(f"{self.mcrit_server}/jobs/", params=params, headers=self.headers)
         if self.raw:
             return response
         return self._handle(response)
@@ -1036,6 +1126,11 @@ class McritClient:
             job = self.getJobData(job_id)
         if isJobTerminated(job):
             raise JobTerminatedError
+        if job.result is None:
+            # the wait above only ends without a result on a failed job - a job the queue
+            # reclaimed mid-run keeps attempts_left 0 but can still finish, and then carries
+            # its result, so the failure is decided by the missing result, not isJobFailed
+            raise JobFailedError(job_id, job.last_error)
         result_id = job.result
         return self.getResult(result_id, compact=compact)
 
