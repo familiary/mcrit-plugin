@@ -105,6 +105,9 @@ Ninja applies to that plugin only.
 
 ### Fixed
 
+- Get Match Result missed the jobs in which the sample is not the first argument, such as a
+  sample-vs-sample comparison started from the other sample or a cross compare that includes it.
+  Jobs are now selected by their sample id arguments instead of by matching the job's text.
 - The bundled MCRIT client's `modifyFamily`, `modifySample`, `requestMatchesForMappedBinary` and
   `requestMatchesForUnmappedBinary` raised `TypeError` on every call: they passed the request body
   positionally to the client's request wrappers, which take it only by keyword.

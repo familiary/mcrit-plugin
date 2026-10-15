@@ -15,6 +15,21 @@ else:
     _SMDA_IMPORT_ERROR = None
 
 
+def _isMatchingJobOfSample(job, sample_id):
+    """Whether a matching job compares the sample, read from the job's sample id arguments like the
+    server's sample_ids selector; its thresholds are arguments too and must not count."""
+    if "Matches" not in (job.method or ""):
+        return False
+    try:
+        # the per-sample jobs of a cross compare; Job.sample_ids does not know them
+        if job.method == "getMatchesForSampleVsGroup":
+            return int(job.arguments[0]) == sample_id
+        return sample_id in job.sample_ids
+    except (TypeError, ValueError, IndexError, KeyError, AttributeError):
+        # a job whose arguments do not have the shape its method has concerns no sample
+        return False
+
+
 class McritInterface(object):
     def __init__(self, parent, backend):
         if Disassembler is None:
@@ -201,17 +216,7 @@ class McritInterface(object):
                 return None
             # check if we already have a match report for the sample id
             if sample_id is not None:
-                jobs = [
-                    job
-                    for job in jobs
-                    if "Matches" in job.parameters
-                    and (
-                        "(" + str(sample_id) + ")" in job.parameters
-                        or "(" + str(sample_id) + "," in job.parameters
-                        or "," + str(sample_id) + "," in job.parameters
-                        or "," + str(sample_id) + ")" in job.parameters
-                    )
-                ]
+                jobs = [job for job in jobs if _isMatchingJobOfSample(job, sample_id)]
             if jobs:
                 self.parent.local_widget.updateActivityInfo("Success! Fetched Jobs.")
             else:

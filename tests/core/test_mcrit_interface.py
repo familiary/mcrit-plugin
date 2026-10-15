@@ -1,5 +1,6 @@
 """Tests for the McritInterface logic that runs without a disassembler or an MCRIT server."""
 
+import json
 import threading
 from types import SimpleNamespace
 from unittest.mock import MagicMock
@@ -8,6 +9,7 @@ import pytest
 import requests
 
 from mcrit_plugin.core.McritInterface import McritInterface
+from mcrit_plugin.core.minimcrit.queue.LocalQueue import Job
 
 
 class _FakeBinaryInfo:
@@ -159,6 +161,12 @@ class TestQueryFunctionEntriesById:
         assert interface.parent.matched_function_entries == {1: old_entry, 7: old_entry}
 
 
+def _job(method, *arguments):
+    """A queue Job as the server describes it: the method and its arguments by position."""
+    params = {str(index): argument for index, argument in enumerate(arguments)}
+    return Job({"payload": {"method": method, "params": json.dumps(params)}}, None)
+
+
 class TestServerErrors:
     def test_a_rejected_upload_reports_failure_without_a_traceback(self, capsys):
         interface = _make_interface()
@@ -178,19 +186,52 @@ class TestServerErrors:
 
     def test_jobs_of_a_sample_are_narrowed_by_the_server_and_checked_exactly(self):
         interface = _make_interface()
-
-        def job(parameters):
-            return SimpleNamespace(parameters=parameters)
-
-        wanted = job("getMatchesForSample(23, 2)")
+        wanted = _job("getMatchesForSample", 23, 2)
         interface.mcrit_client.getQueueData.return_value = [
             wanted,
-            job("getMatchesForSample(230, 2)"),
-            job("updateMinHashesForSample(23)"),
+            _job("getMatchesForSample", 230, 2),
+            _job("updateMinHashesForSample", 23),
         ]
 
         assert interface.queryJobs(sample_id=23) == [wanted]
         interface.mcrit_client.getQueueData.assert_called_once_with(filter="23")
+
+    def test_a_sample_compared_second_finds_the_comparison(self):
+        interface = _make_interface()
+        versus = _job("getMatchesForSampleVs", 5, 12, 50)
+        interface.mcrit_client.getQueueData.return_value = [versus]
+
+        assert interface.queryJobs(sample_id=5) == [versus]
+        assert interface.queryJobs(sample_id=12) == [versus]
+
+    def test_a_threshold_equal_to_the_sample_id_does_not_count(self):
+        interface = _make_interface()
+        # getMatchesForSample(sample_id, minhash_threshold, pichash_size, ...)
+        interface.mcrit_client.getQueueData.return_value = [
+            _job("getMatchesForSample", 0, 50, 10, 1, 50, 1000)
+        ]
+
+        assert interface.queryJobs(sample_id=50) == []
+        assert interface.queryJobs(sample_id=10) == []
+
+    def test_cross_compares_find_each_of_their_samples(self):
+        interface = _make_interface()
+        cross = _job("combineMatchesToCross", {"3": "job-a", "7": "job-b"})
+        per_sample = _job("getMatchesForSampleVsGroup", 3, [7])
+        interface.mcrit_client.getQueueData.return_value = [cross, per_sample]
+
+        assert interface.queryJobs(sample_id=3) == [cross, per_sample]
+        assert interface.queryJobs(sample_id=7) == [cross]
+
+    def test_a_job_with_arguments_of_another_shape_is_skipped(self):
+        interface = _make_interface()
+        wanted = _job("getMatchesForSample", 4)
+        interface.mcrit_client.getQueueData.return_value = [
+            _job("getMatchesForSample", "not a sample id"),
+            wanted,
+        ]
+
+        assert interface.queryJobs(sample_id=4) == [wanted]
 
 
 class TestRemoteInformation:
