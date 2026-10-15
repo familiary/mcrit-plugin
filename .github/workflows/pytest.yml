@@ -65,7 +65,7 @@ jobs:
           "$RUNNER_TEMP/mcrit-venv/bin/python" -m pip install --upgrade pip
           "$RUNNER_TEMP/mcrit-venv/bin/python" -m pip install "mcrit==${MCRIT_VERSION}"
           python -m pip install --upgrade pip
-          python -m pip install "smda==4.9.0" requests
+          python -m pip install "smda==4.10.0" requests
 
       - name: Build deterministic MCRIT fixtures
         run: |

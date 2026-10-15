@@ -27,13 +27,16 @@ class _Backend:
     def show_function_graph(self, parent, sample_entry, function_entry, smda_function, coloring):
         self.graphs += 1
 
+    def show_local_match_coloring(self, smda_function, coloring):
+        pass
+
 
 class _Matcher:
     def __init__(self, *args):
         pass
 
     def getColoredMatches(self):
-        return {"b": {}}
+        return {"a": {}, "b": {}}
 
 
 def test_a_repeated_double_click_opens_one_graph(monkeypatch):
@@ -76,6 +79,9 @@ def test_a_repeated_double_click_on_a_block_match_opens_one_graph():
         sample_infos={},
         blockhash_matches={0xAA: [(1, 1, 7, 0x5000)]},
         block_to_hash={},
+        local_smda_report=SimpleNamespace(
+            getFunction=lambda offset: SimpleNamespace(offset=offset)
+        ),
         local_widget=SimpleNamespace(updateActivityInfo=activity.append),
         mcrit_interface=SimpleNamespace(queryRemoteFunction=lambda function_id: remote),
     )

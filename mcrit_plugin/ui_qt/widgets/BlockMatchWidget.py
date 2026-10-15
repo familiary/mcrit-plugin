@@ -30,6 +30,9 @@ class BlockMatchWidget(QMainWindow):
         self.last_viewed_block = None
         self._last_block_matches = None
         self._graph_fetches = set()
+        # the function and block the tables show; the cursor moves on without refilling them
+        self._shown_function = None
+        self._shown_block = None
         self.name = "Block Scope"
         self.icon = self.cc.QIcon(self.parent.config.ICON_FILE_PATH + "puzzle.png")
         self.central_widget = self.cc.QWidget()
@@ -395,6 +398,7 @@ class BlockMatchWidget(QMainWindow):
                     "No Block Matches for: 0x%x" % self.parent.current_block
                 )
         self._last_block_matches = block_matches_by_offset
+        self._shown_function = self.parent.current_function
         # populate tables with data
         self.populateBlockSummaryTable(block_matches_by_offset)
         self.populateBlockMatchTable(block_matches_by_offset, self.last_viewed_block)
@@ -482,6 +486,7 @@ class BlockMatchWidget(QMainWindow):
         """
         Populate the function name table with all names for the matches we found
         """
+        self._shown_block = block_offset
         if block_offset is not None:
             self.label_block_matches.setText("Block Matches for: 0x%x" % block_offset)
         self.table_block_matches.setSortingEnabled(False)
@@ -567,6 +572,9 @@ class BlockMatchWidget(QMainWindow):
         ):
             self._graph_fetches.add(function_id_b)
             block_matches = self._last_block_matches
+            # the remote function arrives later; the tint is for the function and block clicked
+            function_offset_a = self._shown_function
+            block_a = self._shown_block
             self.parent.local_widget.updateActivityInfo(
                 f"Fetching function {function_id_b} for the graph viewer..."
             )
@@ -584,6 +592,14 @@ class BlockMatchWidget(QMainWindow):
                         if match[2] == function_entry_b.function_id:
                             coloring[match[3]] = matched_color
                 coloring[block_offset_b] = current_color
+                self._colorLocalBlocks(
+                    block_matches,
+                    function_entry_b.function_id,
+                    function_offset_a,
+                    block_a,
+                    matched_color,
+                    current_color,
+                )
                 self.cc.backend.show_function_graph(
                     self, sample_entry_b, function_entry_b, smda_function_b, coloring
                 )
@@ -596,6 +612,21 @@ class BlockMatchWidget(QMainWindow):
                 lambda: self.parent.mcrit_interface.queryRemoteFunction(function_id_b),
                 show,
             )
+
+    def _colorLocalBlocks(
+        self, block_matches, function_id_b, function_offset_a, block_a, matched_color, current_color
+    ):
+        """Tint the local blocks that matched the remote function in the disassembler's own views."""
+        smda_function_a = self.parent.local_smda_report.getFunction(function_offset_a)
+        if smda_function_a is None:
+            return
+        local_coloring = {}
+        for offset, data in block_matches.items():
+            if any(match[2] == function_id_b for match in data["matches"]):
+                local_coloring[offset] = matched_color
+        if block_a in local_coloring:
+            local_coloring[block_a] = current_color
+        self.cc.backend.show_local_match_coloring(smda_function_a, local_coloring)
 
     def _onTableBlockMatchesRightClicked(self, position):
         sha256_column_index = McritTableColumn.columnTypeToIndex(

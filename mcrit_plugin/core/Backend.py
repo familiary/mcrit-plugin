@@ -121,6 +121,13 @@ class Backend(ABC):
         """
         return default
 
+    def show_local_match_coloring(self, smda_function, coloring):
+        """Tint the matched blocks of the local function in the disassembler's own views;
+        coloring maps block offset -> 0xRRGGBB. Backends without such a view keep this no-op."""
+
+    def clear_local_match_coloring(self):
+        """Remove the tint set by show_local_match_coloring."""
+
     @abstractmethod
     def show_function_graph(self, parent, sample_entry, function_entry, smda_function, coloring):
         """Show the CFG of a remote SMDA function; coloring maps block offset -> 0xRRGGBB."""

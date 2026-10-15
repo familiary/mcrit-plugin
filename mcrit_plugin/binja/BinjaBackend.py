@@ -15,6 +15,7 @@ from binaryninja.enums import (
     ThemeColor,
 )
 
+from mcrit_plugin.binja.MatchRenderLayer import HIGHLIGHT_ALPHA, MatchRenderLayer
 from mcrit_plugin.core.Backend import Backend
 from mcrit_plugin.core.ScoreColorProvider import ThemeRole
 
@@ -32,8 +33,6 @@ THEME_HIGHLIGHT_ROLES = {
 }
 # the standard highlight colors are meant as tints; at full strength they overpower any theme
 TINT_STRENGTH = 0.4
-# Binary Ninja composites node highlights over the graph background, like its own highlighting
-GRAPH_HIGHLIGHT_ALPHA = 128
 
 
 class BinjaBackend(Backend):
@@ -49,6 +48,7 @@ class BinjaBackend(Backend):
         self._input_hashes = None
         self.closed = False
         self._mutation_depth = 0
+        self._colored_function = None
 
     def _smda_interface(self):
         from smda.binja.BinjaInterface import BinjaInterface
@@ -264,6 +264,33 @@ class BinjaBackend(Backend):
             )
         )
 
+    def _refresh_views(self):
+        try:
+            from binaryninjaui import UIContext
+        except ImportError:
+            return
+        # render layers run when a view regenerates its lines, as in Binary Ninja's
+        # follow_reg_render_layer example
+        for context in UIContext.allContexts():
+            context.refreshCurrentViewContents()
+
+    def show_local_match_coloring(self, smda_function, coloring):
+        ranges = []
+        for block in smda_function.getBlocks():
+            if block.offset in coloring:
+                last = list(block.getInstructions())[-1]
+                end = last.offset + len(last.bytes) // 2
+                ranges.append((block.offset, end, coloring[block.offset]))
+        MatchRenderLayer.set_coloring(self.bv.file.session_id, ranges)
+        self._colored_function = smda_function.offset
+        self._refresh_views()
+
+    def clear_local_match_coloring(self):
+        MatchRenderLayer.clear(self.bv.file.session_id)
+        if self._colored_function is not None:
+            self._refresh_views()
+            self._colored_function = None
+
     @staticmethod
     def _edge_branch_types(block, targets):
         """Classify CFG edges so Binary Ninja colors them like its own graphs."""
@@ -315,7 +342,7 @@ class BinjaBackend(Backend):
                     red=(rgb >> 16) & 0xFF,
                     green=(rgb >> 8) & 0xFF,
                     blue=rgb & 0xFF,
-                    alpha=GRAPH_HIGHLIGHT_ALPHA,
+                    alpha=HIGHLIGHT_ALPHA,
                 )
             graph.append(node)
             nodes[block.offset] = node
