@@ -47,6 +47,13 @@ Ninja applies to that plugin only.
   Binary Ninja, and takes its sample from the sample list already downloaded instead of asking the
   server again. For a 3,955-instruction match against mcrit.malpedia.io, Binary Ninja froze for
   about 3.5 s; the click now returns at once and the graph opens after about 2.1 s.
+- The Function Overview keeps its rows in a table model and paints the label drop-downs, instead of
+  creating a combo box for every row. A filter click on a synthetic result of 20,000 functions
+  takes about one second instead of two minutes. A drop-down opens when its cell is clicked or
+  with the edit key (F2, Return on macOS), and the label column sorts by score, then label. The
+  matches of a result are grouped by function once, and each filter is aggregated once for the
+  current threshold, so with 221,000 matches over 705 functions clicking through the filters takes
+  about 0.15 s instead of 3 to 4 s.
 
 ## [2.0.0] - 2026-09-28
 
