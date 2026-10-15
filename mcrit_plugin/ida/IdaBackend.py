@@ -101,6 +101,12 @@ def _smda_ida_interface():
                 ref = ida_xref.get_next_cref_from(offset, ref)
             return refs
 
+        def _cbEnumImports(self, addr, name, ordinal):
+            # IDAPython passes no name for an import by ordinal IDA cannot name, and smda's own
+            # callback then fails on module + "!" + None; its ida_domain backend writes "#<ordinal>"
+            # (danielplohmann/smda#398)
+            return super()._cbEnumImports(addr, name or f"#{ordinal}", ordinal)
+
     IdaInterface.instance = FastIdaInterface()
     return IdaInterface()
 

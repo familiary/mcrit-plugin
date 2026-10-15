@@ -78,7 +78,9 @@ Ninja applies to that plugin only.
   once the cursor has left it.
 - IDA: Convert exports through smda's IDAPython backend with cheaper per-instruction reads, also
   when the ida-domain package is installed, which smda would otherwise prefer. The report is
-  unchanged; exporting a 3,668-function binary takes 3.3 s instead of 6.9 s.
+  unchanged; exporting a 3,668-function binary takes 3.3 s instead of 6.9 s. An import by ordinal
+  that IDA cannot name is recorded as `#<ordinal>`, as the ida-domain backend does, where smda's
+  IDAPython backend would fail the export.
 - Each chunk of "Fetch labels for matches" updates the Function Overview from the matches of the
   newly labeled functions instead of all matches again; with 221,000 matches it took up to a second
   per chunk on IDA and now takes a fraction of that.

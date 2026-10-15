@@ -295,3 +295,49 @@ def test_a_database_read_queued_before_the_form_closed_does_not_run(backend):
 
     assert kind == "error" and "closed" in str(error)
     sys.modules["ida_nalt"].get_root_filename.assert_not_called()
+
+
+class _SmdaIda85Interface:
+    """smda's Ida85Interface as far as the import callback goes, as in smda 4.3.10 to 4.10.0."""
+
+    def __init__(self):
+        self._api_map = {}
+        self._import_module_name = None
+
+    def _cbEnumImports(self, addr, name, ordinal):
+        if self._import_module_name:
+            self._api_map[addr] = self._import_module_name + "!" + name
+        else:
+            self._api_map[addr] = name
+        return True
+
+
+@pytest.fixture
+def fast_interface(backend, monkeypatch):
+    from smda.ida.IdaInterface import IdaInterface
+
+    import mcrit_plugin.ida.IdaBackend as module
+
+    monkeypatch.setattr(IdaInterface, "instance", None, raising=False)
+    monkeypatch.setitem(
+        sys.modules,
+        "smda.ida.IdaIdapythonInterface",
+        types.SimpleNamespace(Ida85Interface=_SmdaIda85Interface),
+    )
+    monkeypatch.setitem(sys.modules, "ida_xref", types.ModuleType("ida_xref"))
+    module._smda_ida_interface()
+    return IdaInterface.instance
+
+
+def test_an_import_by_ordinal_without_a_name_is_named_by_its_ordinal(fast_interface):
+    fast_interface._import_module_name = "WS2_32"
+    assert fast_interface._cbEnumImports(0x1000, None, 23) is True
+    fast_interface._cbEnumImports(0x1008, "connect", 4)
+    fast_interface._import_module_name = None
+    fast_interface._cbEnumImports(0x1010, None, 7)
+
+    assert fast_interface._api_map == {
+        0x1000: "WS2_32!#23",
+        0x1008: "WS2_32!connect",
+        0x1010: "#7",
+    }
