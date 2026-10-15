@@ -8,6 +8,8 @@ Ninja applies to that plugin only.
 
 ## [Unreleased]
 
+## [2.1.1] - 2026-10-15
+
 ### Fixed
 
 - IDA: with Live Function Queries on, moving to another function, e.g. by double clicking it in
@@ -315,7 +317,8 @@ Recorded as they were written in the README at the time, newest first.
 - Initial standalone release.
 - IDA 9.2 (PySide6) compatibility.
 
-[Unreleased]: https://github.com/familiary/mcrit-plugin/compare/ida-v2.1.0...HEAD
+[Unreleased]: https://github.com/familiary/mcrit-plugin/compare/ida-v2.1.1...HEAD
+[2.1.1]: https://github.com/familiary/mcrit-plugin/compare/ida-v2.1.0...ida-v2.1.1
 [2.1.0]: https://github.com/familiary/mcrit-plugin/compare/ida-v2.0.0...ida-v2.1.0
 [2.0.0]: https://github.com/familiary/mcrit-plugin/compare/v1.1.10...ida-v2.0.0
 [1.1.10]: https://github.com/familiary/mcrit-plugin/compare/v1.1.9...v1.1.10
