@@ -1,15 +1,14 @@
 # extensions.binary.ninja reads plugin.json at the commit of the latest GitHub release and only
 # looks at its "version" field; tag names and release titles are never parsed.
+#
+# The version is raised in plugin.json through a pull request, like the IDA plugin's. This workflow
+# then tags the commit on the default branch and publishes it as the latest release; it never pushes
+# to the branch, so the ruleset that requires pull requests needs no bypass.
 name: Binary Ninja release
 
 on:
   workflow_dispatch:
     inputs:
-      version:
-        description: "New version (leave blank to bump the last number, e.g. 1.0.0 -> 1.0.1)"
-        required: false
-        default: ""
-        type: string
       description:
         description: "Release notes shown in the extension manager (leave blank to generate them)"
         required: false
@@ -30,18 +29,22 @@ concurrency:
 
 jobs:
   verify:
-    # plugin_actions always releases the default branch, whichever ref the workflow was started from
+    # the release is always cut from the default branch, whichever ref the workflow was started from
     runs-on: ubuntu-latest
     permissions:
       contents: read
       actions: read
     outputs:
       sha: ${{ steps.commit.outputs.sha }}
+      version: ${{ steps.version.outputs.version }}
+      previous: ${{ steps.version.outputs.previous }}
     steps:
       - name: Checkout the default branch
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           ref: ${{ github.event.repository.default_branch }}
+          # the version check below needs every tag
+          fetch-depth: 0
           persist-credentials: false
 
       - name: Record the verified commit
@@ -73,6 +76,36 @@ jobs:
           fi
           echo "CI passed on ${SHA}"
 
+      # extensions.binary.ninja silently skips a version it has already seen, so the version must be
+      # new: no tag may name it yet, and it must be greater than that of the current latest release.
+      - name: Check the version in plugin.json is new
+        id: version
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          REPO: ${{ github.repository }}
+        run: |
+          version=$(python -c 'import json; print(json.load(open("plugin.json"))["version"])')
+          if ! [[ "${version}" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            echo "::error::plugin.json version '${version}' is not X.Y.Z."
+            exit 1
+          fi
+          for tag in "${version}" "v${version}"; do
+            if git rev-parse -q --verify "refs/tags/${tag}" > /dev/null; then
+              echo "::error::Tag ${tag} already names ${version}. Raise the version in plugin.json through a pull request."
+              exit 1
+            fi
+          done
+          previous=$(gh api "repos/${REPO}/releases/latest" --jq '.tag_name' 2> /dev/null || true)
+          previous_version="${previous#v}"
+          if [ -n "${previous_version}" ] && \
+             [ "$(printf '%s\n%s\n' "${previous_version}" "${version}" | sort -V | tail -n1)" != "${version}" ]; then
+            echo "::error::plugin.json version ${version} is not greater than the latest release ${previous}."
+            exit 1
+          fi
+          echo "version=${version}" >> "$GITHUB_OUTPUT"
+          echo "previous=${previous}" >> "$GITHUB_OUTPUT"
+          echo "Releasing ${previous:-nothing} -> ${version}"
+
       - name: Install test tooling
         run: |
           python -m pip install --upgrade pip
@@ -98,31 +131,45 @@ jobs:
     outputs:
       tag: ${{ steps.publish.outputs.tag }}
     steps:
-      - name: Checkout the default branch # zizmor: ignore[artipacked]
-        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          ref: ${{ github.event.repository.default_branch }}
-          # plugin_actions needs full history and tags to refuse reused versions, and the persisted
-          # token to push the version commit and tag
-          fetch-depth: 0
-
       - name: Refuse to release an unverified commit
         env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          REPO: ${{ github.repository }}
+          BRANCH: ${{ github.event.repository.default_branch }}
           VERIFIED_SHA: ${{ needs.verify.outputs.sha }}
         run: |
-          if [ "$(git rev-parse HEAD)" != "$VERIFIED_SHA" ]; then
+          head=$(gh api "repos/${REPO}/commits/${BRANCH}" --jq '.sha')
+          if [ "${head}" != "${VERIFIED_SHA}" ]; then
             echo "::error::The default branch moved after verification; run the release again."
             exit 1
           fi
 
-      - name: Bump plugin.json, tag and publish the release
+      # The release API creates the tag on the verified commit; nothing is pushed to the branch.
+      # --generate-notes appends its list under the notes, counted from the previous latest release.
+      - name: Tag and publish the release
         id: publish
-        uses: Vector35/plugin_actions@9ea98e06c5aa58a8e2d973c91af583beaecb0efd # v1.1.0
-        with:
-          checkout: "false"
-          version: ${{ inputs.version }}
-          description: ${{ inputs.description }}
-          dry-run: ${{ inputs.dry-run }}
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          REPO: ${{ github.repository }}
+          SHA: ${{ needs.verify.outputs.sha }}
+          VERSION: ${{ needs.verify.outputs.version }}
+          PREVIOUS: ${{ needs.verify.outputs.previous }}
+          DESCRIPTION: ${{ inputs.description }}
+          DRY_RUN: ${{ inputs.dry-run }}
+        run: |
+          flags=(--repo "${REPO}" --target "${SHA}" --title "${VERSION}" --latest --generate-notes)
+          if [ -n "${PREVIOUS}" ]; then
+            flags+=(--notes-start-tag "${PREVIOUS}")
+          fi
+          if [ "${DRY_RUN}" = "true" ]; then
+            {
+              echo "### Dry run: nothing was tagged or published"
+              echo "A real run would have released \`${PREVIOUS:-nothing}\` -> \`${VERSION}\` from \`${SHA}\`."
+            } >> "$GITHUB_STEP_SUMMARY"
+            exit 0
+          fi
+          gh release create "${VERSION}" "${flags[@]}" --notes "${DESCRIPTION}"
+          echo "tag=${VERSION}" >> "$GITHUB_OUTPUT"
 
   offline-dependencies:
     name: Attach offline dependency bundles

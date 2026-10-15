@@ -126,9 +126,6 @@ hcli plugin lint dist/mcrit-ida-X.Y.Z.zip
 Done once, by a repository owner; the workflow cannot create these for itself.
 
 - **Label** `no-changelog`, used by the changelog check.
-- **A ruleset bypass for the Binary Ninja release.** `main` is protected by a ruleset that requires
-  a pull request, and the release pushes its version commit to `main` with `GITHUB_TOKEN`. Without
-  a bypass for GitHub Actions the push is rejected and nothing is tagged.
 - Optionally, **immutable releases** (Settings → General → Releases), so a published release's
   assets and tag can no longer be changed. Note that the offline-dependency workflow uploads
   assets to the release after it is published, so it has to finish before a release is made
@@ -151,18 +148,25 @@ reads `plugin.json` from the commit of the latest GitHub release and compares no
 `version`: tag names and release titles are never parsed, and a version it has already seen is
 silently skipped.
 
-Releases are started by hand, from Actions → Binary Ninja release → Run workflow, or:
+A release takes two steps, the same shape as an IDA release:
 
-```bash
-gh workflow run binja-release.yml -f dry-run=true
-gh workflow run binja-release.yml -f version=1.1.0   # blank bumps the last number
-```
+1. In a PR, set the new version in `plugin.json` and, if the release has user-visible changes,
+   make sure `CHANGELOG.md` records them.
+2. Once it has merged and CI is green on `main`, start the release from Actions → Binary Ninja
+   release → Run workflow, or:
 
-`.github/workflows/binja-release.yml` checks that CI passed on `main`, runs the metadata, settings,
-quality and pytest checks there with a read-only token, then hands the same commit to [Vector35/plugin_actions](https://github.com/Vector35/plugin_actions),
-the release action of Vector35's sample plugin. It bumps `plugin.json`, commits it as
-`github-actions[bot]`, tags the commit with the bare version and publishes it as the latest GitHub
-release. If `main` moved between the checks and the release, the run stops. Afterwards it calls
+   ```bash
+   gh workflow run binja-release.yml -f dry-run=true
+   gh workflow run binja-release.yml -f description="$(cat notes.md)"   # blank generates notes
+   ```
+
+`.github/workflows/binja-release.yml` checks that CI passed on `main`, that the version in
+`plugin.json` is new (no tag `X.Y.Z` or `vX.Y.Z` names it yet, and it is greater than the latest
+release), and runs the metadata, settings, quality and pytest checks there with a read-only token.
+It then tags the same commit with the bare version through the release API and publishes it as the
+latest GitHub release, with the description as notes and GitHub's generated list since the previous
+latest release appended. It never pushes to `main`, so the ruleset needs no bypass. If `main` moved
+between the checks and the release, the run stops. Afterwards it calls
 `offline-dependencies.yml` to attach a `binja` wheelhouse bundle built from `requirements.txt`
 for Python 3.11 to 3.13. To attach it to an existing release by hand, pass the same inputs:
 
@@ -176,14 +180,17 @@ gh workflow run offline-dependencies.yml -f tag=X.Y.Z \
 touch the Binary Ninja plugin or anything both plugins share (see
 [docs/development.md](docs/development.md)). It checks
 that `plugin.json`, `requirements.txt` and the README agree and that the source archive has the
-plugin at its root without `ida-plugin.json`, then validates `plugin.json` with a dry run of the
-same release action.
+plugin at its root without `ida-plugin.json`, then validates `plugin.json` with a dry run of
+[Vector35/plugin_actions](https://github.com/Vector35/plugin_actions), the release action of
+Vector35's sample plugin, so the PR that raises the version is checked the way the extension
+manager reads it.
 
-- The release pushes to `main`, which needs the ruleset bypass under "Maintainer configuration".
 - Versions `1.1.4`, `1.1.5`, `1.1.7`–`1.1.10` and `1.4.5` cannot be used: earlier tags already
-  name them, and the action refuses to reuse a version a tag already names. Nor can the version
-  already in `plugin.json`: the action only releases a version greater than it, so the first
-  release went out as 1.0.1, not 1.0.0.
-- After the first release, open an issue on
-  [Vector35/community-plugins](https://github.com/Vector35/community-plugins/issues/new/choose) to get
-  the plugin listed.
+  name them, and the release refuses a version a tag already names.
+- Up to 1.0.1 the release ran plugin_actions for real, which commits the version bump to `main`
+  itself. GitHub does not accept the GitHub Actions app as a bypass actor on this repository's
+  ruleset, so 1.0.1 went out with the ruleset switched off for the run; the version is now raised
+  through a PR instead.
+- The plugin's listing in the extension manager was requested in
+  [Vector35/community-plugins#378](https://github.com/Vector35/community-plugins/issues/378) after
+  the first release; later releases need no further request.
