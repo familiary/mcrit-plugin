@@ -2,9 +2,9 @@
 
 This repository follows the release process shared across the MCRIT ecosystem
 ([smda](https://github.com/danielplohmann/smda), [purepdb](https://github.com/danielplohmann/purepdb),
-[mcrit](https://github.com/danielplohmann/mcrit), [mcritweb](https://github.com/fkie-cad/mcritweb),
+[mcrit](https://github.com/familiary/mcrit), [mcritweb](https://github.com/fkie-cad/mcritweb),
 [mcrit-plugin](https://github.com/familiary/mcrit-plugin),
-[docker-mcrit](https://github.com/danielplohmann/docker-mcrit)). The shape is the same everywhere;
+[docker-mcrit](https://github.com/familiary/docker-mcrit)). The shape is the same everywhere;
 this file states the values that are specific to this repository.
 
 This repository ships two plugins that are versioned and released independently: the IDA plugin

@@ -5,7 +5,7 @@
 [![HCLI Compatible](https://img.shields.io/badge/HCLI-compatible-brightgreen.svg)](https://hcli.docs.hex-rays.com/)
 [![Ask DeepWiki](https://deepwiki.com/badge.svg)](https://deepwiki.com/familiary/mcrit-plugin)
 
-Client for [MCRIT](https://github.com/danielplohmann/mcrit), the MinHash-based code similarity server, for IDA Pro and Binary Ninja. It exports your database as an SMDA report, uploads it, and shows matching blocks, functions and labels from the server next to your analysis.
+Client for [MCRIT](https://github.com/familiary/mcrit), the MinHash-based code similarity server, for IDA Pro and Binary Ninja. It exports your database as an SMDA report, uploads it, and shows matching blocks, functions and labels from the server next to your analysis.
 
 - Block and function matches for the current cursor position
 - Function overview with label import and conflict resolution
