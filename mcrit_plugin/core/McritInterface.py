@@ -14,6 +14,31 @@ except Exception as exc:
 else:
     _SMDA_IMPORT_ERROR = None
 
+# matching jobs by how many of their leading arguments name samples; MCRIT passes these
+# positionally and the matching knobs by keyword, so a knob is never read as a sample id
+_SAMPLE_MATCHING_METHODS = {
+    "getMatchesForSample": 1,
+    "getMatchesForSampleVs": 2,
+    # a cross compare's part for one sample, with the others as a list
+    "getMatchesForSampleVsGroup": 2,
+}
+
+
+def _matchesSample(job, sample_id):
+    """Whether job is a matching job that names sample_id among its samples."""
+    count = _SAMPLE_MATCHING_METHODS.get(job.method)
+    if count is None:
+        return False
+    for argument in job.arguments[:count]:
+        for value in argument if isinstance(argument, list) else [argument]:
+            # int() as Job.sample_id reads them, whatever type the server stored
+            try:
+                if int(value) == sample_id:
+                    return True
+            except (TypeError, ValueError):
+                continue
+    return False
+
 
 class McritInterface(object):
     def __init__(self, parent, backend):
@@ -201,17 +226,7 @@ class McritInterface(object):
                 return None
             # check if we already have a match report for the sample id
             if sample_id is not None:
-                jobs = [
-                    job
-                    for job in jobs
-                    if "Matches" in job.parameters
-                    and (
-                        "(" + str(sample_id) + ")" in job.parameters
-                        or "(" + str(sample_id) + "," in job.parameters
-                        or "," + str(sample_id) + "," in job.parameters
-                        or "," + str(sample_id) + ")" in job.parameters
-                    )
-                ]
+                jobs = [job for job in jobs if _matchesSample(job, sample_id)]
             if jobs:
                 self.parent.local_widget.updateActivityInfo("Success! Fetched Jobs.")
             else:

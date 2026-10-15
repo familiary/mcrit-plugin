@@ -108,6 +108,10 @@ Ninja applies to that plugin only.
 - The bundled MCRIT client's `modifyFamily`, `modifySample`, `requestMatchesForMappedBinary` and
   `requestMatchesForUnmappedBinary` raised `TypeError` on every call: they passed the request body
   positionally to the client's request wrappers, which take it only by keyword.
+- Choosing a matching job missed a sample that was not a job's first sample, such as the second
+  sample of a sample-vs-sample comparison or one of the samples a cross compare matches against.
+  Jobs are now matched on the samples they name instead of on their parameters as text, so a
+  matching threshold equal to the sample id no longer counts either.
 
 ## [2.0.0] - 2026-09-28
 

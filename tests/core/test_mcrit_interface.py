@@ -1,5 +1,6 @@
 """Tests for the McritInterface logic that runs without a disassembler or an MCRIT server."""
 
+import json
 import threading
 from types import SimpleNamespace
 from unittest.mock import MagicMock
@@ -8,6 +9,7 @@ import pytest
 import requests
 
 from mcrit_plugin.core.McritInterface import McritInterface
+from mcrit_plugin.core.minimcrit.queue.LocalQueue import Job
 
 
 class _FakeBinaryInfo:
@@ -179,17 +181,27 @@ class TestServerErrors:
     def test_jobs_of_a_sample_are_narrowed_by_the_server_and_checked_exactly(self):
         interface = _make_interface()
 
-        def job(parameters):
-            return SimpleNamespace(parameters=parameters)
+        def job(method, *args, **kwargs):
+            # as MCRIT stores a job: keyword arguments by name, positional ones as "0", "1", ...
+            params = dict(kwargs)
+            params.update({str(index): value for index, value in enumerate(args)})
+            return Job({"payload": {"method": method, "params": json.dumps(params)}}, None)
 
-        wanted = job("getMatchesForSample(23, 2)")
-        interface.mcrit_client.getQueueData.return_value = [
-            wanted,
-            job("getMatchesForSample(230, 2)"),
-            job("updateMinHashesForSample(23)"),
+        wanted = [
+            job("getMatchesForSample", 23, minhash_threshold=50),
+            job("getMatchesForSampleVs", 5, 23),
+            job("getMatchesForSampleVsGroup", 7, [5, 23]),
+            job("getMatchesForSampleVs", "23", "5"),
+        ]
+        interface.mcrit_client.getQueueData.return_value = wanted + [
+            job("getMatchesForSample", 230),
+            job("getMatchesForSample", 50, minhash_threshold=23),
+            job("getMatchesForSampleVs", 5, 230),
+            job("updateMinHashesForSample", 23),
+            job("getMatchesForSmdaReport", None, minhash_threshold=23),
         ]
 
-        assert interface.queryJobs(sample_id=23) == [wanted]
+        assert interface.queryJobs(sample_id=23) == wanted
         interface.mcrit_client.getQueueData.assert_called_once_with(filter="23")
 
 
