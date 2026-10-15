@@ -54,6 +54,13 @@ Ninja applies to that plugin only.
   matches of a result are grouped by function once, and each filter is aggregated once for the
   current threshold, so with 221,000 matches over 705 functions clicking through the filters takes
   about 0.15 s instead of 3 to 4 s.
+- Choosing a matching job asks the server for the jobs that mention the sample, instead of
+  downloading every job of the server and filtering them in the plugin.
+- Convert no longer waits for the family and sample lists: they download in the background after
+  the report is built, side by side instead of one after the other, and one download serves every
+  widget that needs them. The family chooser for an unknown sample opens once they are here. On
+  Binary Ninja, Convert also asks whether the server knows the sample in the background, which
+  froze the UI for about 1.5 s against a remote server.
 
 ## [2.0.0] - 2026-09-28
 

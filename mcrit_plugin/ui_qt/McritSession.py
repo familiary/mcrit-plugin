@@ -82,10 +82,7 @@ class McritSession:
         """Download family/sample meta data; callable off the UI thread, so it touches no widget."""
         time_before = time.time()
         print("[/] starting download of meta data from MCRIT...")
-        self.mcrit_interface.queryAllFamilyEntries()
-        print("[|] downloaded FamilyEntries!")
-        self.mcrit_interface.queryAllSampleEntries()
-        print("[|] downloaded SampleEntries!")
+        self.mcrit_interface.ensureRemoteInformation()
         print("[\\] this took %3.2f seconds.\n" % (time.time() - time_before))
 
     def setupWidgets(self):

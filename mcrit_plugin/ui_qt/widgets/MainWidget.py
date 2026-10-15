@@ -275,23 +275,31 @@ class MainWidget(QMainWindow):
 
     def _convertAndFetchRemote(self):
         local_smda_report = self.getLocalSmdaReport()
-        if self.parent.local_smda_report is None:
-            self.parent.getRemoteSampleInformation()
+        if local_smda_report is not None:
+            self.parent.mcrit_interface.querySampleSha256(local_smda_report.sha256)
         return local_smda_report
 
     def _applyConvertedReport(self, local_smda_report):
-        if self.parent.local_smda_report is None:
+        first_conversion = self.parent.local_smda_report is None
+        if first_conversion:
             self.parent.local_smda_report = local_smda_report
-            self.parent.local_widget.updateActivityInfo(
-                "Downloaded all family/sample information from MCRIT"
+        if first_conversion and (
+            self.parent.local_smda_report is None or self.parent.remote_sample_entry is not None
+        ):
+            # the lists are needed once matches show up, so convert does not wait for them; for
+            # an unknown sample the family chooser below downloads them instead
+            self.cc.backend.run_request(
+                "MCRIT: downloading family and sample lists",
+                self.parent.getRemoteSampleInformation,
+                lambda _result: self.parent.local_widget.updateActivityInfo(
+                    "Downloaded all family/sample information from MCRIT"
+                ),
             )
         if self.parent.local_smda_report is not None:
             self.exportSmdaAction.setEnabled(True)
             self.uploadSmdaAction.setEnabled(True)
             self.buildYaraStringAction.setEnabled(True)
-            # check if remote sample exists
-            self.parent.mcrit_interface.querySampleSha256(self.parent.local_smda_report.sha256)
-            # if yes, enable matching and use meta data
+            # if the conversion found the sample on the server, enable matching and use its meta data
             if self.parent.remote_sample_entry is not None:
                 self.getMatchResultAction.setEnabled(True)
                 self.parent.local_smda_report.family = self.parent.remote_sample_entry.family
@@ -301,15 +309,40 @@ class MainWidget(QMainWindow):
                 )
             # else query for family, version, library instead
             else:
-                dialog = self.SmdaInfoDialog(self)
-                dialog.exec_()
-                smda_info = dialog.getSmdaInfo()
-                self.parent.local_smda_report.family = smda_info["family"]
-                self.parent.local_smda_report.version = smda_info["version"]
-                self.parent.local_smda_report.is_library = smda_info["is_library"]
-            self.parent.block_match_widget.enable()
-            self.parent.function_match_widget.enable()
+                # the dialog offers the families, so they have to be here first; until it closes,
+                # another Convert would open a second one
+                self._building = True
+                self.cc.backend.run_request(
+                    "MCRIT: downloading family and sample lists",
+                    self._downloadListsForChooser,
+                    lambda _result: self._askSmdaInfo(),
+                )
+                return
+            self._enableMatchWidgets()
         self.parent.local_widget.update()
+
+    def _downloadListsForChooser(self):
+        try:
+            return self.parent.getRemoteSampleInformation()
+        except Exception:
+            # a raising request never reaches _askSmdaInfo; the next Convert may try again
+            self._building = False
+            raise
+
+    def _askSmdaInfo(self):
+        dialog = self.SmdaInfoDialog(self)
+        dialog.exec_()
+        self._building = False
+        smda_info = dialog.getSmdaInfo()
+        self.parent.local_smda_report.family = smda_info["family"]
+        self.parent.local_smda_report.version = smda_info["version"]
+        self.parent.local_smda_report.is_library = smda_info["is_library"]
+        self._enableMatchWidgets()
+        self.parent.local_widget.update()
+
+    def _enableMatchWidgets(self):
+        self.parent.block_match_widget.enable()
+        self.parent.function_match_widget.enable()
 
     def _onExportSmdaButtonClicked(self):
         self._buildLocalSmdaReport(self._exportReport)
