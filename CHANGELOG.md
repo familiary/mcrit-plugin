@@ -24,10 +24,14 @@ Ninja applies to that plugin only.
   shown. Results already cached show at once. Upload and Get Match Result are disabled while their
   request runs, and a failed request shows a warning. IDA still runs these requests on its main
   thread.
-- The bundled MCRIT client has the interface of MCRIT 1.12.0's client: `sample_group_only` only
+- The bundled MCRIT client has the interface of MCRIT 1.15.0's client: `sample_group_only` only
   on the cross compare, the raising error modes, a default connect timeout, the job selectors of
   `getQueueData`, `getQueueCount` and the unique-block parameters. The plugin sets its own
-  timeout, so requests behave as before.
+  timeout, so requests behave as before. Since 1.12.0's client it also treats a 2xx whose body is
+  not JSON, such as a proxy's login page, as a failed answer instead of raising a JSON error;
+  `awaitResult` raises `JobFailedError` for a job that ends without a result; `modifyFamily` takes
+  `actors` and sends JSON; the matching requests take `shortlist_size`, `band_df_cutoff` and
+  `preset`; and `getJobCount` and `deleteQueueData` encode their query strings.
 - Binary Ninja: "Fetch labels for matches" also runs off the UI thread; on a result with 150,000
   matched functions it froze Binary Ninja for about a minute.
 - The Function Overview renders large results about ten times faster: it sizes its rows once
@@ -64,6 +68,12 @@ Ninja applies to that plugin only.
   widget that needs them. The family chooser for an unknown sample opens once they are here. On
   Binary Ninja, Convert also asks whether the server knows the sample in the background, which
   froze the UI for about 1.5 s against a remote server.
+
+### Fixed
+
+- The bundled MCRIT client's `modifyFamily`, `modifySample`, `requestMatchesForMappedBinary` and
+  `requestMatchesForUnmappedBinary` raised `TypeError` on every call: they passed the request body
+  positionally to the client's request wrappers, which take it only by keyword.
 
 ## [2.0.0] - 2026-09-28
 

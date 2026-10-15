@@ -6,18 +6,23 @@ what reviewer feedback flagged as a potential no-op; the tests pin the
 behavior so it cannot regress silently.
 """
 
+import datetime
 from unittest.mock import MagicMock
 
 import pytest
+import requests
 
 from mcrit_plugin.core.minimcrit.client.McritClient import (
     DEFAULT_TIMEOUT,
+    JobFailedError,
+    JobTerminatedError,
     McritClient,
     McritNotFound,
     McritServerError,
     McritUnauthorized,
     handle_response,
 )
+from mcrit_plugin.core.minimcrit.queue.LocalQueue import Job
 
 
 @pytest.fixture
@@ -288,3 +293,266 @@ class TestRaisingModes:
         for status in (401, 403):
             with pytest.raises(McritUnauthorized):
                 handle_response(_make_response(status, {}), raise_client_errors=True)
+
+
+def _response(status_code, body, url="http://example.test:8000/x"):
+    """A real requests.Response with the given raw body."""
+    response = requests.Response()
+    response.status_code = status_code
+    response._content = body
+    response.url = url
+    return response
+
+
+class _Session:
+    """Records each request and answers it with a canned response."""
+
+    def __init__(self, answer):
+        self.answer = answer
+        self.calls = []
+
+    def _record(self, method):
+        def call(url, **kwargs):
+            self.calls.append((method, url, kwargs))
+            return self.answer
+
+        return call
+
+    def __getattr__(self, method):
+        return self._record(method.upper())
+
+    def sent_url(self):
+        method, url, kwargs = self.calls[-1]
+        return requests.Request(method, url, params=kwargs.get("params")).prepare().url
+
+
+def _recording(client, answer=None):
+    if answer is None:
+        answer = _response(200, b'{"status": "successful", "data": {}}')
+    session = _Session(answer)
+    client._session = session
+    return session
+
+
+class TestNonJsonAnswers:
+    @pytest.mark.parametrize("status", [200, 202])
+    @pytest.mark.parametrize("body", [b"<html>login</html>", b""])
+    def test_a_2xx_that_is_not_json_is_a_failed_answer(self, status, body, caplog):
+        response = _response(status, body)
+
+        assert handle_response(response) is None
+        assert handle_response(response, raise_client_errors=True) is None
+        with pytest.raises(McritServerError) as raised:
+            handle_response(response, raise_server_errors=True)
+        assert raised.value.status_code == status
+        assert raised.value.message == ""
+        assert "body that is not JSON" in caplog.text
+
+    def test_a_2xx_whose_body_is_no_dict_is_a_failed_answer(self):
+        response = _response(200, b'["successful"]')
+
+        assert handle_response(response) is None
+        with pytest.raises(McritServerError):
+            handle_response(response, raise_server_errors=True)
+
+
+def _job(result=None, terminated=False, attempts_left=1, **extra):
+    data = {
+        "result": result,
+        "terminated": terminated,
+        "attempts_left": attempts_left,
+        "finished_at": None,
+        **extra,
+    }
+    return Job(data, None)
+
+
+class TestAwaitResult:
+    def test_a_job_without_a_result_raises_job_failed(self, client, monkeypatch):
+        monkeypatch.setattr(
+            client, "getJobData", lambda job_id: _job(attempts_left=0, last_error="out of memory")
+        )
+        client.getResult = MagicMock()
+
+        with pytest.raises(JobFailedError) as raised:
+            client.awaitResult("abc", sleep_time=0)
+
+        assert raised.value.job_id == "abc"
+        assert raised.value.last_error == "out of memory"
+        assert str(raised.value) == "job abc failed: out of memory"
+        client.getResult.assert_not_called()
+
+    def test_a_job_that_never_recorded_an_error_has_none(self, client, monkeypatch):
+        monkeypatch.setattr(client, "getJobData", lambda job_id: _job(attempts_left=0))
+
+        with pytest.raises(JobFailedError) as raised:
+            client.awaitResult("abc", sleep_time=0)
+
+        assert raised.value.last_error is None
+        assert str(raised.value) == "job abc failed"
+
+    def test_a_terminated_job_still_raises_job_terminated(self, client, monkeypatch):
+        monkeypatch.setattr(client, "getJobData", lambda job_id: _job(terminated=True))
+
+        with pytest.raises(JobTerminatedError):
+            client.awaitResult("abc", sleep_time=0)
+
+    def test_a_finished_job_answers_its_result(self, client, monkeypatch):
+        monkeypatch.setattr(client, "getJobData", lambda job_id: _job(result="r1"))
+        client.getResult = MagicMock(return_value={"matches": []})
+
+        assert client.awaitResult("abc", sleep_time=0) == {"matches": []}
+        client.getResult.assert_called_once_with("r1", compact=False)
+
+
+class TestModifyRequests:
+    def test_modify_family_sends_json_with_actors(self, client):
+        session = _recording(client)
+
+        client.modifyFamily(3, family_name="emotet", actors=("TA542",))
+
+        method, url, kwargs = session.calls[-1]
+        assert (method, url) == ("PUT", "http://example.test:8000/families/3")
+        assert kwargs["json"] == {"family_name": "emotet", "actors": ["TA542"]}
+        assert "data" not in kwargs
+
+    def test_an_empty_actor_list_clears_them(self, client):
+        session = _recording(client)
+
+        client.modifyFamily(3, actors=[])
+
+        assert session.calls[-1][2]["json"] == {"actors": []}
+
+    def test_modify_family_answers_the_response_in_raw_mode(self):
+        client = McritClient(mcrit_server="http://example.test:8000", raw_responses=True)
+        answer = _response(200, b'{"status": "successful", "data": {}}')
+        _recording(client, answer)
+
+        assert client.modifyFamily(3, family_name="emotet") is answer
+
+    def test_modify_sample_sends_the_fields_as_form_data(self, client):
+        session = _recording(client)
+
+        client.modifySample(4, version="1.0")
+
+        method, url, kwargs = session.calls[-1]
+        assert (method, url) == ("PUT", "http://example.test:8000/samples/4")
+        assert kwargs["data"] == {"version": "1.0"}
+
+    @pytest.mark.parametrize(
+        "call, path",
+        [
+            (
+                lambda client: client.requestMatchesForUnmappedBinary(
+                    b"MZ", disassemble_locally=False
+                ),
+                "/query/binary",
+            ),
+            (
+                lambda client: client.requestMatchesForMappedBinary(
+                    b"MZ", 0x400000, disassemble_locally=False
+                ),
+                "/query/binary/mapped/4194304",
+            ),
+        ],
+    )
+    def test_binary_queries_send_the_binary_as_the_body(self, client, call, path):
+        session = _recording(client)
+
+        call(client)
+
+        method, url, kwargs = session.calls[-1]
+        assert (method, url) == ("POST", "http://example.test:8000" + path)
+        assert kwargs["data"] == b"MZ"
+
+
+class TestTwoStageMatchingKnobs:
+    KNOBS = {"shortlist_size": 500, "band_df_cutoff": 2000, "preset": "hunt"}
+
+    @pytest.mark.parametrize(
+        "call",
+        [
+            lambda client, **knobs: client.requestMatchesForSmdaReport(MagicMock(), **knobs),
+            lambda client, **knobs: client.requestMatchesForSample(42, **knobs),
+            lambda client, **knobs: client.getMatchesForSmdaFunction(MagicMock(), **knobs),
+            lambda client, **knobs: client.requestMatchesForUnmappedBinary(
+                b"MZ", disassemble_locally=False, **knobs
+            ),
+            lambda client, **knobs: client.requestMatchesForMappedBinary(
+                b"MZ", 0, disassemble_locally=False, **knobs
+            ),
+        ],
+    )
+    def test_the_matching_requests_pass_the_knobs(self, client, call):
+        session = _recording(client)
+
+        call(client, **self.KNOBS)
+        assert self.KNOBS.items() <= session.calls[-1][2]["params"].items()
+        call(client)
+        assert not set(self.KNOBS) & set(session.calls[-1][2]["params"])
+
+    @pytest.mark.parametrize(
+        "call",
+        [
+            lambda client, **knobs: client.requestMatchesForSampleVs(42, 43, **knobs),
+            lambda client, **knobs: client.requestMatchesCross([42, 43], **knobs),
+        ],
+    )
+    def test_sample_comparisons_take_no_shortlist(self, client, call):
+        session = _recording(client)
+
+        call(client, band_df_cutoff=2000, preset="identification")
+
+        params = session.calls[-1][2]["params"]
+        assert params["band_df_cutoff"] == 2000 and params["preset"] == "identification"
+        with pytest.raises(TypeError):
+            call(client, shortlist_size=500)
+
+    def test_a_locally_disassembled_binary_keeps_the_knobs(self, client, monkeypatch):
+        import mcrit_plugin.core.minimcrit.client.McritClient as module
+
+        report = MagicMock(status="ok")
+        monkeypatch.setattr(
+            module, "Disassembler", lambda: MagicMock(disassembleUnmappedBuffer=lambda b: report)
+        )
+        session = _recording(client)
+
+        client.requestMatchesForUnmappedBinary(b"MZ", **self.KNOBS)
+
+        assert session.calls[-1][1] == "http://example.test:8000/query"
+        assert session.calls[-1][2]["params"] == {"force_recalculation": False, **self.KNOBS}
+
+
+class TestQueryStringEncoding:
+    def test_the_job_count_filter_is_encoded(self, client):
+        session = _recording(client, _response(200, b'{"status": "successful", "data": []}'))
+
+        client.getJobCount(filter="a&b c")
+
+        assert session.sent_url() == "http://example.test:8000/jobs?filter=a%26b+c"
+
+    def test_queue_deletion_criteria_are_encoded(self, client):
+        session = _recording(client)
+
+        client.deleteQueueData(
+            method="getMatchesForSample&x",
+            created_before=datetime.datetime(2026, 10, 1, 12, 30),
+        )
+
+        assert session.sent_url() == (
+            "http://example.test:8000/jobs/?method=getMatchesForSample%26x"
+            "&created_before=2026-10-01T12%3A30%3A00"
+        )
+
+
+class TestRawFunctionLookups:
+    def test_get_function_by_id_hands_back_a_failed_answer_in_raw_mode(self):
+        client = McritClient(
+            mcrit_server="http://example.test:8000",
+            raw_responses=True,
+            raise_client_errors=True,
+        )
+        answer = _response(404, b'{"status": "failed", "data": {"message": "no such function"}}')
+        _recording(client, answer)
+
+        assert client.getFunctionById(5) is answer
