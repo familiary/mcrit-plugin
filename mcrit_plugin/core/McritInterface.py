@@ -18,7 +18,8 @@ else:
 def _isMatchingJobOfSample(job, sample_id):
     """Whether a matching job compares the sample, read from the job's sample id arguments like the
     server's sample_ids selector; its thresholds are arguments too and must not count."""
-    if "Matches" not in (job.method or ""):
+    # a cross compare's combined result is no matching report, so the result chooser cannot load it
+    if "Matches" not in (job.method or "") or job.method == "combineMatchesToCross":
         return False
     try:
         # the per-sample jobs of a cross compare; Job.sample_ids does not know them

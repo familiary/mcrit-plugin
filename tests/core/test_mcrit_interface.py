@@ -161,9 +161,10 @@ class TestQueryFunctionEntriesById:
         assert interface.parent.matched_function_entries == {1: old_entry, 7: old_entry}
 
 
-def _job(method, *arguments):
-    """A queue Job as the server describes it: the method and its arguments by position."""
+def _job(method, *arguments, **named):
+    """A queue Job as the server stores it: the sample ids by position, the knobs by name."""
     params = {str(index): argument for index, argument in enumerate(arguments)}
+    params.update(named)
     return Job({"payload": {"method": method, "params": json.dumps(params)}}, None)
 
 
@@ -198,7 +199,7 @@ class TestServerErrors:
 
     def test_a_sample_compared_second_finds_the_comparison(self):
         interface = _make_interface()
-        versus = _job("getMatchesForSampleVs", 5, 12, 50)
+        versus = _job("getMatchesForSampleVs", 5, 12, minhash_threshold=50)
         interface.mcrit_client.getQueueData.return_value = [versus]
 
         assert interface.queryJobs(sample_id=5) == [versus]
@@ -206,22 +207,21 @@ class TestServerErrors:
 
     def test_a_threshold_equal_to_the_sample_id_does_not_count(self):
         interface = _make_interface()
-        # getMatchesForSample(sample_id, minhash_threshold, pichash_size, ...)
         interface.mcrit_client.getQueueData.return_value = [
-            _job("getMatchesForSample", 0, 50, 10, 1, 50, 1000)
+            _job("getMatchesForSample", 0, minhash_threshold=50, pichash_size=10, shortlist_size=50)
         ]
 
         assert interface.queryJobs(sample_id=50) == []
         assert interface.queryJobs(sample_id=10) == []
 
-    def test_cross_compares_find_each_of_their_samples(self):
+    def test_a_cross_compare_offers_its_per_sample_jobs_not_its_combined_result(self):
         interface = _make_interface()
         cross = _job("combineMatchesToCross", {"3": "job-a", "7": "job-b"})
         per_sample = _job("getMatchesForSampleVsGroup", 3, [7])
         interface.mcrit_client.getQueueData.return_value = [cross, per_sample]
 
-        assert interface.queryJobs(sample_id=3) == [cross, per_sample]
-        assert interface.queryJobs(sample_id=7) == [cross]
+        assert interface.queryJobs(sample_id=3) == [per_sample]
+        assert interface.queryJobs(sample_id=7) == []
 
     def test_a_job_with_arguments_of_another_shape_is_skipped(self):
         interface = _make_interface()
