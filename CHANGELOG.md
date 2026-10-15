@@ -8,6 +8,14 @@ Ninja applies to that plugin only.
 
 ## [Unreleased]
 
+### Added
+
+- Binary Ninja: opening a matched function's graph, or a block match's function, now also tints the
+  matched basic blocks of the local function in Binary Ninja's own graph and linear views,
+  including HLIL and Pseudo-C, through the "MCRIT Matches" render layer (on by default; switch it
+  off in the view's render layer menu). Lines you highlighted yourself keep their highlight. The
+  tint stays until another graph is opened or "MCRIT\Clear Match Coloring" is run.
+
 ### Changed
 
 - Binary Ninja: uploading the report, Function Scope and Block Scope queries, and fetching a

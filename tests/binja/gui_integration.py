@@ -128,6 +128,36 @@ class IntegrationTest:
             off_ui_thread == [True], f"{what}: the remote function is fetched off the UI thread"
         )
 
+    def check_linear_tint(self):
+        """Run the render layer over real linear view lines of the tinted function: disassembly
+        goes through its blocks, HLIL and Pseudo-C bodies through their line addresses."""
+        from binaryninja.enums import HighlightColorStyle
+        from binaryninja.lineardisassembly import LinearViewCursor, LinearViewObject
+
+        from mcrit_plugin.binja.MatchRenderLayer import MatchRenderLayer
+
+        starts, _ranges = MatchRenderLayer._ranges[self.bv.file.session_id]
+        function = self.bv.get_functions_containing(starts[0])[0]
+        layer = MatchRenderLayer()
+        for name, view_object in (
+            ("disassembly", LinearViewObject.single_function_disassembly(function)),
+            ("HLIL", LinearViewObject.single_function_hlil(function)),
+            ("Pseudo-C", LinearViewObject.single_function_language_representation(function)),
+        ):
+            cursor = LinearViewCursor(view_object)
+            tinted = False
+            while not tinted:
+                lines = layer.apply_to_linear_view_object(
+                    cursor.current_object, None, None, cursor.lines
+                )
+                tinted = any(
+                    line.contents.highlight.style == HighlightColorStyle.CustomHighlightColor
+                    for line in lines
+                )
+                if not cursor.next():
+                    break
+            self.check(tinted, f"the match tint reaches the {name} linear view")
+
     def single_click(self, table, row, column):
         table.setCurrentCell(row, column)
         table.clicked.emit(table.model().index(row, column))
@@ -798,6 +828,13 @@ class IntegrationTest:
 
         def match_double_click():
             self.double_click_graph(matches, 0, 0, "double clicking a function match")
+            from mcrit_plugin.binja.MatchRenderLayer import MatchRenderLayer
+
+            self.check(
+                bool(MatchRenderLayer._ranges.get(self.bv.file.session_id)),
+                "double clicking a function match tints the local function's matched blocks",
+            )
+            self.check_linear_tint()
 
         def match_right_click():
             columns = self.session.config.FUNCTION_MATCHES_TABLE_COLUMNS
@@ -1093,6 +1130,7 @@ class IntegrationTest:
             "MCRIT\\Build YARA String from Selection": main_widget.buildYaraStringAction.isEnabled(),
             "MCRIT\\Query Current Function": True,
             "MCRIT\\Query Current Block": True,
+            "MCRIT\\Clear Match Coloring": self.session.local_smda_report is not None,
         }
         names = [name for name, _handler, _enabled in self.sidebar_module._ACTIONS]
         for name in names:
@@ -1100,6 +1138,17 @@ class IntegrationTest:
                 handler.isValidAction(name, context) == expected_validity[name],
                 f"menu action validity matches the toolbar state: {name}",
             )
+        from mcrit_plugin.binja.MatchRenderLayer import MatchRenderLayer
+
+        self.check(
+            bool(MatchRenderLayer._ranges.get(self.bv.file.session_id)),
+            "the last match opened left its tint in place",
+        )
+        handler.executeAction("MCRIT\\Clear Match Coloring", context)
+        self.check(
+            not MatchRenderLayer._ranges.get(self.bv.file.session_id),
+            "MCRIT\\Clear Match Coloring removes the tint",
+        )
 
         target_job = str(self.job_id)
 
@@ -1148,6 +1197,9 @@ class IntegrationTest:
             ),
             "MCRIT\\Query Current Block": lambda: (
                 self.session.block_match_widget.table_block_summary.rowCount() > 0
+            ),
+            "MCRIT\\Clear Match Coloring": lambda: (
+                not MatchRenderLayer._ranges.get(self.bv.file.session_id)
             ),
         }
         pending = list(names)
