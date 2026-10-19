@@ -222,14 +222,15 @@ def test_toolbar_icons_take_the_theme_text_color_and_keep_their_shape(app):
     host.parent = SimpleNamespace(config=SimpleNamespace(ICON_FILE_PATH=_ICON_PATH))
     host._themedIcon = types.MethodType(MainWidget._themedIcon, host)
 
-    icon = MainWidget._toolbarIcon(host, "settings.png")
-    image = icon.pixmap(64, 64).toImage()
     source = QtShim.get_QtGui().QImage(_ICON_PATH + "settings.png")
+    size, row = source.width(), source.height() * 7 // 24  # the upper slider line
+    icon = MainWidget._toolbarIcon(host, "settings.png")
+    image = icon.pixmap(size, size).toImage()
 
-    opaque_x = next(x for x in range(64) if source.pixelColor(x, 32).alpha() == 255)
-    assert image.pixelColor(opaque_x, 32).red() == 230
-    assert [image.pixelColor(x, 32).alpha() for x in range(64)] == [
-        source.pixelColor(x, 32).alpha() for x in range(64)
+    opaque_x = next(x for x in range(size) if source.pixelColor(x, row).alpha() == 255)
+    assert image.pixelColor(opaque_x, row).red() == 230
+    assert [image.pixelColor(x, row).alpha() for x in range(size)] == [
+        source.pixelColor(x, row).alpha() for x in range(size)
     ]
 
 

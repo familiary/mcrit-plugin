@@ -19,7 +19,7 @@ class FunctionMatchWidget(QMainWindow):
         self.scp = ScoreColorProvider(self.cc.backend)
         self.last_viewed = None
         self.name = "Function Scope"
-        self.icon = self.cc.QIcon(self.parent.config.ICON_FILE_PATH + "flag-triangle.png")
+        self.icon = self.cc.QIcon(self.parent.config.ICON_FILE_PATH + "compare.png")
         self.central_widget = self.cc.QWidget()
         self.setCentralWidget(self.central_widget)
         self.current_function_offset = None

@@ -22,6 +22,12 @@ Ninja applies to that plugin only.
 - A failed connection check while the server is still the default `http://127.0.0.1:8000/` points
   at the Settings button.
 
+### Changed
+
+- New toolbar and tab icons from one set (Lucide, plus the YARA mark from YARA-X), each tab with
+  its own icon; credits and licences are in `icons/NOTICE.md`. The toolbar icons are 24 px in both
+  IDA and Binary Ninja (IDA drew them at 32 px).
+
 ### Fixed
 
 - The toolbar and tab icons take the theme's text color, so they are visible on dark themes;
