@@ -56,6 +56,42 @@ def button(text, on_click=None, enabled=True, icon=None, tooltip=None):
     return widget
 
 
+def scrolling_tabs():
+    """A JTabbedPane with its tabs in one scrolling row, so a narrow dock does not wrap them.
+
+    The scroll layout paints the tabs on a child panel that has no mouse listener of its own, so
+    a click falls through to the tabbed pane's handler. Ghidra's DockableComponent adds a listener
+    to every component in a provider, which makes the panel the click's target and the tabs
+    unclickable. The panel therefore selects the pressed tab itself; it is recreated with the UI,
+    e.g. on a theme change, so the listener is installed again then.
+    """
+    from javax.swing import JTabbedPane, JViewport, SwingUtilities
+
+    tabs = JTabbedPane()
+    tabs.setTabLayoutPolicy(JTabbedPane.SCROLL_TAB_LAYOUT)
+
+    def pressed(event):
+        if not SwingUtilities.isLeftMouseButton(event):
+            return
+        point = SwingUtilities.convertPoint(event.getComponent(), event.getPoint(), tabs)
+        index = tabs.indexAtLocation(int(point.getX()), int(point.getY()))
+        if index >= 0 and tabs.isEnabledAt(index):
+            tabs.setSelectedIndex(index)
+
+    listener = swing.MouseListener(on_press=pressed)
+
+    def install(_event=None):
+        for child in tabs.getComponents():
+            if isinstance(child, JViewport) and child.getView() is not None:
+                view = child.getView()
+                if listener not in list(view.getMouseListeners()):
+                    view.addMouseListener(listener)
+
+    install()
+    tabs.addPropertyChangeListener("UI", swing.PropertyChangeListener(install))
+    return tabs
+
+
 class Spinner:
     """An integer JSpinner with a value() and a quiet setRange, like the Qt spin boxes."""
 

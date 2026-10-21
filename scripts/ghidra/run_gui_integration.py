@@ -140,6 +140,49 @@ class Gui:
         walk(component)
         return found
 
+    def press_tab(self, tabs):
+        """Press the mouse on a visible, unselected tab header as a user does; returns its index.
+        doClick-style shortcuts skip the event routing Ghidra's docking listeners take part in."""
+        from java.awt import Toolkit
+        from java.awt.event import InputEvent, MouseEvent
+        from javax.swing import SwingUtilities
+
+        def post():
+            width = tabs.getWidth()
+            for index in range(tabs.getTabCount()):
+                rect = tabs.getBoundsAt(index)
+                x, y = int(rect.getCenterX()), int(rect.getCenterY())
+                if index != tabs.getSelectedIndex() and 0 <= x < width:
+                    break
+            else:
+                raise AssertionError("no visible unselected tab")
+            target = SwingUtilities.getDeepestComponentAt(tabs, x, y)
+            point = SwingUtilities.convertPoint(tabs, x, y, target)
+            queue = Toolkit.getDefaultToolkit().getSystemEventQueue()
+            for kind, modifiers in (
+                (MouseEvent.MOUSE_PRESSED, InputEvent.BUTTON1_DOWN_MASK),
+                (MouseEvent.MOUSE_RELEASED, 0),
+                (MouseEvent.MOUSE_CLICKED, 0),
+            ):
+                queue.postEvent(
+                    MouseEvent(
+                        target,
+                        kind,
+                        System.currentTimeMillis(),
+                        modifiers,
+                        int(point.getX()),
+                        int(point.getY()),
+                        1,
+                        False,
+                        MouseEvent.BUTTON1,
+                    )
+                )
+            return index
+
+        from java.lang import System
+
+        return self.edt(post)
+
     def click(self, window, text):
         buttons = self.find(window, "JButton", text)
         _check(buttons, f'"{text}" button present')
@@ -194,6 +237,9 @@ def run_steps(args, gui):
         30,
     )
     _check(True, "MCRIT window open and connected")
+    pressed_tab = gui.press_tab(main.tabs)
+    _wait(lambda: main.tabs.getSelectedIndex() == pressed_tab, "tab selected by a click", 10)
+    _check(True, "clicking a tab header selects it")
     gui.shot("opened")
 
     # convert an unknown sample: family and version are asked for

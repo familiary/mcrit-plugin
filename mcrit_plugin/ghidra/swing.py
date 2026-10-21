@@ -62,6 +62,19 @@ class ChangeListener:
             traceback.print_exc()
 
 
+@JImplements("java.beans.PropertyChangeListener", deferred=True)
+class PropertyChangeListener:
+    def __init__(self, func):
+        self._func = func
+
+    @JOverride
+    def propertyChange(self, event):
+        try:
+            self._func(event)
+        except Exception:
+            traceback.print_exc()
+
+
 @JImplements("javax.swing.event.DocumentListener", deferred=True)
 class DocumentListener:
     def __init__(self, func):
@@ -88,11 +101,13 @@ class DocumentListener:
 
 @JImplements("java.awt.event.MouseListener", deferred=True)
 class MouseListener:
-    """Calls on_click(event) for every click; event.getClickCount() tells double clicks apart."""
+    """Calls on_click(event) for every click; event.getClickCount() tells double clicks apart.
+    on_press(event) runs for every press, before the popup check."""
 
-    def __init__(self, on_click=None, on_popup=None):
+    def __init__(self, on_click=None, on_popup=None, on_press=None):
         self._on_click = on_click
         self._on_popup = on_popup
+        self._on_press = on_press
 
     def _popup(self, event):
         if self._on_popup is not None and event.isPopupTrigger():
@@ -111,6 +126,11 @@ class MouseListener:
 
     @JOverride
     def mousePressed(self, event):
+        if self._on_press is not None:
+            try:
+                self._on_press(event)
+            except Exception:
+                traceback.print_exc()
         # popups trigger on press on Linux and macOS, on release on Windows
         self._popup(event)
 

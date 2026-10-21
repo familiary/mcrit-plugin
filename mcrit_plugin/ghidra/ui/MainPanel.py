@@ -6,7 +6,7 @@ the dialogs they open are in dialogs.py.
 
 import json
 
-from mcrit_plugin.ghidra.ui.components import button, load_icon
+from mcrit_plugin.ghidra.ui.components import button, load_icon, scrolling_tabs
 from mcrit_plugin.ghidra.ui.dialogs import (
     ResultChooserDialog,
     SmdaInfoDialog,
@@ -17,7 +17,7 @@ from mcrit_plugin.ghidra.ui.dialogs import (
 class MainPanel:
     def __init__(self, parent):
         from java.awt import BorderLayout
-        from javax.swing import JPanel, JSplitPane, JTabbedPane, JToolBar
+        from javax.swing import JPanel, JSplitPane, JToolBar
 
         self.parent = parent
         self.cc = parent.cc
@@ -70,9 +70,7 @@ class MainPanel:
             self._onBuildYaraStringButtonClicked,
             False,
         )
-        self.tabs = JTabbedPane()
-        # a narrow dock would otherwise wrap the tabs into several rows
-        self.tabs.setTabLayoutPolicy(JTabbedPane.SCROLL_TAB_LAYOUT)
+        self.tabs = scrolling_tabs()
         for widget in self.tabbed_widgets:
             self.tabs.addTab(widget.name, load_icon(icons + widget.icon_file, 16), widget.component)
         self.splitter = JSplitPane(
