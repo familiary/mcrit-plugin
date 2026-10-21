@@ -24,6 +24,7 @@ EXCLUDE_DIR_NAMES = {
 # other disassemblers' code is not shipped; the manifest and entry point are already at the root
 EXCLUDE_RELATIVE_PATHS = {
     Path("mcrit_plugin/binja"),
+    Path("mcrit_plugin/ghidra"),
     Path("mcrit_plugin/headless"),
     Path("mcrit_plugin/ida/ida-plugin.json"),
     Path("mcrit_plugin/ida/ida_mcrit.py"),
