@@ -45,3 +45,30 @@ def test_the_extension_zip_has_the_layout_ghidra_installs(tmp_path):
     assert "version=12.2" in properties.splitlines()
     for left_out in ("ida", "binja", "headless", "ghidra/ghidra_scripts"):
         assert not any(name.startswith(f"MCRIT/mcrit_plugin/{left_out}/") for name in names)
+
+
+def test_every_folder_has_an_entry_ahead_of_its_files(tmp_path):
+    """Ghidra's installer writes each file without creating its folder."""
+    output = tmp_path / "mcrit-ghidra.zip"
+    subprocess.run(
+        [
+            sys.executable,
+            str(ROOT / "scripts/ghidra/package_extension.py"),
+            "--repo",
+            str(ROOT),
+            "--output",
+            str(output),
+        ],
+        check=True,
+        capture_output=True,
+    )
+
+    with zipfile.ZipFile(output) as archive:
+        names = archive.namelist()
+    seen = set()
+    for name in names:
+        for parent in Path(name.rstrip("/")).parents:
+            if parent != Path("."):
+                assert parent.as_posix() + "/" in seen, (name, parent)
+        if name.endswith("/"):
+            seen.add(name)

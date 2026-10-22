@@ -75,6 +75,8 @@ def main() -> int:
         INCLUDE_PATHS,
         EXCLUDE_RELATIVE_PATHS,
         prefix=EXTENSION_NAME,
+        # Ghidra's installer writes each file without creating its folder
+        directories=True,
         extra_files=[
             ("extension.properties", extension_properties(args.ghidra_version, version)),
             ("Module.manifest", ""),
