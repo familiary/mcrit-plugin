@@ -231,10 +231,11 @@ def test_a_config_override_that_is_not_an_object_is_ignored(fresh_config, tmp_pa
     assert settings.MCRIT_SERVER == "http://store:8000/"
 
 
-def test_server_is_default_until_a_server_is_set(fresh_config):
-    assert fresh_config.McritConfig("0.0.0").SERVER_IS_DEFAULT
-    settings = fresh_config.McritConfig("0.0.0", lambda key: "https://mcrit.example.com/")
-    assert not settings.SERVER_IS_DEFAULT
+def test_only_the_shipped_localhost_server_is_the_default(fresh_config):
+    settings = fresh_config.McritConfig("0.0.0")
+
+    assert settings.isDefaultServer(settings.MCRIT_SERVER)
+    assert not settings.isDefaultServer("https://mcrit.example.com/")
 
 
 @pytest.mark.parametrize(
@@ -248,6 +249,4 @@ def test_server_is_default_until_a_server_is_set(fresh_config):
 def test_the_default_server_is_recognized_with_or_without_the_trailing_slash(
     fresh_config, server, is_default
 ):
-    settings = fresh_config.McritConfig("0.0.0", {"mcrit_server": server}.__getitem__)
-
-    assert settings.SERVER_IS_DEFAULT == is_default
+    assert fresh_config.McritConfig("0.0.0").isDefaultServer(server) == is_default

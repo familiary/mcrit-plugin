@@ -12,7 +12,8 @@ LOG_LEVEL = logging.INFO
 
 def same_server(first, second):
     """True when two server URLs differ at most by a trailing slash."""
-    return (first or "").rstrip("/") == (second or "").rstrip("/")
+    # config_override.json values are not coerced, so a server may arrive as a number
+    return str(first or "").rstrip("/") == str(second or "").rstrip("/")
 
 
 def _configure_plugin_loggers():
@@ -176,10 +177,9 @@ class McritConfig:
         """URL of the MCRIT server."""
         return self._get("mcrit_server")
 
-    @property
-    def SERVER_IS_DEFAULT(self):
-        """True while mcrit_server still points at the shipped localhost default."""
-        return same_server(self.MCRIT_SERVER, self._defaults["mcrit_server"])
+    def isDefaultServer(self, server):
+        """True for the shipped localhost default of mcrit_server."""
+        return same_server(server, self._defaults["mcrit_server"])
 
     def overriddenSettings(self):
         """Keys forced by config_override.json, which the settings store cannot change."""

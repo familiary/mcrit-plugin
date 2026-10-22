@@ -66,6 +66,10 @@ def test_the_form_starts_from_the_current_settings(app):
         ("mcrit.example.com", False),
         ("http://", False),
         ("http://[::1", False),
+        ("http://:8000", False),
+        ("http://mcrit:abc/", False),
+        ("http://mcrit:99999/", False),
+        ("http://[::1]:8000/", True),
         ("HTTPS://mcrit.example.com/api", True),
         ("  https://mcrit.example.com/api ", True),
     ],
@@ -102,10 +106,11 @@ def test_fields_forced_by_config_override_are_greyed_out(app):
     assert "other settings live elsewhere" in texts
 
 
-def test_a_timeout_above_the_form_range_is_shown_as_stored(app):
-    dialog, _host = _dialog(app, _config(MCRIT_REQUEST_TIMEOUT=7200))
+@pytest.mark.parametrize("stored, shown", [(7200, 7200), (2**40, 2**31 - 1)])
+def test_a_timeout_above_the_form_range_is_shown_as_far_as_a_spinbox_can(app, stored, shown):
+    dialog, _host = _dialog(app, _config(MCRIT_REQUEST_TIMEOUT=stored))
 
-    assert dialog.values()["mcrit_request_timeout"] == 7200
+    assert dialog.values()["mcrit_request_timeout"] == shown
 
 
 def test_a_malformed_server_forced_by_config_override_does_not_block_saving(app):
@@ -140,6 +145,7 @@ def _main_widget(opened, waiting_server=None):
             mcrit_interface=interface,
             local_smda_report=None,
             remote_sample_entry=None,
+            local_widget=MagicMock(),
         ),
         _watchedSettingsWidget=None,
         _reportedWaitingServer=None,
@@ -151,6 +157,7 @@ def _main_widget(opened, waiting_server=None):
         "_reportWaitingServer",
         "_reloadSettings",
         "_onSampleLookedUpAgain",
+        "_lookUpConvertedSample",
     ):
         setattr(widget, name, types.MethodType(getattr(MainWidget, name), widget))
     return widget, backend, interface
@@ -161,7 +168,7 @@ def test_without_a_settings_ui_the_form_saves_and_reconnects_only_when_accepted(
     widget, backend, interface = _main_widget(opened=None)
     values = {"mcrit_server": "https://mcrit.example.com/"}
     widget.ConnectionSettingsDialog = lambda parent, config: SimpleNamespace(
-        exec=lambda: accepted, changedValues=lambda: values
+        exec_=lambda: accepted, changedValues=lambda: values
     )
 
     widget._onSettingsButtonClicked()
@@ -184,7 +191,7 @@ def test_closing_the_opened_settings_reloads_them_once(app):
     app.sendPostedEvents(None, 52)  # QEvent.DeferredDelete
     app.processEvents()
 
-    interface.reloadSettings.assert_called_once_with()
+    interface.reloadSettings.assert_called_once_with(recheck=False)
     assert widget._watchedSettingsWidget is None
     backend.show_warning.assert_not_called()
 
@@ -212,7 +219,7 @@ def test_a_server_that_waits_for_a_reopen_is_reported_once_after_closing_setting
 def test_a_server_that_waits_for_a_reopen_is_reported_after_the_form(app):
     widget, backend, _interface = _main_widget(opened=None, waiting_server="https://new/")
     widget.ConnectionSettingsDialog = lambda parent, config: SimpleNamespace(
-        exec=lambda: True, changedValues=lambda: {"mcrit_server": "https://new/"}
+        exec_=lambda: True, changedValues=lambda: {"mcrit_server": "https://new/"}
     )
 
     widget._onSettingsButtonClicked()
@@ -226,11 +233,15 @@ def test_a_failed_save_warns_and_picks_up_what_was_saved_before_it_failed(app):
     widget, backend, interface = _main_widget(opened=None)
     backend.save_settings.side_effect = RuntimeError("mcrit-ida is not installed")
     widget.ConnectionSettingsDialog = lambda parent, config: SimpleNamespace(
-        exec=lambda: True, changedValues=lambda: {"mcrit_server": "https://x/"}
+        exec_=lambda: True, changedValues=lambda: {"mcrit_server": "https://x/"}
     )
+
+    interface.reloadSettings.return_value = "https://x/"
 
     widget._onSettingsButtonClicked()
 
+    # only the failure: no "the new settings are saved" warning after it
+    backend.show_warning.assert_called_once()
     assert "mcrit-ida is not installed" in backend.show_warning.call_args.args[0]
     interface.reloadSettings.assert_called_once_with(recheck=True)
 
@@ -256,6 +267,24 @@ def test_a_new_server_is_asked_for_the_converted_sample(app, found):
     assert widget._applyConvertedReport.called == found
 
 
+def test_a_convert_lookup_cut_short_by_a_server_switch_asks_the_new_server(app):
+    widget, _backend, interface = _main_widget(opened=None)
+    widget._building = False
+    report = SimpleNamespace(sha256="ab" * 32)
+    servers = ["https://new/"]
+
+    def look_up(sha256):
+        if servers:
+            interface.server = servers.pop()
+
+    interface.querySampleSha256.side_effect = look_up
+
+    widget._lookUpConvertedSample(report)
+
+    assert interface.querySampleSha256.call_count == 2
+    widget._applyConvertedReport.assert_called_once_with(report)
+
+
 def test_the_same_server_is_not_asked_for_the_converted_sample_again(app):
     widget, _backend, interface = _main_widget(opened=None)
     widget.parent.local_smda_report = SimpleNamespace(sha256="ab" * 32)
@@ -265,7 +294,7 @@ def test_the_same_server_is_not_asked_for_the_converted_sample_again(app):
     interface.querySampleSha256.assert_not_called()
 
 
-def test_settings_opened_without_a_widget_to_watch_show_no_form():
+def test_settings_opened_without_a_widget_to_watch_say_how_to_apply_them():
     widget, backend, interface = _main_widget(opened=True)
     widget.ConnectionSettingsDialog = MagicMock()
 
@@ -273,6 +302,8 @@ def test_settings_opened_without_a_widget_to_watch_show_no_form():
 
     widget.ConnectionSettingsDialog.assert_not_called()
     assert widget._watchedSettingsWidget is None
+    message = widget.parent.local_widget.updateActivityInfo.call_args.args[0]
+    assert "reopen MCRIT after changing the connection" in message
 
 
 def test_toolbar_icons_take_the_theme_text_color_and_keep_their_shape(app):

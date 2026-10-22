@@ -182,15 +182,20 @@ class MainWidget(QMainWindow):
         widget = self.cc.backend.open_settings(self.parent.config)
         if widget is None:
             dialog = self.ConnectionSettingsDialog(self, self.parent.config)
-            if dialog.exec():
+            if dialog.exec_():
                 try:
                     self.cc.backend.save_settings(dialog.changedValues())
                 except Exception as exc:
-                    # the keys written before the failure are in the store all the same
                     self.cc.backend.show_warning("Saving the MCRIT settings failed: %s" % exc)
+                    # the keys written before the failure are in the store all the same
+                    self._reloadSettings(recheck=True)
+                    return
                 self._reportWaitingServer(self._reloadSettings(recheck=True), always=True)
             return
         if widget is True:
+            self.parent.local_widget.updateActivityInfo(
+                "Settings opened; %s after changing the connection." % self.cc.backend.reopen_hint
+            )
             return
         if widget is not self._watchedSettingsWidget:
             self._watchedSettingsWidget = widget
@@ -202,10 +207,10 @@ class MainWidget(QMainWindow):
         # not modal from inside the destroyed signal of the closing settings window
         self.cc.QtCore.QTimer.singleShot(0, lambda: self._reportWaitingServer(waiting_server))
 
-    def _reloadSettings(self, **kwargs):
+    def _reloadSettings(self, recheck=False):
         interface = self.parent.mcrit_interface
         server = interface.server
-        waiting_server = interface.reloadSettings(**kwargs)
+        waiting_server = interface.reloadSettings(recheck=recheck)
         report = self.parent.local_smda_report
         if report is not None and not same_server(interface.server, server):
             # the sample the old server did not know may be on the new one
@@ -372,9 +377,14 @@ class MainWidget(QMainWindow):
         # IDA reads the database for the export behind a wait box on its main thread, so the
         # request must not be part of the export
         self._building = True
+        server = self.parent.mcrit_interface.server
 
         def done(_result):
             self._building = False
+            if not same_server(server, self.parent.mcrit_interface.server):
+                # the server changed while the lookup ran, which dropped its answer: ask the new one
+                self._lookUpConvertedSample(local_smda_report)
+                return
             self._applyConvertedReport(local_smda_report)
 
         self.cc.backend.run_request(

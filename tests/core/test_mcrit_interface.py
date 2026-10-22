@@ -43,6 +43,7 @@ def _make_interface(timeout=10):
     inst._cache_lock = threading.Lock()
     inst._remote_info_lock = threading.Lock()
     inst._check_id = 0
+    inst._switch_lock = threading.Lock()
     inst._server_generation = 0
     inst.mcrit_client = MagicMock()
     return inst
@@ -404,18 +405,20 @@ def test_a_check_that_answers_after_the_settings_changed_is_dropped():
         MCRIT_REQUEST_TIMEOUT=10,
         MCRITWEB_API_TOKEN="",
         MCRITWEB_USERNAME="",
-        SERVER_IS_DEFAULT=False,
+        isDefaultServer=lambda server: False,
     )
     local_widget = MagicMock()
     interface = McritInterface(SimpleNamespace(config=config, local_widget=local_widget), None)
     old_client = interface.mcrit_client
     started = threading.Event()
     release = threading.Event()
+    applied = threading.Event()
 
     class _Backend:
         @staticmethod
         def run_on_ui_thread(func):
             func()
+            applied.set()
 
     interface.backend = _Backend()
 
@@ -433,6 +436,7 @@ def test_a_check_that_answers_after_the_settings_changed_is_dropped():
     for thread in set(threading.enumerate()) - threads_before:
         thread.join(5)
 
+    assert applied.is_set()
     assert not any(
         "successful" in call.args[0] for call in local_widget.updateActivityInfo.call_args_list
     )
@@ -440,7 +444,7 @@ def test_a_check_that_answers_after_the_settings_changed_is_dropped():
 
 def test_an_older_check_on_the_same_client_does_not_overwrite_a_newer_one():
     interface = _make_interface()
-    interface.config.SERVER_IS_DEFAULT = False
+    interface.config.isDefaultServer = lambda server: False
     pending = []
     interface.backend = SimpleNamespace(run_on_ui_thread=lambda func: pending.append(func))
     interface.mcrit_client.getVersion.side_effect = [
@@ -513,6 +517,18 @@ _STORING_REQUESTS = [
 ]
 
 
+@pytest.fixture
+def decoded_results(monkeypatch):
+    """Any answer decodes, so the tests reach the store instead of a decoding error."""
+    import mcrit_plugin.core.McritInterface as module
+
+    monkeypatch.setattr(
+        module.MatchingResult,
+        "fromDict",
+        staticmethod(lambda entry: SimpleNamespace(function_matches=[])),
+    )
+
+
 def _empty_session(interface):
     for field in (
         "remote_sample_id",
@@ -528,7 +544,7 @@ def _empty_session(interface):
 
 @pytest.mark.parametrize("method, args, request_name, answer, field", _STORING_REQUESTS)
 def test_an_answer_from_the_previous_server_is_not_stored(
-    method, args, request_name, answer, field
+    decoded_results, method, args, request_name, answer, field
 ):
     interface = _make_interface()
     _empty_session(interface)
@@ -539,21 +555,51 @@ def test_an_answer_from_the_previous_server_is_not_stored(
     assert not getattr(interface.parent, field)
 
 
-def test_block_matches_from_the_previous_server_count_as_failed():
-    interface = _make_interface()
-    _answers_after(
-        interface, "getMatchesForPicBlockHash", [{"match": 1}], ("http://other/", 10, "", "")
-    )
-
-    assert interface.getMatchesForPicBlockHash(0x1234) is None
-
-
 @pytest.mark.parametrize(
-    "method, args, request_name, answer, field",
-    [request for request in _STORING_REQUESTS if request[0] != "getMatchingJobById"],
+    "method, args, request_name",
+    [
+        ("getMatchesForPicBlockHash", (0x1234,), "getMatchesForPicBlockHash"),
+        ("queryRemoteFunction", (7,), "getFunctionById"),
+    ],
 )
+def test_answers_handed_to_the_widgets_from_the_previous_server_count_as_failed(
+    method, args, request_name
+):
+    interface = _make_interface()
+    interface.parent.sample_infos = None
+    _answers_after(interface, request_name, MagicMock(), ("http://other/", 10, "", ""))
+
+    assert getattr(interface, method)(*args) is None
+
+
+def test_a_server_switch_and_a_stored_answer_do_not_interleave():
+    interface = _make_interface()
+    _empty_session(interface)
+    interface.parent.blockhash_matches = {}
+    interface._connection_settings = (interface.server, 10, "", "")
+    seen = []
+    holds = interface._holdsServerData
+    interface._holdsServerData = lambda: seen.append(interface._switch_lock.locked()) or holds()
+    interface.config.MCRIT_SERVER = "http://other:8000/"
+    interface.config.MCRITWEB_API_TOKEN = interface.config.MCRITWEB_USERNAME = ""
+    interface.checkConnection = MagicMock()
+
+    def answer_while_checking(_sha256):
+        assert not interface._switch_lock.locked()
+        return SimpleNamespace(sample_id=5)
+
+    interface.mcrit_client.getSampleBySha256.side_effect = answer_while_checking
+    interface.querySampleSha256("abc")
+    interface.reloadSettings()
+
+    assert seen == [True]
+    assert interface.parent.remote_sample_id == 5
+    assert interface.server == "http://127.0.0.1:8000"
+
+
+@pytest.mark.parametrize("method, args, request_name, answer, field", _STORING_REQUESTS)
 def test_an_answer_from_the_same_server_is_kept_after_a_token_change(
-    method, args, request_name, answer, field
+    decoded_results, method, args, request_name, answer, field
 ):
     interface = _make_interface()
     _empty_session(interface)
@@ -567,7 +613,11 @@ def test_an_answer_from_the_same_server_is_kept_after_a_token_change(
 @pytest.mark.parametrize("server_is_default, hinted", [(True, True), (False, False)])
 def test_a_failed_check_points_at_settings_only_while_no_server_is_set(server_is_default, hinted):
     interface = _make_interface()
-    interface.config.SERVER_IS_DEFAULT = server_is_default
+    # the session's server counts, not a new one waiting in the settings for a reopen
+    interface.config.isDefaultServer = lambda server: (
+        server_is_default and server == interface.server
+    )
+    interface.config.MCRIT_SERVER = "http://waiting:8000/"
     interface.backend = SimpleNamespace(settings_location="Edit > Tool Options > MCRIT")
     interface.mcrit_client.getVersion.side_effect = requests.exceptions.ConnectionError("refused")
 

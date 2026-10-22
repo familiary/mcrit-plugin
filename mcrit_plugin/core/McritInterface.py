@@ -1,5 +1,6 @@
 import threading
 import traceback
+from contextlib import contextmanager
 
 import requests
 
@@ -53,6 +54,9 @@ class McritInterface(object):
         self._cache_lock = threading.Lock()
         self._remote_info_lock = threading.Lock()
         self._check_id = 0
+        # a switch tests for held data, and an answer is checked and stored, under this lock: the
+        # switch then either sees the stored answer and waits, or the answer sees the switch
+        self._switch_lock = threading.Lock()
         self._server_generation = 0
         self._mcrit_server = None
         self._buildClient(self._readConnectionSettings())
@@ -77,8 +81,7 @@ class McritInterface(object):
         self._connection_settings = connection_settings
         # a connection check started before this client answers for nothing any more
         self._check_id += 1
-        # requests already running keep the client they started with; the client is set before
-        # the generation moves, the reverse of the order _pinConnection reads them in
+        # requests already running keep the client they started with
         self.mcrit_client = client
         if not same_server(server, self._mcrit_server):
             self._server_generation += 1
@@ -100,6 +103,12 @@ class McritInterface(object):
         )
         return True
 
+    @contextmanager
+    def _storing(self, generation):
+        """Yields whether an answer still belongs to the session; store it inside the block."""
+        with self._switch_lock:
+            yield not self._isStale(generation)
+
     def _holdsServerData(self):
         parent = self.parent
         return bool(
@@ -108,7 +117,7 @@ class McritInterface(object):
             or parent.matching_report is not None
             or parent.matched_function_entries
             or parent.function_matches
-            or getattr(parent, "blockhash_matches", None)
+            or parent.blockhash_matches
             or parent.sample_infos is not None
             or parent.family_infos is not None
         )
@@ -123,13 +132,18 @@ class McritInterface(object):
         """
         connection_settings = self._readConnectionSettings()
         waiting_server = None
-        if not same_server(connection_settings[0], self._mcrit_server) and self._holdsServerData():
-            waiting_server = connection_settings[0]
-            # the new token and username belong to the new server; only the timeout applies now
-            server, _timeout, api_token, username = self._connection_settings
-            connection_settings = (server, connection_settings[1], api_token, username)
-        if connection_settings != self._connection_settings:
-            self._buildClient(connection_settings)
+        with self._switch_lock:
+            if (
+                not same_server(connection_settings[0], self._mcrit_server)
+                and self._holdsServerData()
+            ):
+                waiting_server = connection_settings[0]
+                server, _timeout, api_token, username = self._connection_settings
+                connection_settings = (server, connection_settings[1], api_token, username)
+            changed = connection_settings != self._connection_settings
+            if changed:
+                self._buildClient(connection_settings)
+        if changed:
             self.checkConnection(async_=True)
         elif recheck:
             self.checkConnection(async_=True)
@@ -236,7 +250,7 @@ class McritInterface(object):
                 hint = (
                     " The server is still the default one, use %s to change it."
                     % self.backend.settings_location
-                    if self.config.SERVER_IS_DEFAULT
+                    if self.config.isDefaultServer(self.server)
                     else ""
                 )
                 self.parent.local_widget.updateActivityInfo(
@@ -261,11 +275,13 @@ class McritInterface(object):
         client, generation = self._pinConnection()
         try:
             sample_by_sha256 = client.getSampleBySha256(sha256)
-            if self._isStale(generation):
-                return
+            with self._storing(generation) as current:
+                if not current:
+                    return
+                if sample_by_sha256:
+                    self.parent.remote_sample_entry = sample_by_sha256
+                    self.parent.remote_sample_id = sample_by_sha256.sample_id
             if sample_by_sha256:
-                self.parent.remote_sample_entry = sample_by_sha256
-                self.parent.remote_sample_id = sample_by_sha256.sample_id
                 self.parent.local_widget.updateActivityInfo(
                     "Success! Received remote Sample Entry."
                 )
@@ -281,8 +297,12 @@ class McritInterface(object):
         client, generation = self._pinConnection()
         try:
             sample_entry, job_id = client.addReport(report) or (None, None)
-            if self._isStale(generation):
-                return
+            with self._storing(generation) as current:
+                if not current:
+                    return
+                if sample_entry:
+                    self.parent.remote_sample_entry = sample_entry
+                    self.parent.remote_sample_id = sample_entry.sample_id
             if sample_entry:
                 if job_id:
                     self.parent.local_widget.updateActivityInfo(
@@ -293,8 +313,6 @@ class McritInterface(object):
                     self.parent.local_widget.updateActivityInfo(
                         "Upload finished, remote sample_id is: %d." % sample_entry.sample_id
                     )
-                self.parent.remote_sample_entry = sample_entry
-                self.parent.remote_sample_id = sample_entry.sample_id
             else:
                 self.parent.local_widget.updateActivityInfo("Upload failed.")
         except Exception as exc:
@@ -355,11 +373,14 @@ class McritInterface(object):
         client, generation = self._pinConnection()
         try:
             matching_result = client.getResultForJob(job_id)
-            if self._isStale(generation):
-                return
-            if matching_result:
-                self.parent.matching_job_id = job_id
-                self.parent.matching_report = MatchingResult.fromDict(matching_result)
+            matching_report = MatchingResult.fromDict(matching_result) if matching_result else None
+            with self._storing(generation) as current:
+                if not current:
+                    return
+                if matching_report is not None:
+                    self.parent.matching_job_id = job_id
+                    self.parent.matching_report = matching_report
+            if matching_report is not None:
                 self.parent.local_widget.updateActivityInfo("Success! Downloaded MatchResult.")
             else:
                 self.parent.local_widget.updateActivityInfo("Result query failed.")
@@ -387,11 +408,13 @@ class McritInterface(object):
         client, generation = self._pinConnection()
         try:
             family_entries = client.getFamilies()
-            if self._isStale(generation):
-                return
             # None is a failed request; an empty dict is a server without families
+            with self._storing(generation) as current:
+                if not current:
+                    return
+                if family_entries is not None:
+                    self.parent.family_infos = {int(k): v for k, v in family_entries.items()}
             if family_entries is not None:
-                self.parent.family_infos = {int(k): v for k, v in family_entries.items()}
                 self.parent.local_widget.updateActivityInfo(
                     "Success! Received all remote FamilyEntries."
                 )
@@ -406,15 +429,18 @@ class McritInterface(object):
             if not functions:
                 return None
             smda_function = functions[0]
-            connection = self._pinConnection()
+            client, generation = self._pinConnection()
             if smda_function.offset not in self.parent.function_matches:
-                match_report_dict = connection[0].getMatchesForSmdaFunction(
+                match_report_dict = client.getMatchesForSmdaFunction(
                     smda_report, exclude_self_matches=False
                 )
-                if self._isStale(connection[1]):
-                    return None
-                if match_report_dict:
-                    self.parent.function_matches.update({smda_function.offset: match_report_dict})
+                with self._storing(generation) as current:
+                    if not current:
+                        return None
+                    if match_report_dict:
+                        self.parent.function_matches.update(
+                            {smda_function.offset: match_report_dict}
+                        )
                 if match_report_dict:
                     match_report = MatchingResult.fromDict(match_report_dict)
                     matched_function_ids = [
@@ -427,13 +453,14 @@ class McritInterface(object):
                     ]
                     if unknown_function_ids:
                         function_entries = self.queryFunctionEntriesById(
-                            unknown_function_ids, connection=connection
+                            unknown_function_ids, connection=(client, generation)
                         )
-                        if function_entries:
-                            for function_id, function_entry in function_entries.items():
-                                self.parent.function_id_to_offset[function_id] = (
-                                    function_entry.offset
-                                )
+                        with self._storing(generation) as current:
+                            if current and function_entries:
+                                for function_id, function_entry in function_entries.items():
+                                    self.parent.function_id_to_offset[function_id] = (
+                                        function_entry.offset
+                                    )
                     return match_report
         except Exception as exc:
             self._reportFailure("querySmdaFunctionMatches", exc)
@@ -449,14 +476,17 @@ class McritInterface(object):
         except Exception as exc:
             self._reportFailure("queryFunctionEntriesById", exc)
             return None
-        if function_entries is None or self._isStale(generation):
+        if function_entries is None:
             return None
-        if function_entries:
-            # requests run on worker threads while the UI iterates the cache: swap in a new dict
-            with self._cache_lock:
-                merged = dict(self.parent.matched_function_entries or {})
-                merged.update(function_entries)
-                self.parent.matched_function_entries = merged
+        with self._storing(generation) as current:
+            if not current:
+                return None
+            if function_entries:
+                # requests run on worker threads while the UI iterates the cache: swap in a new dict
+                with self._cache_lock:
+                    merged = dict(self.parent.matched_function_entries or {})
+                    merged.update(function_entries)
+                    self.parent.matched_function_entries = merged
         return function_entries
 
     def queryAllSampleEntries(self):
@@ -464,10 +494,12 @@ class McritInterface(object):
         client, generation = self._pinConnection()
         try:
             sample_entries = client.getSamples()
-            if self._isStale(generation):
-                return
+            with self._storing(generation) as current:
+                if not current:
+                    return
+                if sample_entries is not None:
+                    self.parent.sample_infos = sample_entries
             if sample_entries is not None:
-                self.parent.sample_infos = sample_entries
                 self.parent.local_widget.updateActivityInfo(
                     "Success! Received all remote SampleEntries."
                 )
