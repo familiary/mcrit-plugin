@@ -41,4 +41,5 @@ class HeadlessMcritContext:
         self.family_infos = None
         self.function_id_to_offset = {}
         self.function_matches = {}
+        self.blockhash_matches = {}
         self.mcrit_interface = McritInterface(self, backend)

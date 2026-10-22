@@ -66,6 +66,10 @@ def test_the_form_starts_from_the_current_settings(app):
         ("mcrit.example.com", False),
         ("http://", False),
         ("http://[::1", False),
+        ("http://:8000", False),
+        ("http://mcrit:abc/", False),
+        ("http://mcrit:99999/", False),
+        ("http://[::1]:8000/", True),
         ("HTTPS://mcrit.example.com/api", True),
         ("  https://mcrit.example.com/api ", True),
     ],
@@ -115,7 +119,9 @@ def _main_widget(opened, waiting_server=None):
     )
     widget = SimpleNamespace(
         cc=SimpleNamespace(backend=backend, QtCore=QtShim.get_QtCore()),
-        parent=SimpleNamespace(config=_config(), mcrit_interface=interface),
+        parent=SimpleNamespace(
+            config=_config(), mcrit_interface=interface, local_widget=MagicMock()
+        ),
         _watchedSettingsWidget=None,
         _reportedWaitingServer=None,
     )
@@ -129,7 +135,7 @@ def test_without_a_settings_ui_the_form_saves_and_reconnects_only_when_accepted(
     widget, backend, interface = _main_widget(opened=None)
     values = {"mcrit_server": "https://mcrit.example.com/"}
     widget.ConnectionSettingsDialog = lambda parent, config: SimpleNamespace(
-        exec=lambda: accepted, changedValues=lambda: values
+        exec_=lambda: accepted, changedValues=lambda: values
     )
 
     widget._onSettingsButtonClicked()
@@ -180,7 +186,7 @@ def test_a_server_that_waits_for_a_reopen_is_reported_once_after_closing_setting
 def test_a_server_that_waits_for_a_reopen_is_reported_after_the_form(app):
     widget, backend, _interface = _main_widget(opened=None, waiting_server="https://new/")
     widget.ConnectionSettingsDialog = lambda parent, config: SimpleNamespace(
-        exec=lambda: True, changedValues=lambda: {"mcrit_server": "https://new/"}
+        exec_=lambda: True, changedValues=lambda: {"mcrit_server": "https://new/"}
     )
 
     widget._onSettingsButtonClicked()
@@ -194,7 +200,7 @@ def test_a_failed_save_warns_and_keeps_the_connection(app):
     widget, backend, interface = _main_widget(opened=None)
     backend.save_settings.side_effect = RuntimeError("mcrit-ida is not installed")
     widget.ConnectionSettingsDialog = lambda parent, config: SimpleNamespace(
-        exec=lambda: True, changedValues=lambda: {"mcrit_server": "https://x/"}
+        exec_=lambda: True, changedValues=lambda: {"mcrit_server": "https://x/"}
     )
 
     widget._onSettingsButtonClicked()
@@ -203,7 +209,7 @@ def test_a_failed_save_warns_and_keeps_the_connection(app):
     interface.reloadSettings.assert_not_called()
 
 
-def test_settings_opened_without_a_widget_to_watch_show_no_form():
+def test_settings_opened_without_a_widget_to_watch_say_how_to_apply_them():
     widget, backend, interface = _main_widget(opened=True)
     widget.ConnectionSettingsDialog = MagicMock()
 
@@ -211,6 +217,8 @@ def test_settings_opened_without_a_widget_to_watch_show_no_form():
 
     widget.ConnectionSettingsDialog.assert_not_called()
     assert widget._watchedSettingsWidget is None
+    message = widget.parent.local_widget.updateActivityInfo.call_args.args[0]
+    assert "reopen MCRIT after changing the connection" in message
 
 
 def test_toolbar_icons_take_the_theme_text_color_and_keep_their_shape(app):

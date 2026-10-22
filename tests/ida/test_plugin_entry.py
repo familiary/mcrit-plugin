@@ -192,8 +192,10 @@ def test_the_menu_entries_act_on_the_current_database(monkeypatch):
         action_desc_t=_ActionDesc,
         AST_ENABLE_ALWAYS=0,
         SETMENU_APP=1,
-        register_action=lambda desc: actions.__setitem__(desc.name, desc.handler) or True,
-        unregister_action=lambda name: actions.pop(name, None) is not None,
+        # like IDA, registering an action name a second time fails
+        register_action=lambda desc: (
+            desc.name not in actions and actions.setdefault(desc.name, desc.handler) is not None
+        ),
         attach_action_to_menu=MagicMock(),
         detach_action_from_menu=MagicMock(),
     )
@@ -210,9 +212,6 @@ def test_the_menu_entries_act_on_the_current_database(monkeypatch):
     )
     monkeypatch.setattr(module, "show_mcrit_form", lambda: form)
 
-    kernwin.register_action = lambda desc: (
-        desc.name not in actions and actions.setdefault(desc.name, desc.handler) is not None
-    )
     previous = module.Mcrit4IdaPlugmod()
     plugmod = module.Mcrit4IdaPlugmod()
     del previous
