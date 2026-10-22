@@ -5,8 +5,8 @@ Starts Ghidra 12.0+ in PyGhidra mode with a throwaway user profile and project, 
 settings are not touched, imports and analyzes --input twice (the copy tests switching programs),
 and then works through the plugin as a user would, asserting each step:
 
-  the MCRIT.py script from mcrit_plugin/ghidra/ghidra_scripts opens the window; Convert asks for family and version of
-  the unknown sample; Upload; a new matching job through the result dialog, then its result; live
+  the MCRIT.py script from mcrit_plugin/ghidra/ghidra_scripts opens the window; Convert asks for
+  family and version of the unknown sample; Upload; a new matching job through the result dialog, then its result; live
   Function Scope and Block Scope queries; a remote CFG with the matched local blocks tinted; label
   fetch and import in the Function Overview; the Sample Match Summary; the YARA builder; Export;
   the placeholder for a program without a session; the upload prompt when closing a program.

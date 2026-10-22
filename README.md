@@ -95,7 +95,8 @@ is `0.1.0`.
 
 1. Get the extension ZIP. Until the first release, build it from a clone of this repository:
    `python scripts/ghidra/package_extension.py --repo . --output mcrit-ghidra.zip --ghidra-version <your Ghidra version>`.
-   Each run of the Ghidra CI workflow also keeps one as the `mcrit-ghidra-extension` artifact.
+   Runs of the Ghidra CI workflow also keep one as the `mcrit-ghidra-extension` artifact, built for
+   the Ghidra version CI tests with.
 2. Start Ghidra in PyGhidra mode: `support/pyghidraRun` (Linux, macOS) or
    `support\pyghidraRun.bat` (Windows). The first start offers to set up PyGhidra in a virtual
    environment in Ghidra's settings folder.
@@ -105,9 +106,9 @@ is `0.1.0`.
 4. Install the dependencies into PyGhidra's environment, e.g. on Linux
    `~/.config/ghidra/ghidra_<version>/venv/bin/python -m pip install "smda>=4.9.0" requests`.
    When they are missing, MCRIT shows the exact command for your installation.
-5. In the CodeBrowser, open Window → Script Manager, find `MCRIT.py` in the MCRIT category and tick
-   its "In Tool" box. This adds Tools → MCRIT and the key binding Ctrl+Shift+M; Ghidra creates script
-   menu entries only for scripts marked this way.
+5. In the CodeBrowser, open Window → Script Manager, find `MCRIT.py` in the MCRIT category and
+   tick its "In Tool" box. This adds Tools → MCRIT and the key binding Ctrl+Shift+M; Ghidra
+   creates script menu entries only for scripts marked this way.
 
 To run the plugin straight from a clone instead, skip steps 1 and 3 and add
 `mcrit_plugin/ghidra/ghidra_scripts` from the clone under Script Manager → Manage Script
@@ -120,8 +121,9 @@ on, into Ghidra's settings folder. It is rebuilt automatically for a new plugin 
 
 Settings are under Edit → Tool Options → MCRIT: the same settings as in the other plugins, listed by
 their display names. The API token field is masked, but Ghidra stores it with the tool's options in
-plain text. A `config_override.json` in the extension's folder (`Extensions/MCRIT` in Ghidra's settings
-folder), or in the clone's root, takes precedence as it does in IDA.
+plain text. A `config_override.json` in the extension's folder (`Extensions/MCRIT` in Ghidra's
+settings folder), or in the clone's root, takes precedence as it does in IDA. Reinstalling the
+extension replaces that folder, so keep a copy of the file.
 Settings are read whenever they are used, except the connection settings (server, token, username,
 timeout), which are read when MCRIT opens for a program; reopen the program after changing those.
 

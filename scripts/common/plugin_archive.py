@@ -1,6 +1,7 @@
 """ZIP building shared by the IDA plugin and Ghidra extension packagers."""
 
 import subprocess
+import time
 import zipfile
 from pathlib import Path
 
@@ -46,6 +47,14 @@ def _stamped_revision_source(repo: Path) -> str:
     return source.replace(REVISION_PLACEHOLDER, f'"{commit}"')
 
 
+def _write_text(archive, arcname, text):
+    # writestr alone gives the member mode 0600, which Ghidra applies when it unpacks
+    info = zipfile.ZipInfo(arcname, date_time=time.localtime()[:6])
+    info.compress_type = zipfile.ZIP_DEFLATED
+    info.external_attr = 0o644 << 16
+    archive.writestr(info, text)
+
+
 def write_archive(repo, output, include_paths, excluded, prefix="", extra_files=()):
     """Write the ZIP and return its member names.
 
@@ -65,12 +74,12 @@ def write_archive(repo, output, include_paths, excluded, prefix="", extra_files=
                 member = (Path(archive_path) / inner).as_posix()
                 arcname = (root / member).as_posix()
                 if member == REVISION_FILE:
-                    archive.writestr(arcname, _stamped_revision_source(repo))
+                    _write_text(archive, arcname, _stamped_revision_source(repo))
                 else:
                     archive.write(source_path, arcname)
                 written.append(arcname)
         for member, text in extra_files:
             arcname = (root / member).as_posix()
-            archive.writestr(arcname, text)
+            _write_text(archive, arcname, text)
             written.append(arcname)
     return written

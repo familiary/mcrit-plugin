@@ -64,7 +64,10 @@ def main() -> int:
 
     repo = Path(args.repo).resolve()
     config = (repo / "mcrit_plugin" / "ghidra" / "config.py").read_text(encoding="utf-8")
-    version = re.search(r'^VERSION = "([^"]+)"', config, re.MULTILINE).group(1)
+    found = re.search(r'^VERSION = "([^"]+)"', config, re.MULTILINE)
+    if found is None:
+        raise SystemExit("mcrit_plugin/ghidra/config.py has no VERSION line")
+    version = found.group(1)
 
     written = write_archive(
         repo,

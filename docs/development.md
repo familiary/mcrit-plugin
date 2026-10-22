@@ -182,8 +182,9 @@ and SMDA use 0, so compare a Ghidra export of such a file through
 ### Ghidra
 
 No licence is needed, so `ghidra-tests.yml` runs both tests on every change to the Ghidra plugin.
-Use Ghidra 12.0 or newer on the JDK it asks for (21 up to 12.1, 25 from 12.2), and a Python with PyGhidra from that Ghidra, `smda>=4.9.0` and
-`requests`; `GHIDRA_INSTALL_DIR` points at the installation.
+Use Ghidra 12.0 or newer on the JDK it asks for (21 up to 12.1, 25 from 12.2), and a Python with
+PyGhidra from that Ghidra, `smda>=4.9.0` and `requests`; `GHIDRA_INSTALL_DIR` points at the
+installation.
 
 ```bash
 python -m pip install --no-index -f "$GHIDRA_INSTALL_DIR/Ghidra/Features/PyGhidra/pypkg/dist" pyghidra
@@ -199,8 +200,8 @@ python scripts/ghidra/run_pyghidra_integration.py --input /tmp/mcrit-query --ref
 ```
 
 The GUI run starts Ghidra in PyGhidra mode with a throwaway profile and project, opens MCRIT through
-`mcrit_plugin/ghidra/ghidra_scripts/MCRIT.py` and works through every tab and dialog, the remote CFG, export, switching
-programs and the upload prompt on close. The input must be new to the server. It needs a display;
+`mcrit_plugin/ghidra/ghidra_scripts/MCRIT.py` and works through every tab and dialog, the remote
+CFG, export, switching programs and the upload prompt on close. The input must be new to the server. It needs a display;
 `--screenshots DIR` keeps one per step.
 
 ```bash

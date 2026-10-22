@@ -36,7 +36,12 @@ def test_the_extension_zip_has_the_layout_ghidra_installs(tmp_path):
         "MCRIT/ghidra_scripts/MCRIT.py",
         "MCRIT/icons/mcrit.png",
         "MCRIT/mcrit_plugin/ghidra/controller.py",
+        # MCRIT.py finds the package by its __init__.py; the Ghidra config reads the declarations
+        "MCRIT/mcrit_plugin/__init__.py",
+        "MCRIT/mcrit_plugin/core/settings.json",
     } <= names
+    # Ghidra unpacks the extension into a folder named after the ZIP's top folder
+    assert "name=MCRIT" in properties.splitlines()
     assert "version=12.2" in properties.splitlines()
     for left_out in ("ida", "binja", "headless", "ghidra/ghidra_scripts"):
         assert not any(name.startswith(f"MCRIT/mcrit_plugin/{left_out}/") for name in names)
