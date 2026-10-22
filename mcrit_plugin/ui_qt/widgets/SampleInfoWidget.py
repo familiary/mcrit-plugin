@@ -14,7 +14,7 @@ class SampleInfoWidget(QMainWindow):
         self.name = "Sample Match Summary"
         self.last_family_selected = None
         self._matching_data = None
-        self.icon = self.cc.QIcon(self.parent.config.ICON_FILE_PATH + "puzzle.png")
+        self.icon = self.cc.QIcon(self.parent.config.ICON_FILE_PATH + "chart.png")
         self.central_widget = self.cc.QWidget()
         self.setCentralWidget(self.central_widget)
         self.cb_filter_library = self.cc.QCheckBox("Filter out Library Matches")

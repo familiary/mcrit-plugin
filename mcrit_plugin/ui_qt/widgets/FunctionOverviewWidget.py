@@ -36,7 +36,7 @@ class FunctionOverviewWidget(QMainWindow):
         self.resolved_function_labels = {}  # offset -> resolved label string
         self.parent = parent
         self.name = "Function Overview"
-        self.icon = self.cc.QIcon(self.parent.config.ICON_FILE_PATH + "relationship.png")
+        self.icon = self.cc.QIcon(self.parent.config.ICON_FILE_PATH + "network.png")
         self.central_widget = self.cc.QWidget()
         self.setCentralWidget(self.central_widget)
         self.b_fetch_labels = self.cc.QPushButton("Fetch labels for matches")

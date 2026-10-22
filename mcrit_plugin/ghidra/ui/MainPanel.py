@@ -35,7 +35,11 @@ class MainPanel:
 
         def tool(icon, tooltip, handler, enabled):
             widget = button(
-                "", handler, enabled=enabled, icon=load_icon(icons + icon), tooltip=tooltip
+                "",
+                handler,
+                enabled=enabled,
+                icon=load_icon(icons + icon, 24),
+                tooltip=tooltip,
             )
             self.toolbar.add(widget)
             return widget

@@ -15,7 +15,7 @@ class McritSession:
         from mcrit_plugin.ui_qt.ClassCollection import ClassCollection
 
         self._initSharedState(ClassCollection(QtShim, backend), config)
-        self.icon = self.cc.QIcon(config.ICON_FILE_PATH + "relationship.png")
+        self.icon = self.cc.QIcon(config.ICON_FILE_PATH + "mcrit.png")
         self.mcrit_interface = McritInterface(self, backend)
 
     def _initSharedState(self, cc, config):

@@ -16,6 +16,9 @@ class _Settings:
     def get_string(self, key):
         return self.store.get(key, "")
 
+    def set_string(self, key, value):
+        self.store[key] = value
+
     def reset(self, key):
         self.store.pop(key, None)
 
@@ -89,3 +92,24 @@ def test_without_a_keychain_the_token_stays_in_settings(binja_config, monkeypatc
     assert module._get_setting("mcritweb_api_token") == "secret"
     assert keychain.data == {}
     assert _Settings.store["mcrit.mcritweb_api_token"] == "secret"
+
+
+def test_saving_a_new_token_replaces_the_stored_one_and_moves_into_the_keychain(binja_config):
+    module, keychain = binja_config
+    keychain.data["mcrit.mcritweb_api_token"] = "old"
+
+    module.set_setting("mcritweb_api_token", "new")
+
+    assert keychain.data == {}
+    assert module._get_setting("mcritweb_api_token") == "new"
+    assert keychain.data == {"mcrit.mcritweb_api_token": "new"}
+
+
+def test_saving_an_empty_token_clears_it_everywhere(binja_config):
+    module, keychain = binja_config
+    keychain.data["mcrit.mcritweb_api_token"] = "old"
+
+    module.set_setting("mcritweb_api_token", "")
+
+    assert keychain.data == {}
+    assert "mcrit.mcritweb_api_token" not in _Settings.store
