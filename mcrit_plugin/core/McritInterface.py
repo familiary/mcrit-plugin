@@ -52,6 +52,8 @@ class McritInterface(object):
         self._cache_lock = threading.Lock()
         self._remote_info_lock = threading.Lock()
         self._check_id = 0
+        self._server_generation = 0
+        self._mcrit_server = None
         self._buildClient(self._readConnectionSettings())
 
     def _readConnectionSettings(self):
@@ -72,11 +74,30 @@ class McritInterface(object):
         if username:
             client.setUsername(username)
         self._connection_settings = connection_settings
-        self._mcrit_server = server
         # a connection check started before this client answers for nothing any more
         self._check_id += 1
-        # requests already running keep the client they started with
+        # requests already running keep the client they started with; the client is set before
+        # the generation moves, the reverse of the order _pinConnection reads them in
         self.mcrit_client = client
+        if server != self._mcrit_server:
+            self._mcrit_server = server
+            self._server_generation += 1
+
+    def _pinConnection(self):
+        """The client a request works with and the server generation that tells whether its answer
+        still belongs to the session. Read in this order, a switch in between can only make an
+        answer from the new server look stale, never one from the old server look current."""
+        generation = self._server_generation
+        return self.mcrit_client, generation
+
+    def _isStale(self, generation):
+        """True, after saying so, when the server changed while the request ran."""
+        if generation == self._server_generation:
+            return False
+        self.parent.local_widget.updateActivityInfo(
+            "Dropped an answer from the previous server; the server changed meanwhile."
+        )
+        return True
 
     def _holdsServerData(self):
         parent = self.parent
@@ -96,13 +117,16 @@ class McritInterface(object):
 
         With recheck, the connection is checked even when nothing changed. A new server is only
         taken while the session holds nothing from the current one, whose ids mean nothing there;
-        the other settings apply either way. Returns the server waiting for a reopen, or None.
+        until then the session keeps the current server's token and username and takes only the new
+        timeout. Returns the server waiting for a reopen, or None.
         """
         connection_settings = self._readConnectionSettings()
         waiting_server = None
         if connection_settings[0] != self._mcrit_server and self._holdsServerData():
             waiting_server = connection_settings[0]
-            connection_settings = (self._mcrit_server,) + connection_settings[1:]
+            # the new token and username belong to the new server; only the timeout applies now
+            server, _timeout, api_token, username = self._connection_settings
+            connection_settings = (server, connection_settings[1], api_token, username)
         if connection_settings != self._connection_settings:
             self._buildClient(connection_settings)
             self.checkConnection(async_=True)
@@ -233,10 +257,10 @@ class McritInterface(object):
 
     def querySampleSha256(self, sha256):
         self.parent.local_widget.updateActivityInfo("Querying for SHA256")
-        client = self.mcrit_client
+        client, generation = self._pinConnection()
         try:
             sample_by_sha256 = client.getSampleBySha256(sha256)
-            if client is not self.mcrit_client:
+            if self._isStale(generation):
                 return
             if sample_by_sha256:
                 self.parent.remote_sample_entry = sample_by_sha256
@@ -253,8 +277,11 @@ class McritInterface(object):
         self.parent.local_widget.updateActivityInfo(
             "Sending SMDA report to server %s" % self.server
         )
+        client, generation = self._pinConnection()
         try:
-            sample_entry, job_id = self.mcrit_client.addReport(report) or (None, None)
+            sample_entry, job_id = client.addReport(report) or (None, None)
+            if self._isStale(generation):
+                return
             if sample_entry:
                 if job_id:
                     self.parent.local_widget.updateActivityInfo(
@@ -324,8 +351,11 @@ class McritInterface(object):
 
     def getMatchingJobById(self, job_id):
         self.parent.local_widget.updateActivityInfo("Querying result for job with id: %s" % job_id)
+        client, generation = self._pinConnection()
         try:
-            matching_result = self.mcrit_client.getResultForJob(job_id)
+            matching_result = client.getResultForJob(job_id)
+            if self._isStale(generation):
+                return
             if matching_result:
                 self.parent.matching_job_id = job_id
                 self.parent.matching_report = MatchingResult.fromDict(matching_result)
@@ -353,10 +383,10 @@ class McritInterface(object):
 
     def queryAllFamilyEntries(self):
         self.parent.local_widget.updateActivityInfo("Querying for FamilyEntries")
-        client = self.mcrit_client
+        client, generation = self._pinConnection()
         try:
             family_entries = client.getFamilies()
-            if client is not self.mcrit_client:
+            if self._isStale(generation):
                 return
             # None is a failed request; an empty dict is a server without families
             if family_entries is not None:
@@ -375,11 +405,13 @@ class McritInterface(object):
             if not functions:
                 return None
             smda_function = functions[0]
-            client = self.mcrit_client
+            connection = self._pinConnection()
             if smda_function.offset not in self.parent.function_matches:
-                match_report_dict = client.getMatchesForSmdaFunction(
+                match_report_dict = connection[0].getMatchesForSmdaFunction(
                     smda_report, exclude_self_matches=False
                 )
+                if self._isStale(connection[1]):
+                    return None
                 if match_report_dict:
                     self.parent.function_matches.update({smda_function.offset: match_report_dict})
                 if match_report_dict:
@@ -394,7 +426,7 @@ class McritInterface(object):
                     ]
                     if unknown_function_ids:
                         function_entries = self.queryFunctionEntriesById(
-                            unknown_function_ids, client=client
+                            unknown_function_ids, connection=connection
                         )
                         if function_entries:
                             for function_id, function_entry in function_entries.items():
@@ -405,17 +437,18 @@ class McritInterface(object):
         except Exception as exc:
             self._reportFailure("querySmdaFunctionMatches", exc)
 
-    def queryFunctionEntriesById(self, function_ids, with_label_only=False, client=None):
-        """The entries by id, or None when the request raised; McritClient answers {} both when
-        none qualify and when the server rejects the request."""
+    def queryFunctionEntriesById(self, function_ids, with_label_only=False, connection=None):
+        """The entries by id, or None when the request raised or the server changed meanwhile;
+        McritClient answers {} both when none qualify and when the server rejects the request."""
+        client, generation = connection or self._pinConnection()
         try:
-            function_entries = (client or self.mcrit_client).getFunctionsByIds(
+            function_entries = client.getFunctionsByIds(
                 function_ids, with_label_only=with_label_only
             )
         except Exception as exc:
             self._reportFailure("queryFunctionEntriesById", exc)
             return None
-        if function_entries is None:
+        if function_entries is None or self._isStale(generation):
             return None
         if function_entries:
             # requests run on worker threads while the UI iterates the cache: swap in a new dict
@@ -427,10 +460,10 @@ class McritInterface(object):
 
     def queryAllSampleEntries(self):
         self.parent.local_widget.updateActivityInfo("Querying for SampleEntries")
-        client = self.mcrit_client
+        client, generation = self._pinConnection()
         try:
             sample_entries = client.getSamples()
-            if client is not self.mcrit_client:
+            if self._isStale(generation):
                 return
             if sample_entries is not None:
                 self.parent.sample_infos = sample_entries
@@ -446,7 +479,7 @@ class McritInterface(object):
         """(function entry with its CFG, its SmdaFunction, its sample entry), or None after reporting
         why; touches no widget, so it can run off the UI thread. The sample entry comes from the
         downloaded sample list when that has it."""
-        client = self.mcrit_client
+        client, generation = self._pinConnection()
         try:
             function_entry = client.getFunctionById(function_id, with_xcfg=True)
             if function_entry is None:
@@ -467,6 +500,8 @@ class McritInterface(object):
                     f"Failed to fetch sample entry {function_entry.sample_id}."
                 )
                 return None
+            if self._isStale(generation):
+                return None
             # a malformed CFG raises here; the widgets then still get their None answer
             return function_entry, function_entry.toSmdaFunction(), sample_entry
         except Exception as exc:
@@ -475,7 +510,11 @@ class McritInterface(object):
             return None
 
     def getMatchesForPicBlockHash(self, picblockhash):
+        """The matches, or None when the request failed or the server changed meanwhile; the
+        widgets keep None out of the session's cache."""
+        client, generation = self._pinConnection()
         try:
-            return self.mcrit_client.getMatchesForPicBlockHash(picblockhash)
+            matches = client.getMatchesForPicBlockHash(picblockhash)
+            return None if self._isStale(generation) else matches
         except Exception as exc:
             self._reportFailure("getMatchesForPicBlockHash", exc)

@@ -32,7 +32,7 @@ MARKER_PRIORITY = 40
 class GhidraBackend(Backend):
     name = "Ghidra"
     plugin_name = "MCRIT4Ghidra"
-    settings_location = "Tool Options > MCRIT"
+    settings_location = "Edit > Tool Options > MCRIT"
 
     def __init__(self, program, tool=None):
         self.program = program

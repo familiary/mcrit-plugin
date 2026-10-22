@@ -43,6 +43,7 @@ def _make_interface(timeout=10):
     inst._cache_lock = threading.Lock()
     inst._remote_info_lock = threading.Lock()
     inst._check_id = 0
+    inst._server_generation = 0
     inst.mcrit_client = MagicMock()
     return inst
 
@@ -374,21 +375,18 @@ class TestReloadSettings:
         assert interface.server == "http://127.0.0.1:8000/"
         interface.checkConnection.assert_not_called()
 
-    def test_the_rest_of_the_settings_apply_while_the_new_server_waits(self):
+    def test_the_old_connection_stays_whole_while_the_new_server_waits(self):
         interface, config = self._interface()
         interface.parent.remote_sample_id = 23
         config.MCRIT_SERVER = "https://mcrit.example.com/"
-        config.MCRITWEB_API_TOKEN = "token"
+        config.MCRITWEB_API_TOKEN = "token for the new server"
+        config.MCRIT_REQUEST_TIMEOUT = 30
 
         assert interface.reloadSettings() == "https://mcrit.example.com/"
-        assert interface.mcrit_client.headers["apitoken"] == "token"
+
         assert interface.server == "http://127.0.0.1:8000/"
-
-        config.MCRITWEB_API_TOKEN = "token2"
-        interface.reloadSettings()
-
-        assert interface.mcrit_client.headers["apitoken"] == "token2"
-        assert interface.checkConnection.call_count == 2
+        assert "apitoken" not in interface.mcrit_client.headers
+        assert interface.mcrit_client.timeout == 30
 
 
 def test_a_check_that_answers_after_the_settings_changed_is_dropped():
@@ -458,41 +456,114 @@ def test_an_older_check_on_the_same_client_does_not_overwrite_a_newer_one():
     assert not any("timed out" in message for message in messages)
 
 
-@pytest.mark.parametrize(
-    "method, args, request_name, field",
-    [
-        ("querySampleSha256", ("abc",), "getSampleBySha256", "remote_sample_entry"),
-        ("queryAllFamilyEntries", (), "getFamilies", "family_infos"),
-        ("queryAllSampleEntries", (), "getSamples", "sample_infos"),
-    ],
-)
-def test_an_answer_from_a_replaced_client_is_not_stored(method, args, request_name, field):
+_SMDA_REPORT = SimpleNamespace(getFunctions=lambda: [SimpleNamespace(offset=0x401000)])
+
+
+def _answers_after(interface, request_name, answer, settings):
+    """Let the request answer only after the session switched to other connection settings."""
+
+    def answer_after_the_switch(*_args, **_kwargs):
+        interface._buildClient(settings)
+        return answer
+
+    getattr(interface.mcrit_client, request_name).side_effect = answer_after_the_switch
+
+
+_STORING_REQUESTS = [
+    (
+        "querySampleSha256",
+        ("abc",),
+        "getSampleBySha256",
+        SimpleNamespace(sample_id=5),
+        "remote_sample_id",
+    ),
+    (
+        "uploadReport",
+        (object(),),
+        "addReport",
+        (SimpleNamespace(sample_id=5), None),
+        "remote_sample_id",
+    ),
+    ("getMatchingJobById", ("job",), "getResultForJob", {"matches": {}}, "matching_job_id"),
+    ("queryAllFamilyEntries", (), "getFamilies", {1: "family"}, "family_infos"),
+    ("queryAllSampleEntries", (), "getSamples", {1: "sample"}, "sample_infos"),
+    (
+        "querySmdaFunctionMatches",
+        (_SMDA_REPORT,),
+        "getMatchesForSmdaFunction",
+        {"x": 1},
+        "function_matches",
+    ),
+    (
+        "queryFunctionEntriesById",
+        ([7],),
+        "getFunctionsByIds",
+        {7: "entry"},
+        "matched_function_entries",
+    ),
+]
+
+
+def _empty_session(interface):
+    for field in (
+        "remote_sample_id",
+        "remote_sample_entry",
+        "matching_job_id",
+        "family_infos",
+        "sample_infos",
+        "matched_function_entries",
+    ):
+        setattr(interface.parent, field, None)
+    interface.parent.function_matches = {}
+
+
+@pytest.mark.parametrize("method, args, request_name, answer, field", _STORING_REQUESTS)
+def test_an_answer_from_the_previous_server_is_not_stored(
+    method, args, request_name, answer, field
+):
     interface = _make_interface()
-    interface.parent.remote_sample_entry = None
-    interface.parent.family_infos = None
-    interface.parent.sample_infos = None
-    old_client = interface.mcrit_client
-
-    def answer_after_the_swap(*_args, **_kwargs):
-        interface.mcrit_client = MagicMock()
-        return {1: "from the old server"}
-
-    getattr(old_client, request_name).side_effect = answer_after_the_swap
+    _empty_session(interface)
+    _answers_after(interface, request_name, answer, ("http://other:8000/", 10, "", ""))
 
     getattr(interface, method)(*args)
 
-    assert getattr(interface.parent, field) is None
+    assert not getattr(interface.parent, field)
+
+
+def test_block_matches_from_the_previous_server_count_as_failed():
+    interface = _make_interface()
+    _answers_after(
+        interface, "getMatchesForPicBlockHash", [{"match": 1}], ("http://other/", 10, "", "")
+    )
+
+    assert interface.getMatchesForPicBlockHash(0x1234) is None
+
+
+@pytest.mark.parametrize(
+    "method, args, request_name, answer, field",
+    [request for request in _STORING_REQUESTS if request[0] != "getMatchingJobById"],
+)
+def test_an_answer_from_the_same_server_is_kept_after_a_token_change(
+    method, args, request_name, answer, field
+):
+    interface = _make_interface()
+    _empty_session(interface)
+    _answers_after(interface, request_name, answer, (interface.server, 10, "new token", ""))
+
+    getattr(interface, method)(*args)
+
+    assert getattr(interface.parent, field)
 
 
 @pytest.mark.parametrize("server_is_default, hinted", [(True, True), (False, False)])
 def test_a_failed_check_points_at_settings_only_while_no_server_is_set(server_is_default, hinted):
     interface = _make_interface()
     interface.config.SERVER_IS_DEFAULT = server_is_default
-    interface.backend = SimpleNamespace(settings_location="Tool Options > MCRIT")
+    interface.backend = SimpleNamespace(settings_location="Edit > Tool Options > MCRIT")
     interface.mcrit_client.getVersion.side_effect = requests.exceptions.ConnectionError("refused")
 
     interface.checkConnection()
 
     message = interface.parent.local_widget.updateActivityInfo.call_args_list[-1].args[0]
     assert message.startswith("Connection check failed (server unreachable).")
-    assert ("use Tool Options > MCRIT to change it" in message) == hinted
+    assert ("use Edit > Tool Options > MCRIT to change it" in message) == hinted

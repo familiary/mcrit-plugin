@@ -46,7 +46,7 @@ class MainWidget(QMainWindow):
         self.tabs = self.cc.QTabWidget()
         self.tabs.setTabsClosable(False)
         for widget in self.tabbed_widgets:
-            self.tabs.addTab(widget, self._themedIcon(widget.icon.pixmap(64, 64)), widget.name)
+            self.tabs.addTab(widget, widget.name)
         layout = self.cc.QVBoxLayout()
         self.splitter = self.cc.QSplitter(self.cc.QtCore.Qt.Vertical)
         q_clean_style = self.cc.QStyleFactory.create("Plastique")
@@ -57,6 +57,7 @@ class MainWidget(QMainWindow):
         layout.addWidget(self.splitter)
         self.central_widget.setLayout(layout)
         self.setTabFocus(self.parent.sample_widget.name)
+        self._applyIconTint()
 
     def _createToolbar(self):
         """
@@ -79,6 +80,27 @@ class MainWidget(QMainWindow):
         self.toolbar.widgetForAction(self.settingsAction).setToolButtonStyle(
             self.cc.QtCore.Qt.ToolButtonTextBesideIcon
         )
+        self._toolbarIconFiles = [
+            (self.parseSmdaAction, "fingerprint_scan.png"),
+            (self.uploadSmdaAction, "cloud-upload.png"),
+            (self.getMatchResultAction, "satellite_dish.png"),
+            (self.exportSmdaAction, "export.png"),
+            (self.buildYaraStringAction, "yara.png"),
+            (self.settingsAction, "settings.png"),
+        ]
+
+    def changeEvent(self, event):
+        QMainWindow.changeEvent(self, event)
+        # a theme switch while the plugin is open changes the text color the icons are drawn in
+        event_types = (self.cc.QtCore.QEvent.PaletteChange, self.cc.QtCore.QEvent.StyleChange)
+        if event.type() in event_types and getattr(self, "tabs", None) is not None:
+            self._applyIconTint()
+
+    def _applyIconTint(self):
+        for action, filename in self._toolbarIconFiles:
+            action.setIcon(self._toolbarIcon(filename))
+        for index, widget in enumerate(self.tabbed_widgets):
+            self.tabs.setTabIcon(index, self._themedIcon(widget.icon.pixmap(64, 64)))
 
     def _toolbarIcon(self, filename):
         return self._themedIcon(self.cc.QtGui.QPixmap(self.parent.config.ICON_FILE_PATH + filename))
@@ -97,7 +119,6 @@ class MainWidget(QMainWindow):
         Create an action for parsing the IDB into a SMDA report.
         """
         self.parseSmdaAction = self.cc.QAction(
-            self._toolbarIcon("fingerprint_scan.png"),
             "Convert this database to a SMDA report which can then be used to query MCRIT.",
             self,
         )
@@ -109,7 +130,6 @@ class MainWidget(QMainWindow):
         TODO: will require addition of some more meta data.
         """
         self.uploadSmdaAction = self.cc.QAction(
-            self._toolbarIcon("cloud-upload.png"),
             "Reparse and upload the SMDA report to the MCRIT server.",
             self,
         )
@@ -121,7 +141,6 @@ class MainWidget(QMainWindow):
         Create an action for requesting a MatchReport for the given remote sample
         """
         self.getMatchResultAction = self.cc.QAction(
-            self._toolbarIcon("satellite_dish.png"),
             "Request the MatchResult for the uploaded sample.",
             self,
         )
@@ -133,7 +152,6 @@ class MainWidget(QMainWindow):
         Create an action for exporting the parsed SMDA report into json/smda format.
         """
         self.exportSmdaAction = self.cc.QAction(
-            self._toolbarIcon("export.png"),
             "Export the SMDA report to local disk.",
             self,
         )
@@ -145,7 +163,6 @@ class MainWidget(QMainWindow):
         Create an action for building a YARA string from the current selection.
         """
         self.buildYaraStringAction = self.cc.QAction(
-            self._toolbarIcon("yara.png"),
             "Build a YARA string from the current selection.",
             self,
         )
@@ -156,7 +173,7 @@ class MainWidget(QMainWindow):
         """
         Create an action for opening the plugin settings.
         """
-        self.settingsAction = self.cc.QAction(self._toolbarIcon("settings.png"), "Settings", self)
+        self.settingsAction = self.cc.QAction("Settings", self)
         self.settingsAction.setToolTip("Set the MCRIT server, API token and other plugin settings.")
         self.settingsAction.triggered.connect(self._onSettingsButtonClicked)
 
