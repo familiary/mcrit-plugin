@@ -80,7 +80,8 @@ class McritInterface(object):
         self._connection_settings = connection_settings
         # a connection check started before this client answers for nothing any more
         self._check_id += 1
-        # requests already running keep the client they started with
+        # requests already running keep the client they started with; set before the generation
+        # moves, as _pinConnection reads the two without the lock
         self.mcrit_client = client
         if server != self._mcrit_server:
             self._mcrit_server = server
