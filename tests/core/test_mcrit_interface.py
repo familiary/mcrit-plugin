@@ -488,10 +488,11 @@ def test_an_answer_from_a_replaced_client_is_not_stored(method, args, request_na
 def test_a_failed_check_points_at_settings_only_while_no_server_is_set(server_is_default, hinted):
     interface = _make_interface()
     interface.config.SERVER_IS_DEFAULT = server_is_default
+    interface.backend = SimpleNamespace(settings_location="Tool Options > MCRIT")
     interface.mcrit_client.getVersion.side_effect = requests.exceptions.ConnectionError("refused")
 
     interface.checkConnection()
 
     message = interface.parent.local_widget.updateActivityInfo.call_args_list[-1].args[0]
     assert message.startswith("Connection check failed (server unreachable).")
-    assert ("Settings button" in message) == hinted
+    assert ("use Tool Options > MCRIT to change it" in message) == hinted
