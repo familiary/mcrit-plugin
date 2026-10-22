@@ -302,7 +302,15 @@ def run_steps(args, gui):
     gui.edt(lambda: main.setTabFocus(function_widget.name))
     target = max(report.getFunctions(), key=lambda function: function.num_instructions)
     gui.edt(lambda: backend.jump_to(target.offset))
-    _wait(lambda: function_widget.table_function_matches.rows, "live function query", 120)
+    # turning live tracking on queries the function the cursor was on, so rows alone may be its
+    _wait(
+        lambda: (
+            function_widget.current_function_offset == target.offset
+            and function_widget.table_function_matches.rows
+        ),
+        "live function query",
+        120,
+    )
     _check(
         session.current_function == target.offset,
         "cursor move reached the Function Scope",

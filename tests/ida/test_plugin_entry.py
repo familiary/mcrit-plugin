@@ -173,3 +173,52 @@ def test_an_event_from_another_view_keeps_the_disassembly_move(monkeypatch):
         disassembly,
         hex_view,
     ]
+
+
+def test_the_settings_menu_entry_opens_the_current_database_s_settings(monkeypatch):
+    """Edit > Plugins > MCRIT4IDA Settings... opens the settings of the database open now; a
+    previous database's plugmod going away late leaves the entry in place."""
+    actions = {}
+
+    class _ActionDesc:
+        def __init__(self, name, label, handler, shortcut, tooltip, icon):
+            self.name, self.handler = name, handler
+
+    kernwin = types.SimpleNamespace(
+        PluginForm=_PluginForm,
+        is_idaq=lambda: True,
+        View_Hooks=_ViewHooks,
+        action_handler_t=object,
+        action_desc_t=_ActionDesc,
+        AST_ENABLE_ALWAYS=0,
+        SETMENU_APP=1,
+        # like IDA, registering an action name a second time fails
+        register_action=lambda desc: (
+            desc.name not in actions and actions.setdefault(desc.name, desc.handler) is not None
+        ),
+        attach_action_to_menu=MagicMock(),
+        detach_action_from_menu=MagicMock(),
+    )
+    monkeypatch.setitem(
+        sys.modules,
+        "ida_idaapi",
+        types.SimpleNamespace(plugin_t=_PluginT, plugmod_t=_PlugmodT, PLUGIN_MULTI=1),
+    )
+    monkeypatch.setitem(sys.modules, "ida_kernwin", kernwin)
+    monkeypatch.delitem(sys.modules, "mcrit_plugin.ida.ida_mcrit", raising=False)
+    module = importlib.import_module("mcrit_plugin.ida.ida_mcrit")
+    form = types.SimpleNamespace(
+        released=False, Show=lambda: True, release=lambda: None, main_widget=MagicMock()
+    )
+    monkeypatch.setattr(module, "show_mcrit_form", lambda: form)
+
+    previous = module.Mcrit4IdaPlugmod()
+    plugmod = module.Mcrit4IdaPlugmod()
+    del previous
+    kernwin.attach_action_to_menu.assert_called_once_with(
+        "Edit/Plugins/", module.SETTINGS_ACTION, kernwin.SETMENU_APP
+    )
+
+    actions[module.SETTINGS_ACTION].activate(None)
+    assert plugmod.form is form
+    form.main_widget._onSettingsButtonClicked.assert_called_once_with()
