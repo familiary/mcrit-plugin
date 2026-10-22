@@ -3,7 +3,7 @@
 import os
 import subprocess
 
-# expanded by `git archive` (export-subst in .gitattributes) and by scripts/ida/package_plugin.py
+# expanded by `git archive` (export-subst in .gitattributes) and by scripts/common/plugin_archive.py
 ARCHIVE_COMMIT = "$Format:%H$"
 
 

@@ -7,7 +7,6 @@ on:
   push:
     paths:
       - "mcrit_plugin/ghidra/**"
-      - "ghidra_scripts/**"
       - "scripts/ghidra/**"
       - "tests/ghidra/**"
       - ".github/workflows/ghidra-*.yml"
@@ -20,7 +19,6 @@ on:
   pull_request:
     paths:
       - "mcrit_plugin/ghidra/**"
-      - "ghidra_scripts/**"
       - "scripts/ghidra/**"
       - "tests/ghidra/**"
       - ".github/workflows/ghidra-*.yml"
@@ -147,6 +145,20 @@ jobs:
             --timeout 180
           echo "REFERENCE_SHA256=$(sha256sum "$RUNNER_TEMP/mcrit-variant-0" | cut -d' ' -f1)" \
             >> "$GITHUB_ENV"
+
+      - name: Build the Ghidra extension
+        run: |
+          python scripts/ghidra/package_extension.py --repo . \
+            --output "dist/mcrit-ghidra.zip" --ghidra-version "$GHIDRA_VERSION"
+
+      - name: Install the Ghidra extension with Ghidra's installer
+        run: python scripts/ghidra/check_extension_install.py --zip dist/mcrit-ghidra.zip
+
+      - name: Upload the Ghidra extension
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: mcrit-ghidra-extension
+          path: dist/mcrit-ghidra.zip
 
       - name: Run PyGhidra headless integration
         run: |

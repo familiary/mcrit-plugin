@@ -33,8 +33,19 @@ def _restore_keep_modules():
         System.setProperty(KEEP_MODULES, _previous_keep_modules)
 
 
-# this script sits in <plugin>/ghidra_scripts; the mcrit_plugin package is next to that folder
-PLUGIN_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+def _plugin_root():
+    """The folder holding the mcrit_plugin package: this script sits in mcrit_plugin/ghidra/
+    ghidra_scripts in a clone, and in ghidra_scripts next to mcrit_plugin in the extension."""
+    folder = os.path.dirname(os.path.abspath(__file__))
+    while not os.path.isfile(os.path.join(folder, "mcrit_plugin", "__init__.py")):
+        parent = os.path.dirname(folder)
+        if parent == folder:
+            raise ImportError("MCRIT.py found no mcrit_plugin package above its own folder")
+        folder = parent
+    return folder
+
+
+PLUGIN_ROOT = _plugin_root()
 if PLUGIN_ROOT not in sys.path:
     sys.path.insert(0, PLUGIN_ROOT)
 
