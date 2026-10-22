@@ -117,6 +117,24 @@ def summarize_block_matches(pbh, blockhash_matches, family_infos, filter_library
     return by_offset, families, samples, functions, all_functions
 
 
+def block_matches_headline(
+    function_offset, families, samples, functions, all_functions, filter_library
+):
+    """The Block Scope headline for summarize_block_matches' counts. Families, samples and functions
+    are all counted without library matches; filtering adds how many functions it hid."""
+    if families is None:
+        return "No Block Matches for Function: 0x%x" % function_offset
+    text = "Block Matches for Function: 0x%x -- %d families, %d samples, %d functions" % (
+        function_offset,
+        len(families),
+        len(samples),
+        len(functions),
+    )
+    if filter_library:
+        return text + " (%d filtered)." % (len(all_functions) - len(functions))
+    return text + "."
+
+
 def aggregate_sample_matches(match_report, filter_library):
     """sample id -> the fields both tables show, from a MatchingResult."""
     if not match_report:

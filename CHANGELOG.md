@@ -17,6 +17,11 @@ Ninja or Ghidra applies to that plugin only.
   program, remote CFGs open in Ghidra's graph view, and the settings are under Tool Options > MCRIT. It runs from this repository's `ghidra_scripts` folder;
   see the README for setup. Not released yet; versioned on its own from 0.1.0.
 
+### Fixed
+
+- Block Scope: with Filter out Library Matches off, the headline counted families and samples
+  without library matches but functions with them. It now counts all three without them.
+
 ## [2.1.1] - 2026-10-15
 
 ### Fixed

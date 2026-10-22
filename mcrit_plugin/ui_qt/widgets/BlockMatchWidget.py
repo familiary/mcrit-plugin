@@ -5,7 +5,7 @@ from concurrent.futures import ThreadPoolExecutor
 import mcrit_plugin.core.McritTableColumn as McritTableColumn
 import mcrit_plugin.ui_qt.QtShim as QtShim
 from mcrit_plugin.core.minimcrit.matchers.FunctionCfgMatcher import FunctionCfgMatcher
-from mcrit_plugin.core.presentation import summarize_block_matches
+from mcrit_plugin.core.presentation import block_matches_headline, summarize_block_matches
 from mcrit_plugin.core.ScoreColorProvider import ScoreColorProvider, ThemeRole
 from mcrit_plugin.ui_qt.widgets.MatchTable import MatchRow, MatchTableView
 
@@ -312,34 +312,19 @@ class BlockMatchWidget(QMainWindow):
                 pbh, self.parent.blockhash_matches, self.parent.family_infos, filter_library
             )
         )
-        if families is None:
-            self.label_current_function_matches.setText(
-                "No Block Matches for Function: 0x%x" % self.parent.current_function
+        self.label_current_function_matches.setText(
+            block_matches_headline(
+                self.parent.current_function,
+                families,
+                samples,
+                functions,
+                all_functions,
+                filter_library,
             )
-            if self.parent.current_block:
-                self.label_block_matches.setText(
-                    "No Block Matches for: 0x%x" % self.parent.current_block
-                )
-        elif filter_library:
-            self.label_current_function_matches.setText(
-                "Block Matches for Function: 0x%x -- %d families, %d samples, %d functions (%d filtered)."
-                % (
-                    self.parent.current_function,
-                    len(families),
-                    len(samples),
-                    len(functions),
-                    len(all_functions) - len(functions),
-                )
-            )
-        else:
-            self.label_current_function_matches.setText(
-                "Block Matches for Function: 0x%x -- %d families, %d samples, %d functions."
-                % (
-                    self.parent.current_function,
-                    len(families),
-                    len(samples),
-                    len(all_functions),
-                )
+        )
+        if families is None and self.parent.current_block:
+            self.label_block_matches.setText(
+                "No Block Matches for: 0x%x" % self.parent.current_block
             )
         self._last_block_matches = block_matches_by_offset
         self._shown_function = self.parent.current_function

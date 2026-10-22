@@ -6,6 +6,7 @@ from types import SimpleNamespace
 import mcrit_plugin.core.McritTableColumn as McritTableColumn
 from mcrit_plugin.core.presentation import (
     aggregate_sample_matches,
+    block_matches_headline,
     build_yara_rule,
     format_data_bytes,
     format_hex_lines,
@@ -72,6 +73,25 @@ def test_block_summary_counts_and_library_filter():
     # a block with library matches drops out of the summary when filtering
     assert set(by_offset) == {0x10}
     assert functions == {100, 200} and len(all_functions - functions) == 1
+
+
+def test_block_headline_counts_functions_like_families_and_samples():
+    pbh = [{"offset": 0x10, "hash": 1, "size": 5}, {"offset": 0x20, "hash": 2, "size": 6}]
+    matches = {1: [(1, 10, 100, 0x10), (2, 20, 200, 0x10)], 2: [(9, 90, 900, 0x20)]}
+    families = {1: _family(1, 0), 2: _family(1, 0), 9: _family(2, 2)}
+
+    _, *counts = summarize_block_matches(pbh, matches, families, filter_library=False)
+    # the library family's function 900 counts nowhere, as its family and sample do not
+    assert block_matches_headline(0x1000, *counts, filter_library=False) == (
+        "Block Matches for Function: 0x1000 -- 2 families, 2 samples, 2 functions."
+    )
+    _, *counts = summarize_block_matches(pbh, matches, families, filter_library=True)
+    assert block_matches_headline(0x1000, *counts, filter_library=True) == (
+        "Block Matches for Function: 0x1000 -- 2 families, 2 samples, 2 functions (1 filtered)."
+    )
+    assert block_matches_headline(0x1000, None, None, None, None, False) == (
+        "No Block Matches for Function: 0x1000"
+    )
 
 
 def test_block_summary_without_blocks():
