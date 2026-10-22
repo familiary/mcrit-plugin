@@ -209,7 +209,8 @@ class McritInterface(object):
                     else self._describeError(err)
                 )
                 hint = (
-                    " The server is still the default one, use the Settings button to change it."
+                    " The server is still the default one, use %s to change it."
+                    % self.backend.settings_location
                     if self.config.SERVER_IS_DEFAULT
                     else ""
                 )

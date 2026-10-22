@@ -1,4 +1,5 @@
 import mcrit_plugin.ui_qt.QtShim as QtShim
+from mcrit_plugin.core.presentation import aggregate_sample_matches
 from mcrit_plugin.ui_qt.widgets.MatchTable import MatchRow, MatchTableView
 
 QMainWindow = QtShim.get_QMainWindow()
@@ -71,30 +72,9 @@ class SampleInfoWidget(QMainWindow):
         self.label_sample_matches_family.setText(text)
 
     def _aggregatedMatchingData(self):
-        match_report = self.parent.getMatchingReport()
-        if not match_report:
-            return {}
-        sample_matches = match_report.filtered_sample_matches
-        if self.cb_filter_library.isChecked():
-            sample_matches = [entry for entry in sample_matches if not entry.is_library]
-        return {
-            sample_match.sample_id: {
-                "family": sample_match.family,
-                "version": sample_match.version,
-                "sha256": sample_match.sha256,
-                "filename": sample_match.filename,
-                "sample_id": sample_match.sample_id,
-                "minhash_matches": sample_match.matched_functions_minhash,
-                "pichash_matches": sample_match.matched_functions_pichash,
-                "combined_matches": sample_match.matched_functions_combined,
-                "library_matches": sample_match.matched_functions_library,
-                "bytescore": sample_match.matched_bytes_unweighted,
-                "bytescore_adjusted": sample_match.matched_bytes_score_weighted,
-                "percent": sample_match.matched_percent_unweighted,
-                "percent_adjusted": sample_match.matched_percent_score_weighted,
-            }
-            for sample_match in sample_matches
-        }
+        return aggregate_sample_matches(
+            self.parent.getMatchingReport(), self.cb_filter_library.isChecked()
+        )
 
     def populateBestMatchTable(self, *_args):
         """Fill the upper table with the best matching sample of each family."""

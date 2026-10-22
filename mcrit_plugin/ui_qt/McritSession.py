@@ -14,7 +14,13 @@ class McritSession:
         from mcrit_plugin.core.McritInterface import McritInterface
         from mcrit_plugin.ui_qt.ClassCollection import ClassCollection
 
-        self.cc = ClassCollection(QtShim, backend)
+        self._initSharedState(ClassCollection(QtShim, backend), config)
+        self.icon = self.cc.QIcon(config.ICON_FILE_PATH + "relationship.png")
+        self.mcrit_interface = McritInterface(self, backend)
+
+    def _initSharedState(self, cc, config):
+        """The state every frontend's session starts with; free of Qt, so Ghidra calls it too."""
+        self.cc = cc
         self.config = config
         self.tabs = None
         self.parent = None
@@ -40,8 +46,6 @@ class McritSession:
         self.sample_infos = None
         self.family_infos = None
         self.function_id_to_offset = {}
-        self.icon = self.cc.QIcon(config.ICON_FILE_PATH + "relationship.png")
-        self.mcrit_interface = McritInterface(self, backend)
         self.hook_subscribed_widgets = []
 
     def copyStringToClipboard(self, string_to_copy: str):

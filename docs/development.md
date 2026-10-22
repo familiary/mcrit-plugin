@@ -14,16 +14,20 @@ mcrit-plugin/
 │   ├── ui_qt/               # Qt widgets shared by IDA and Binary Ninja
 │   ├── ida/                 # ida-plugin.json, ida_mcrit.py, IDA backend, graph viewer
 │   ├── binja/               # Binary Ninja backend, settings, sidebar (SMDA export via smda.binja)
+│   ├── ghidra/              # Ghidra backend, SMDA export, Swing UI (ui/), Java bridge (java/)
 │   └── headless/            # backend without a disassembler: SMDA disassembles the file itself
+├── ghidra_scripts/          # MCRIT.py, the PyGhidra script that opens the Ghidra window
 ├── scripts/
 │   ├── common/              # shared checks, fixtures, headless integration runner
 │   ├── ida/                 # IDA packaging, metadata sync, integration runners
-│   └── binja/               # Binary Ninja metadata sync, integration runner
+│   ├── binja/               # Binary Ninja metadata sync, integration runner
+│   └── ghidra/              # PyGhidra headless and GUI integration runners
 ├── tests/
 │   ├── core/                # pytest: core and headless backend
 │   ├── ui_qt/               # pytest: McritSession; sorted tables with PySide6
 │   ├── ida/                 # pytest for the IDA entry point, backend, release guard; in-IDA tests
-│   └── binja/               # pytest for the Binja token storage; in-Binary Ninja integration tests
+│   ├── binja/               # pytest for the Binja token storage; in-Binary Ninja integration tests
+│   └── ghidra/              # pytest for the Ghidra frontend's JVM-free logic
 └── .github/workflows/
     └── scripts/ida/release_guard.py   # tag, version and changelog gates for the IDA release
 ```
@@ -51,6 +55,7 @@ python scripts/binja/verify_metadata_sync.py --repo .
 | `changelog.yml` | Changelog | PR | changelog entry for changes shipped in either plugin |
 | `ida-package.yml` | IDA package | push, PR touching that plugin | metadata sync and package validation |
 | `binja-package.yml` | Binary Ninja package | push, PR touching that plugin | metadata sync and package validation |
+| `ghidra-tests.yml` | Ghidra integration | push, PR touching that plugin, dispatch | PyGhidra headless and GUI integration against MCRIT |
 | `ida-tests.yml` | IDA integration | push to main or PR touching the IDA plugin, dispatch | licensed IDA integration |
 | `ida-release.yml` | IDA release | `ida-v*` tag | release, see [RELEASING.md](../RELEASING.md) |
 | `binja-release.yml` | Binary Ninja release | dispatch | release, see [RELEASING.md](../RELEASING.md) |
@@ -63,6 +68,9 @@ python scripts/binja/verify_metadata_sync.py --repo .
 - Binary Ninja: `mcrit_plugin/binja/`, `plugin.json`, `__init__.py`, `requirements.txt`,
   `scripts/binja/`, `tests/binja/`, `.github/workflows/binja-*.yml`, and `**/ida-plugin.json`,
   because the archive check has to prove that file is still `export-ignore`d
+- Ghidra: `mcrit_plugin/ghidra/`, `ghidra_scripts/`, `scripts/ghidra/`, `tests/ghidra/`,
+  `.github/workflows/ghidra-*.yml`, plus the shared core, `McritSession.py`, `icons/`,
+  `scripts/common/` and `tests/fixtures/`
 - both: `mcrit_plugin/__init__.py`, `mcrit_plugin/core/`, `mcrit_plugin/ui_qt/`, `icons/`,
   `scripts/common/`, `tests/core/`, `tests/ui_qt/`, `tests/conftest.py`, `tests/fixtures/`,
   `README.md`, `LICENSE`, `pyproject.toml`, `.gitattributes`
@@ -163,6 +171,45 @@ PicHashes for the same binary:
 python scripts/common/compare_smda_reports.py \
   --report ida=ida.smda --report binja=binja.smda --binary sample.exe --min-agreement 0.9
 ```
+
+The script pairs functions by address. Ghidra maps a position-independent ELF at 0x100000 where IDA
+and SMDA use 0, so compare a Ghidra export of such a file through
+`scripts/ghidra/run_pyghidra_integration.py`, which pairs them relative to the image base.
+
+
+### Ghidra
+
+No licence is needed, so `ghidra-tests.yml` runs both tests on every change to the Ghidra plugin.
+Use Ghidra 12.0 or newer on a JDK 21, and a Python with PyGhidra from that Ghidra, `smda>=4.9.0` and
+`requests`; `GHIDRA_INSTALL_DIR` points at the installation.
+
+```bash
+python -m pip install --no-index -f "$GHIDRA_INSTALL_DIR/Ghidra/Features/PyGhidra/pypkg/dist" pyghidra
+python -m pip install "smda==4.10.0" requests
+```
+
+The headless run imports the input into a throwaway project, compares Ghidra's export with SMDA's
+own disassembly (PicHash agreement), and drives upload, matching, a function query and label import
+through `GhidraBackend`. `--offline` stops after the comparison.
+
+```bash
+python scripts/ghidra/run_pyghidra_integration.py --input /tmp/mcrit-query --reference-sha256 <sha256>
+```
+
+The GUI run starts Ghidra in PyGhidra mode with a throwaway profile and project, opens MCRIT through
+`ghidra_scripts/MCRIT.py` and works through every tab and dialog, the remote CFG, export, switching
+programs and the upload prompt on close. The input must be new to the server. It needs a display;
+`--screenshots DIR` keeps one per step.
+
+```bash
+python scripts/common/build_test_fixture.py --source tests/fixtures/mcrit_sample.c --output /tmp/mcrit-gui-query --variant 2
+xvfb-run -a -s "-screen 0 1600x1000x24" python scripts/ghidra/run_gui_integration.py \
+  --input /tmp/mcrit-gui-query --reference-sha256 <sha256> --screenshots /tmp/mcrit-ghidra-shots
+```
+
+PyGhidra unloads the modules a script imported once the script ends. `MCRIT.py` keeps them for its
+own run (`pyghidra.sys.modules.restore.disable`): SMDA's dependency LIEF aborts the process when
+it is loaded a second time. The window's state lives on `sys`, so running the script again finds it.
 
 ## Releases
 

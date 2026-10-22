@@ -3,13 +3,20 @@
 All notable changes to both plugins are documented in this file, in the format of
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). [RELEASING.md](RELEASING.md) states what
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html) covers for each plugin, and how and when
-to add an entry. Release headings carry the IDA plugin's version; an entry that names IDA or Binary
-Ninja applies to that plugin only.
+to add an entry. Release headings carry the IDA plugin's version; an entry that names IDA, Binary
+Ninja or Ghidra applies to that plugin only.
 
 ## [Unreleased]
 
 ### Added
 
+- Ghidra: a new MCRIT plugin for Ghidra 12.0 or newer in PyGhidra mode, with the toolbar and tabs of
+  the IDA and Binary Ninja plugins in a window docked into the CodeBrowser, one session per open
+  program. Reports are exported from Ghidra's own analysis through SMDA (4.9.0 or newer), matched
+  local blocks are tinted in the listing with markers that are not saved with the program, remote
+  CFGs open in Ghidra's graph view, and the settings are under Tool Options > MCRIT. It runs from
+  this repository's `ghidra_scripts` folder; see the README for setup. Not released yet; versioned
+  on its own from 0.1.0.
 - A Settings button on the toolbar, a "Change..." link on the remote server line, and a Settings
   entry in the menus (IDA: Edit → Plugins → MCRIT4IDA Settings...; Binary Ninja: Plugins → MCRIT →
   Settings). In IDA they open the Plugin Settings Manager on mcrit-ida when `ida-settings-editor`
@@ -20,7 +27,7 @@ Ninja applies to that plugin only.
   timeout without reopening the plugin. A changed server is picked up the same way until the plugin
   holds results from the current one; after that, it says so, and reopening the plugin switches.
 - A failed connection check while the server is still the default `http://127.0.0.1:8000/` points
-  at the Settings button.
+  at the Settings button (Ghidra: Tool Options > MCRIT).
 
 ### Changed
 
@@ -30,6 +37,12 @@ Ninja applies to that plugin only.
 
 ### Fixed
 
+- Block Scope: with Filter out Library Matches off, the headline counted families and samples
+  without library matches but functions with them. It now counts all three without them.
+- YARA String Builder: wildcards used Intel escaping for every architecture, so on AArch64, for
+  example, branch targets kept their exact bytes. The escaping now follows the report's
+  architecture; one without an SMDA escaper keeps its raw bytes. Copy Escaped Bytes falls back to
+  raw bytes like the rule text when escaping fails, instead of copying nothing.
 - The toolbar and tab icons take the theme's text color, so they are visible on dark themes;
   disabled toolbar icons show dimmed instead of almost black.
 

@@ -5,7 +5,7 @@
 [![HCLI Compatible](https://img.shields.io/badge/HCLI-compatible-brightgreen.svg)](https://hcli.docs.hex-rays.com/)
 [![Ask DeepWiki](https://deepwiki.com/badge.svg)](https://deepwiki.com/familiary/mcrit-plugin)
 
-Client for [MCRIT](https://github.com/familiary/mcrit), the MinHash-based code similarity server, for IDA Pro and Binary Ninja. It exports your database as an SMDA report, uploads it, and shows matching blocks, functions and labels from the server next to your analysis.
+Client for [MCRIT](https://github.com/familiary/mcrit), the MinHash-based code similarity server, for IDA Pro, Binary Ninja and Ghidra. It exports your database as an SMDA report, uploads it, and shows matching blocks, functions and labels from the server next to your analysis.
 
 - Block and function matches for the current cursor position
 - Function overview with label import and conflict resolution
@@ -84,6 +84,46 @@ Settings are under Settings → MCRIT, with the same keys as the IDA plugin; the
 ### Use
 
 Open the MCRIT sidebar, or run any MCRIT action from the command palette or Plugins → MCRIT. It has the same toolbar and tabs as the IDA plugin. Reports are exported from Binary Ninja's own analysis, and remote CFGs open as graph reports.
+
+## Ghidra
+
+Requires Ghidra 12.0 or newer, started in PyGhidra mode, on a JDK 21 (Ghidra's own requirement).
+The Ghidra plugin is new and has not been released yet; its version is `0.1.0`.
+
+### Install
+
+1. Get this repository: clone it, or download and unpack a source archive. Ghidra runs the plugin
+   from there.
+2. Start Ghidra in PyGhidra mode: `support/pyghidraRun` (Linux, macOS) or
+   `support\pyghidraRun.bat` (Windows). The first start offers to set up PyGhidra in a virtual
+   environment in Ghidra's settings folder.
+3. Install the dependencies into that environment, e.g. on Linux
+   `~/.config/ghidra/ghidra_<version>/venv/bin/python -m pip install "smda>=4.9.0" requests`.
+   When they are missing, MCRIT shows the exact command for your installation.
+4. In the CodeBrowser, open Window → Script Manager, choose Manage Script Directories and add
+   `ghidra_scripts` from this repository.
+5. In the Script Manager, find `MCRIT.py` in the MCRIT category and tick its "In Tool" box. This
+   adds Tools → MCRIT and the key binding Ctrl+Shift+M; Ghidra creates script menu entries only
+   for scripts marked this way.
+
+The first start compiles a small Java class that hosts the MCRIT window, with the JDK Ghidra runs
+on, into Ghidra's settings folder. It is rebuilt automatically for a new plugin or Ghidra version.
+
+### Configure
+
+Settings are under Edit → Tool Options → MCRIT: the same settings as in the other plugins, listed by
+their display names. The API token field is masked, but Ghidra stores it with the tool's options in
+plain text. A `config_override.json` in the repository root takes precedence as it does in IDA.
+Settings are read whenever they are used, except the connection settings (server, token, username,
+timeout), which are read when MCRIT opens for a program; reopen the program after changing those.
+
+### Use
+
+Run Tools → MCRIT, or the script from the Script Manager. The window docks into the CodeBrowser
+with the same toolbar and tabs as the other plugins, one session per open program; it follows the
+active program and offers to open MCRIT for a program that has no session yet. Reports are exported
+from Ghidra's own analysis, matched local blocks are tinted in the listing (a marker, not saved with
+the program), and remote CFGs open in Ghidra's graph view.
 
 ## Settings
 

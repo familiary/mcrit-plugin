@@ -1,0 +1,237 @@
+"""Toolkit-free logic behind the match views, shared by the Qt widgets (IDA, Binary Ninja) and the
+Ghidra panels: the aggregations behind the tables, and the YARA rule text."""
+
+import datetime
+
+import mcrit_plugin.core.McritTableColumn as McritTableColumn
+
+NO_LABEL = "-"
+
+
+def match_sets(offset, selected):
+    """The sets the overview shows for one local function's selected matches, and their number."""
+    sets = {
+        "offset": offset,
+        "families": {match[1] for match in selected},
+        "samples": {match[2] for match in selected},
+        "functions": {match[3] for match in selected},
+        "library_matches": {match[3] for match in selected if match[4]},
+    }
+    return sets, len(selected)
+
+
+def label_criticality(label_list, has_function_name=False, is_resolved=False):
+    """0 without labels, 1 named locally, 2 resolved by the user, 3 one label, 4 several labels,
+    5 several labels sharing the top score."""
+    if not label_list:
+        return 0
+    if has_function_name:
+        return 1
+    if is_resolved:
+        return 2
+    criticality = 3
+    if len({entry[1] for entry in label_list}) > 1:
+        criticality += 1
+        top_score = max(entry[0] for entry in label_list)
+        if len({entry[1] for entry in label_list if entry[0] == top_score}) > 1:
+            criticality += 1
+    return criticality
+
+
+def row_cells(info, column_types):
+    """(texts, sort keys) of an aggregated function, one per column type."""
+    texts, keys = [], []
+    for column_type in column_types:
+        if column_type == McritTableColumn.OFFSET:
+            text, key = "0x%x" % info["offset"], info["offset"]
+        elif column_type in (
+            McritTableColumn.FAMILIES,
+            McritTableColumn.SAMPLES,
+            McritTableColumn.FUNCTIONS,
+        ):
+            field = {
+                McritTableColumn.FAMILIES: "families",
+                McritTableColumn.SAMPLES: "samples",
+                McritTableColumn.FUNCTIONS: "functions",
+            }[column_type]
+            text, key = "%d" % len(info[field]), len(info[field])
+        elif column_type == McritTableColumn.IS_LIBRARY:
+            text = "YES" if info["library_matches"] else "NO"
+            key = text
+        else:
+            text, key = NO_LABEL, NO_LABEL
+        texts.append(text)
+        keys.append(key)
+    return texts, keys
+
+
+def summarize_block_matches(pbh, blockhash_matches, family_infos, filter_library):
+    """Per block offset its hash, matches and summary, plus the counts for the headline.
+
+    Returns (block_matches_by_offset, families, samples, functions, all_functions); the sets are
+    None without any block."""
+    by_offset = {}
+    for entry in pbh:
+        matches = blockhash_matches.get(entry["hash"]) or []
+        by_offset[entry["offset"]] = {
+            "picblockhash": entry,
+            "matches": matches,
+            "summary": {
+                "families": len({e[0] for e in matches}),
+                "samples": len({e[1] for e in matches}),
+                "functions": len({e[2] for e in matches}),
+                "offsets": len(matches),
+            },
+            "has_library_matches": False,
+        }
+    if not by_offset:
+        return by_offset, None, None, None, None
+    families, samples, functions, all_functions = set(), set(), set(), set()
+    library_families = [
+        family_id
+        for family_id, family in (family_infos or {}).items()
+        if family.num_samples and family.num_library_samples == family.num_samples
+    ]
+    to_drop = set()
+    for offset, data in by_offset.items():
+        all_functions.update(e[2] for e in data["matches"])
+        filtered = [e for e in data["matches"] if e[0] not in library_families]
+        if len(filtered) < len(data["matches"]):
+            data["has_library_matches"] = True
+            to_drop.add(offset)
+        if filter_library and data["has_library_matches"]:
+            data["matches"] = filtered
+            continue
+        data["summary"] = {
+            "families": len({e[0] for e in filtered}),
+            "samples": len({e[1] for e in filtered}),
+            "functions": len({e[2] for e in filtered}),
+            "offsets": len(filtered),
+        }
+        families.update(e[0] for e in filtered)
+        samples.update(e[1] for e in filtered)
+        functions.update(e[2] for e in filtered)
+    if filter_library:
+        for offset in to_drop:
+            by_offset.pop(offset, None)
+    return by_offset, families, samples, functions, all_functions
+
+
+def block_matches_headline(
+    function_offset, families, samples, functions, all_functions, filter_library
+):
+    """The Block Scope headline for summarize_block_matches' counts. Families, samples and functions
+    are all counted without library matches; filtering adds how many functions it hid."""
+    if families is None:
+        return "No Block Matches for Function: 0x%x" % function_offset
+    text = "Block Matches for Function: 0x%x -- %d families, %d samples, %d functions" % (
+        function_offset,
+        len(families),
+        len(samples),
+        len(functions),
+    )
+    if filter_library:
+        return text + " (%d filtered)." % (len(all_functions) - len(functions))
+    return text + "."
+
+
+def aggregate_sample_matches(match_report, filter_library):
+    """sample id -> the fields both tables show, from a MatchingResult."""
+    if not match_report:
+        return {}
+    sample_matches = match_report.filtered_sample_matches
+    if filter_library:
+        sample_matches = [entry for entry in sample_matches if not entry.is_library]
+    return {
+        match.sample_id: {
+            "family": match.family,
+            "version": match.version,
+            "sha256": match.sha256,
+            "filename": match.filename,
+            "sample_id": match.sample_id,
+            "minhash_matches": match.matched_functions_minhash,
+            "pichash_matches": match.matched_functions_pichash,
+            "combined_matches": match.matched_functions_combined,
+            "library_matches": match.matched_functions_library,
+            "bytescore": match.matched_bytes_unweighted,
+            "bytescore_adjusted": match.matched_bytes_score_weighted,
+            "percent": match.matched_percent_unweighted,
+            "percent_adjusted": match.matched_percent_score_weighted,
+        }
+        for match in sample_matches
+    }
+
+
+def escape_instruction(instruction, report):
+    """The YARA-escaped hex of an instruction, wildcarding addresses inside the image. The escaper
+    follows the report's architecture; one SMDA has no escaper for keeps the raw bytes."""
+    from smda.common.SmdaFunction import SmdaFunction
+
+    return "".join(
+        instruction.getEscapedBinary(
+            SmdaFunction.getInstructionEscaper(report.architecture),
+            escape_intraprocedural_jumps=True,
+            lower_addr=report.base_addr,
+            upper_addr=report.base_addr + report.binary_size,
+        )
+    )
+
+
+def instruction_hex(instruction, report, use_wildcards):
+    """An instruction's hex for a rule: escaped with wildcards, or raw, also when escaping fails."""
+    if use_wildcards:
+        try:
+            return escape_instruction(instruction, report)
+        except Exception:
+            pass
+    return instruction.bytes
+
+
+def escaped_hex_string(instructions, report, use_wildcards):
+    """The instructions' hex, one group per instruction, as the copy button puts it on the
+    clipboard."""
+    return " ".join(instruction_hex(i, report, use_wildcards) for i in instructions)
+
+
+def _disassembly(instruction):
+    if getattr(instruction, "operands", None):
+        return f"{instruction.mnemonic} {instruction.operands}"
+    return instruction.mnemonic
+
+
+def format_hex_lines(instructions, report, use_wildcards):
+    """The string lines of a rule, each commented with its address and disassembly."""
+    lines = [
+        (
+            instruction_hex(instruction, report, use_wildcards),
+            f"0x{instruction.offset:08X}: {_disassembly(instruction)}",
+        )
+        for instruction in instructions
+    ]
+    if not lines:
+        return ""
+    width = max(len(hex_bytes) for hex_bytes, _ in lines)
+    return "".join(
+        f"          {hex_bytes}{' ' * (width - len(hex_bytes))} // {comment}\n"
+        for hex_bytes, comment in lines
+    )
+
+
+def build_yara_rule(sha256, scope_name, scope_offset, hex_content, date=None):
+    date = date or datetime.datetime.now().strftime("%Y-%m-%d")
+    rule_name = f"{sha256[:8]}_0x{scope_offset:08X}"
+    return f"""rule {rule_name} {{
+    meta:
+      date = "{date}"
+      info = "Rule fragment created from {scope_name} found at offset 0x{scope_offset:08X} in file {sha256}."
+    strings:
+      $_0x{scope_offset:08X} = {{
+{hex_content}      }}
+    condition:
+      any of them
+}}"""
+
+
+def format_data_bytes(data):
+    hex_bytes = " ".join(f"{byte:02X}" for byte in data)
+    return "".join(f"          {hex_bytes[i : i + 47]}\n" for i in range(0, len(hex_bytes), 48))

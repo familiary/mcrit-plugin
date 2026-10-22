@@ -123,6 +123,8 @@ class Backend(ABC):
     settings_hint = ""
     # what rebuilds the session, so a new server can take over
     reopen_hint = "reopen MCRIT"
+    # where the user changes the server, named in the hint after a failed connection check
+    settings_location = "the Settings button"
 
     def open_settings(self, config):
         """Open the disassembler's own settings UI on this plugin and return its QWidget, or True
