@@ -106,6 +106,32 @@ def _run_workflow(program, input_path, server, reference_sha256, timeout, offlin
     )
     smda_report = interface.convertToSmdaUsingSmda()
     _check(list(smda_report.getFunctions()), "SMDA disassembly of Ghidra's memory image")
+
+    # a name Ghidra rejects is skipped, and the renames before it in the same mutation stay
+    first, second = [
+        f.offset for f in report.getFunctions() if backend.has_default_function_name(f.offset)
+    ][:2]
+    with backend.mutation("Import MCRIT labels"):
+        renamed = backend.set_function_name(first, "mcrit_before_rejected")
+        rejected = not backend.set_function_name(second, "operator new")
+    _check(
+        renamed and rejected and backend.get_function_name(first) == "mcrit_before_rejected",
+        "a rejected label is skipped without rolling back the import",
+    )
+
+    from java.awt import Color
+
+    from mcrit_plugin.ghidra.RemoteCfgGraph import EDGE_COLORS, EDGE_TAKEN, build_graph
+    from mcrit_plugin.ghidra.ui.components import Spinner
+
+    _graph, options = build_graph("check", next(iter(report.getFunctions())), {})
+    _check(
+        options.getDefaultVertexColor().getRGB() == Color.decode("#D3D3D3").getRGB()
+        and options.getEdgeColor(EDGE_TAKEN).getRGB()
+        == Color.decode(EDGE_COLORS[EDGE_TAKEN]).getRGB(),
+        "remote CFG default vertex and edge colors are the hex values, not theme ids",
+    )
+    _check(Spinner(5, 100, 2).value() == 5, "an out-of-range spinner value is clamped")
     if offline:
         return
 

@@ -406,11 +406,12 @@ class FunctionMatchPanel:
             self._showMatchGraph(self.parent.local_smda_report, smda_function_a, label.function_id)
         elif label_column is not None and column == label_column:
             with self.cc.backend.mutation("Apply MCRIT label"):
-                self.cc.backend.set_function_name(
+                named = self.cc.backend.set_function_name(
                     self.current_function_offset, label.function_label
                 )
             self.parent.local_widget.updateActivityInfo(
-                "Named function 0x%x %s." % (self.current_function_offset, label.function_label)
+                ("Named function 0x%x %s." if named else "Ghidra rejected the name for 0x%x: %s.")
+                % (self.current_function_offset, label.function_label)
             )
 
     def _showMatchGraph(self, smda_report_a, smda_function_a, remote_function_id):
