@@ -183,7 +183,7 @@ class MainWidget(QMainWindow):
         widget = self.cc.backend.open_settings(self.parent.config)
         if widget is None:
             dialog = self.ConnectionSettingsDialog(self, self.parent.config)
-            if dialog.exec():
+            if dialog.exec_():
                 try:
                     self.cc.backend.save_settings(dialog.changedValues())
                 except Exception as exc:
@@ -194,6 +194,9 @@ class MainWidget(QMainWindow):
                 )
             return
         if widget is True:
+            self.parent.local_widget.updateActivityInfo(
+                "Settings opened; %s after changing the connection." % self.cc.backend.reopen_hint
+            )
             return
         if widget is not self._watchedSettingsWidget:
             self._watchedSettingsWidget = widget

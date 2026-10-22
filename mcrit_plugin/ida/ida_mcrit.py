@@ -213,7 +213,7 @@ def show_mcrit_form():
 
 
 SETTINGS_ACTION = "mcrit4ida:settings"
-# the open database's plugmod; weak, so the action registry keeps neither it nor its form alive
+# the open database's plugmod; weak, so a database that closes takes its plugmod and form along
 _current_plugmod = None
 
 

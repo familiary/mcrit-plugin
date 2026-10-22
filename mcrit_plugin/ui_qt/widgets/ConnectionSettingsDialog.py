@@ -101,9 +101,12 @@ class ConnectionSettingsDialog(QDialog):
     def accept(self):
         try:
             url = urlparse(self.edit_server.text().strip())
+            # urllib raises here for a port that is not a number from 0 to 65535
+            _port = url.port
+            valid = url.scheme.lower() in ("http", "https") and bool(url.hostname)
         except ValueError:
-            url = urlparse("")
-        if url.scheme.lower() not in ("http", "https") or not url.netloc:
+            valid = False
+        if not valid:
             self.label_error.setText(
                 "The server URL has to look like https://mcrit.example.com/api"
             )
