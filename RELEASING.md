@@ -194,3 +194,11 @@ manager reads it.
 - The plugin's listing in the extension manager was requested in
   [Vector35/community-plugins#378](https://github.com/Vector35/community-plugins/issues/378) after
   the first release; later releases need no further request.
+
+## Ghidra
+
+The Ghidra plugin has not been released yet. Its version is `VERSION` in
+`mcrit_plugin/ghidra/config.py`, versioned on its own like the other two; users run it from a
+checkout or source archive (see the README), so a release needs no build step. Its changes get
+`Ghidra:` entries in `CHANGELOG.md` like the other plugins' do. Before a first release, decide on
+a tag scheme (e.g. `ghidra-vX.Y.Z`) and whether a release guard like the IDA one should check it.
