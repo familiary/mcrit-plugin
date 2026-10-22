@@ -563,10 +563,52 @@ def test_answers_handed_to_the_widgets_from_the_previous_server_count_as_failed(
     assert getattr(interface, method)(*args) is None
 
 
-def test_a_server_switch_and_a_stored_answer_do_not_interleave():
+class _LockCheckedSession(SimpleNamespace):
+    """A session whose fields may only change while the interface holds its switch lock."""
+
+    def __setattr__(self, name, value):
+        lock = self.__dict__.get("switch_lock")
+        assert lock is None or name.startswith("_") or lock.locked(), name
+        super().__setattr__(name, value)
+
+
+class _LockCheckedDict(dict):
+    def __init__(self, lock):
+        super().__init__()
+        self.lock = lock
+
+    def __setitem__(self, key, value):
+        assert self.lock.locked()
+        super().__setitem__(key, value)
+
+    def update(self, *args, **kwargs):
+        assert self.lock.locked()
+        super().update(*args, **kwargs)
+
+
+@pytest.mark.parametrize("method, args, request_name, answer, field", _STORING_REQUESTS)
+def test_answers_are_stored_under_the_switch_lock(
+    decoded_results, method, args, request_name, answer, field
+):
+    interface = _make_interface()
+    _empty_session(interface)
+    session = _LockCheckedSession(**vars(interface.parent))
+    session.function_matches = _LockCheckedDict(interface._switch_lock)
+    session.function_id_to_offset = _LockCheckedDict(interface._switch_lock)
+    session.switch_lock = interface._switch_lock
+    interface.parent = session
+    getattr(interface.mcrit_client, request_name).return_value = answer
+
+    getattr(interface, method)(*args)
+
+    assert getattr(session, field)
+
+
+def test_the_switch_checks_for_held_data_under_the_lock():
     interface = _make_interface()
     _empty_session(interface)
     interface.parent.blockhash_matches = {}
+    interface.parent.matching_report = None
     interface._connection_settings = (interface.server, 10, "", "")
     seen = []
     holds = interface._holdsServerData
@@ -575,17 +617,10 @@ def test_a_server_switch_and_a_stored_answer_do_not_interleave():
     interface.config.MCRITWEB_API_TOKEN = interface.config.MCRITWEB_USERNAME = ""
     interface.checkConnection = MagicMock()
 
-    def answer_while_checking(_sha256):
-        assert not interface._switch_lock.locked()
-        return SimpleNamespace(sample_id=5)
-
-    interface.mcrit_client.getSampleBySha256.side_effect = answer_while_checking
-    interface.querySampleSha256("abc")
     interface.reloadSettings()
 
     assert seen == [True]
-    assert interface.parent.remote_sample_id == 5
-    assert interface.server == "http://127.0.0.1:8000"
+    assert interface.server == "http://other:8000/"
 
 
 @pytest.mark.parametrize("method, args, request_name, answer, field", _STORING_REQUESTS)
