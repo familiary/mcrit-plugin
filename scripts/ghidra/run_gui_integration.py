@@ -22,6 +22,7 @@ that it is matched. Needs a display: on a headless machine run it under xvfb-run
 from __future__ import annotations
 
 import argparse
+import importlib
 import json
 import os
 import shutil
@@ -361,6 +362,16 @@ def run_steps(args, gui):
     _check(text.startswith("rule ") and "condition:" in text, "YARA builder made a rule")
     gui.shot("yara")
     gui.click(dialog, "OK")
+
+    # what the PyGhidra console's Reset does to the modules MCRIT imported; loading LIEF again
+    # would abort the process, so the export below only passes when they are handed back
+    lief_before = sys.modules.get("lief")
+    for name in [n for n in sys.modules if n.partition(".")[0] in ("mcrit_plugin", "smda", "lief")]:
+        del sys.modules[name]
+    _check(
+        importlib.import_module("lief") is lief_before,
+        "after a console Reset, MCRIT gets its loaded modules back",
+    )
 
     with tempfile.TemporaryDirectory() as export_dir:
         export_path = os.path.join(export_dir, "export.smda")

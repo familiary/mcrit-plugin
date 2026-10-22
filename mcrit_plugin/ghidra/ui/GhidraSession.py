@@ -21,28 +21,8 @@ class _Classes:
 
 class GhidraSession(McritSession):
     def __init__(self, backend, config):
-        # McritSession.__init__ imports Qt, so the state is set up here instead
-        self.cc = _Classes(backend)
-        self.config = config
-        self.tabs = None
-        self.parent = None
-        self.remote_sample_id = None
-        self.remote_sample_entry = None
-        self.local_smda_report = None
-        self.local_smda_report_outline = None
-        self._outline_source = None
-        self.matching_job_id = None
-        self.matching_report = None
-        self.matched_function_entries = None
-        self.current_block = None
-        self.current_function = None
-        self.function_matches = {}
-        self.block_to_hash = {}
-        self.blockhash_matches = {}
-        self.sample_infos = None
-        self.family_infos = None
-        self.function_id_to_offset = {}
-        self.hook_subscribed_widgets = []
+        # McritSession.__init__ imports Qt; its shared state comes from _initSharedState
+        self._initSharedState(_Classes(backend), config)
         self.component = None
         # McritInterface reports to local_widget from its constructor on, so it exists first
         from mcrit_plugin.ghidra.ui.LocalInfoPanel import LocalInfoPanel

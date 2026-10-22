@@ -46,7 +46,6 @@ class GhidraBackend(Backend):
         self._mutation_depth = 0
         self._transaction = None
         self._colored = None
-        self._graph_displays = []
 
     # helpers
 
@@ -393,9 +392,9 @@ class GhidraBackend(Backend):
         graph, options = build_graph(title, smda_function, coloring)
 
         def display(monitor):
+            # a new window per graph, owned by Ghidra's graph service like any other graph
             graph_display = broker.getDefaultGraphDisplay(False, monitor)
             graph_display.setGraph(graph, options, title, False, monitor)
-            self._graph_displays.append(graph_display)
 
         swing.launch_background_task("MCRIT: drawing the remote CFG", display)
 

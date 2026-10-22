@@ -75,8 +75,23 @@ def main():
     location = currentLocation  # noqa: F821
     cursor = int(location.getAddress().getOffset()) if location is not None else None
 
-    from mcrit_plugin.ghidra import swing
+    from mcrit_plugin.ghidra import bridge, modules, swing
     from mcrit_plugin.ghidra.controller import controller_for
+
+    modules.keep_loaded()
+
+    # javac needs seconds on a first start: run it in this script's task, not on Swing's thread
+    if not bridge.jar_path().exists():
+        monitor.setMessage("MCRIT: compiling the Java bridge (first start only)")  # noqa: F821
+    if bridge.provider_class() is None:
+        Msg.showError(
+            None,
+            None,
+            "MCRIT",
+            "The MCRIT window needs its Java bridge, which could not be compiled; see the console. "
+            "Ghidra must run on a JDK.",
+        )
+        return
 
     def open_window():
         controller_for(tool).show(program, cursor)

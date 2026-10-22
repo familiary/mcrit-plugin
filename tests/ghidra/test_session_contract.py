@@ -45,3 +45,45 @@ def test_ghidra_session_overrides_the_qt_methods():
     )
     defined = {node.name for node in session_class.body if isinstance(node, ast.FunctionDef)}
     assert OVERRIDDEN <= defined
+
+
+def test_ghidra_session_takes_the_shared_state_from_mcrit_session():
+    """A hand copy of the state would miss attributes core adds later, on Ghidra only."""
+    ghidra_session = Path(__file__).resolve().parents[2] / "mcrit_plugin/ghidra/ui/GhidraSession.py"
+    tree = ast.parse(ghidra_session.read_text(encoding="utf-8"))
+    session_class = next(
+        node
+        for node in tree.body
+        if isinstance(node, ast.ClassDef) and node.name == "GhidraSession"
+    )
+    init = next(
+        node
+        for node in session_class.body
+        if isinstance(node, ast.FunctionDef) and node.name == "__init__"
+    )
+    shared = next(
+        node
+        for node in ast.walk(_tree())
+        if isinstance(node, ast.FunctionDef) and node.name == "_initSharedState"
+    )
+    shared_attributes = {
+        target.attr
+        for node in ast.walk(shared)
+        if isinstance(node, ast.Assign)
+        for target in node.targets
+        if isinstance(target, ast.Attribute)
+    }
+    assigned_here = {
+        target.attr
+        for node in ast.walk(init)
+        if isinstance(node, ast.Assign)
+        for target in node.targets
+        if isinstance(target, ast.Attribute)
+    }
+    calls = {
+        node.func.attr
+        for node in ast.walk(init)
+        if isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute)
+    }
+    assert "_initSharedState" in calls
+    assert not shared_attributes & assigned_here, shared_attributes & assigned_here
