@@ -613,7 +613,31 @@ def test_answers_are_stored_under_the_switch_lock(
     assert getattr(session, field)
 
 
-def test_the_switch_checks_for_held_data_under_the_lock():
+def test_function_offsets_from_a_match_are_stored_under_the_switch_lock(monkeypatch):
+    import mcrit_plugin.core.McritInterface as module
+
+    match = SimpleNamespace(matched_function_id=7)
+    monkeypatch.setattr(
+        module.MatchingResult,
+        "fromDict",
+        staticmethod(lambda entry: SimpleNamespace(function_matches=[match])),
+    )
+    interface = _make_interface()
+    _empty_session(interface)
+    session = _LockCheckedSession(**vars(interface.parent))
+    session.function_matches = _LockCheckedDict(interface._switch_lock)
+    session.function_id_to_offset = _LockCheckedDict(interface._switch_lock)
+    session.switch_lock = interface._switch_lock
+    interface.parent = session
+    interface.mcrit_client.getMatchesForSmdaFunction.return_value = {"x": 1}
+    interface.mcrit_client.getFunctionsByIds.return_value = {7: SimpleNamespace(offset=0x10)}
+
+    interface.querySmdaFunctionMatches(_SMDA_REPORT)
+
+    assert session.function_id_to_offset == {7: 0x10}
+
+
+def test_the_switch_checks_for_held_data_and_swaps_the_client_under_the_lock():
     interface = _make_interface()
     _empty_session(interface)
     interface.parent.blockhash_matches = {}
@@ -622,13 +646,17 @@ def test_the_switch_checks_for_held_data_under_the_lock():
     seen = []
     holds = interface._holdsServerData
     interface._holdsServerData = lambda: seen.append(interface._switch_lock.locked()) or holds()
+    build = interface._buildClient
+    interface._buildClient = lambda settings: (
+        seen.append(interface._switch_lock.locked()) or build(settings)
+    )
     interface.config.MCRIT_SERVER = "http://other:8000/"
     interface.config.MCRITWEB_API_TOKEN = interface.config.MCRITWEB_USERNAME = ""
     interface.checkConnection = MagicMock()
 
     interface.reloadSettings()
 
-    assert seen == [True]
+    assert seen == [True, True]
     assert interface.server == "http://other:8000/"
 
 
