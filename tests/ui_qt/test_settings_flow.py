@@ -102,24 +102,56 @@ def test_fields_forced_by_config_override_are_greyed_out(app):
     assert "other settings live elsewhere" in texts
 
 
+def test_a_timeout_above_the_form_range_is_shown_as_stored(app):
+    dialog, _host = _dialog(app, _config(MCRIT_REQUEST_TIMEOUT=7200))
+
+    assert dialog.values()["mcrit_request_timeout"] == 7200
+
+
+def test_a_malformed_server_forced_by_config_override_does_not_block_saving(app):
+    config = _config(MCRIT_SERVER="mcrit.example.com")
+    config.overriddenSettings = lambda: {"mcrit_server"}
+    dialog, _host = _dialog(app, config)
+    dialog.edit_username.setText("analyst")
+
+    dialog.accept()
+
+    assert dialog.result() == QtWidgets.QDialog.Accepted
+    assert dialog.changedValues() == {"mcritweb_username": "analyst"}
+
+
 def _main_widget(opened, waiting_server=None):
     backend = SimpleNamespace(
         open_settings=MagicMock(return_value=opened),
         save_settings=MagicMock(),
         show_warning=MagicMock(),
+        run_request=lambda _title, work, on_done: on_done(work()),
         reopen_hint="reopen MCRIT",
     )
     interface = SimpleNamespace(
         reloadSettings=MagicMock(return_value=waiting_server),
         server="http://old:8000/",
+        querySampleSha256=MagicMock(),
     )
     widget = SimpleNamespace(
         cc=SimpleNamespace(backend=backend, QtCore=QtShim.get_QtCore()),
-        parent=SimpleNamespace(config=_config(), mcrit_interface=interface),
+        parent=SimpleNamespace(
+            config=_config(),
+            mcrit_interface=interface,
+            local_smda_report=None,
+            remote_sample_entry=None,
+        ),
         _watchedSettingsWidget=None,
         _reportedWaitingServer=None,
+        _applyConvertedReport=MagicMock(),
     )
-    for name in ("_onSettingsButtonClicked", "_onSettingsClosed", "_reportWaitingServer"):
+    for name in (
+        "_onSettingsButtonClicked",
+        "_onSettingsClosed",
+        "_reportWaitingServer",
+        "_reloadSettings",
+        "_onSampleLookedUpAgain",
+    ):
         setattr(widget, name, types.MethodType(getattr(MainWidget, name), widget))
     return widget, backend, interface
 
@@ -190,7 +222,7 @@ def test_a_server_that_waits_for_a_reopen_is_reported_after_the_form(app):
     assert "reopen MCRIT to switch to https://new/" in message
 
 
-def test_a_failed_save_warns_and_keeps_the_connection(app):
+def test_a_failed_save_warns_and_picks_up_what_was_saved_before_it_failed(app):
     widget, backend, interface = _main_widget(opened=None)
     backend.save_settings.side_effect = RuntimeError("mcrit-ida is not installed")
     widget.ConnectionSettingsDialog = lambda parent, config: SimpleNamespace(
@@ -200,7 +232,37 @@ def test_a_failed_save_warns_and_keeps_the_connection(app):
     widget._onSettingsButtonClicked()
 
     assert "mcrit-ida is not installed" in backend.show_warning.call_args.args[0]
-    interface.reloadSettings.assert_not_called()
+    interface.reloadSettings.assert_called_once_with(recheck=True)
+
+
+@pytest.mark.parametrize("found", [True, False])
+def test_a_new_server_is_asked_for_the_converted_sample(app, found):
+    widget, _backend, interface = _main_widget(opened=None)
+    report = SimpleNamespace(sha256="ab" * 32)
+    widget.parent.local_smda_report = report
+
+    def switch(recheck=False):
+        interface.server = "https://new/"
+
+    def look_up(sha256):
+        widget.parent.remote_sample_entry = object() if found else None
+
+    interface.reloadSettings.side_effect = switch
+    interface.querySampleSha256.side_effect = look_up
+
+    widget._onSettingsClosed()
+
+    interface.querySampleSha256.assert_called_once_with(report.sha256)
+    assert widget._applyConvertedReport.called == found
+
+
+def test_the_same_server_is_not_asked_for_the_converted_sample_again(app):
+    widget, _backend, interface = _main_widget(opened=None)
+    widget.parent.local_smda_report = SimpleNamespace(sha256="ab" * 32)
+
+    widget._onSettingsClosed()
+
+    interface.querySampleSha256.assert_not_called()
 
 
 def test_settings_opened_without_a_widget_to_watch_show_no_form():

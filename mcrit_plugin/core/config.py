@@ -10,6 +10,11 @@ ICON_FILE_PATH = os.path.join(PLUGIN_ROOT, "icons") + os.sep
 LOG_LEVEL = logging.INFO
 
 
+def same_server(first, second):
+    """True when two server URLs differ at most by a trailing slash."""
+    return (first or "").rstrip("/") == (second or "").rstrip("/")
+
+
 def _configure_plugin_loggers():
     """Keep plugin-related logs from inheriting another plugin's root formatter."""
     formatter = logging.Formatter("%(asctime)-15s: %(name)-32s - %(levelname)s: %(message)s")
@@ -174,7 +179,7 @@ class McritConfig:
     @property
     def SERVER_IS_DEFAULT(self):
         """True while mcrit_server still points at the shipped localhost default."""
-        return self.MCRIT_SERVER == self._defaults["mcrit_server"]
+        return same_server(self.MCRIT_SERVER, self._defaults["mcrit_server"])
 
     def overriddenSettings(self):
         """Keys forced by config_override.json, which the settings store cannot change."""

@@ -235,3 +235,19 @@ def test_server_is_default_until_a_server_is_set(fresh_config):
     assert fresh_config.McritConfig("0.0.0").SERVER_IS_DEFAULT
     settings = fresh_config.McritConfig("0.0.0", lambda key: "https://mcrit.example.com/")
     assert not settings.SERVER_IS_DEFAULT
+
+
+@pytest.mark.parametrize(
+    "server, is_default",
+    [
+        ("http://127.0.0.1:8000/", True),
+        ("http://127.0.0.1:8000", True),
+        ("http://127.0.0.1:8001/", False),
+    ],
+)
+def test_the_default_server_is_recognized_with_or_without_the_trailing_slash(
+    fresh_config, server, is_default
+):
+    settings = fresh_config.McritConfig("0.0.0", {"mcrit_server": server}.__getitem__)
+
+    assert settings.SERVER_IS_DEFAULT == is_default

@@ -24,7 +24,8 @@ class ConnectionSettingsDialog(QDialog):
         self.edit_username = self.cc.QLineEdit(config.MCRITWEB_USERNAME or "")
         self.edit_username.setPlaceholderText("optional, the token implies it")
         self.spin_timeout = self.cc.QSpinBox()
-        self.spin_timeout.setRange(0, 3600)
+        # a stored timeout above the usual range would otherwise show as 3600
+        self.spin_timeout.setRange(0, max(3600, config.MCRIT_REQUEST_TIMEOUT))
         self.spin_timeout.setSuffix(" s")
         self.spin_timeout.setSpecialValueText("no limit")
         self.spin_timeout.setValue(config.MCRIT_REQUEST_TIMEOUT)
@@ -99,6 +100,9 @@ class ConnectionSettingsDialog(QDialog):
         }
 
     def accept(self):
+        if not self.edit_server.isEnabled():
+            self.cc.QDialog.accept(self)
+            return
         try:
             url = urlparse(self.edit_server.text().strip())
         except ValueError:

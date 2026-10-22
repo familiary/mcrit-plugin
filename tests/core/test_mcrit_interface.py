@@ -388,6 +388,15 @@ class TestReloadSettings:
         assert "apitoken" not in interface.mcrit_client.headers
         assert interface.mcrit_client.timeout == 30
 
+    def test_a_trailing_slash_alone_does_not_change_the_server(self):
+        interface, config = self._interface()
+        interface.parent.remote_sample_id = 23
+        config.MCRIT_SERVER = "http://127.0.0.1:8000"
+
+        assert interface.reloadSettings() is None
+
+        assert interface._server_generation == 1
+
 
 def test_a_check_that_answers_after_the_settings_changed_is_dropped():
     config = SimpleNamespace(

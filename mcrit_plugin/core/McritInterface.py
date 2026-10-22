@@ -3,6 +3,7 @@ import traceback
 
 import requests
 
+from mcrit_plugin.core.config import same_server
 from mcrit_plugin.core.minimcrit.client.McritClient import McritClient
 from mcrit_plugin.core.minimcrit.storage.MatchingResult import MatchingResult
 
@@ -79,9 +80,9 @@ class McritInterface(object):
         # requests already running keep the client they started with; the client is set before
         # the generation moves, the reverse of the order _pinConnection reads them in
         self.mcrit_client = client
-        if server != self._mcrit_server:
-            self._mcrit_server = server
+        if not same_server(server, self._mcrit_server):
             self._server_generation += 1
+        self._mcrit_server = server
 
     def _pinConnection(self):
         """The client a request works with and the server generation that tells whether its answer
@@ -122,7 +123,7 @@ class McritInterface(object):
         """
         connection_settings = self._readConnectionSettings()
         waiting_server = None
-        if connection_settings[0] != self._mcrit_server and self._holdsServerData():
+        if not same_server(connection_settings[0], self._mcrit_server) and self._holdsServerData():
             waiting_server = connection_settings[0]
             # the new token and username belong to the new server; only the timeout applies now
             server, _timeout, api_token, username = self._connection_settings
