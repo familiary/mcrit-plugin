@@ -147,7 +147,8 @@ See [CHANGELOG.md](CHANGELOG.md) for the full release history.
 
 ## License
 
-GPL-3.0, see [LICENSE](LICENSE).
+GPL-3.0, see [LICENSE](LICENSE). The third-party icons and their licences are listed in
+[icons/NOTICE.md](icons/NOTICE.md).
 
 ## Authors
 

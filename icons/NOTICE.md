@@ -1,6 +1,7 @@
 # Icon credits
 
 The toolbar and tab icons are drawn from these sets and rendered to 48 px PNGs on a 2x grid.
+`mcrit.png`, the plugin's logo, is this project's own.
 
 ## Lucide
 
