@@ -522,3 +522,27 @@ def test_dark_themes_get_the_score_colors_as_tints_over_the_table_background(bac
         assert instance.theme_color(ThemeRole.ORANGE, (220, 120, 20)) == (220, 120, 20)
     finally:
         application.setPalette(original)
+
+
+def test_the_tint_follows_each_block_and_leaves_the_gaps_between_them(backend):
+    instance, _kernwin = backend
+    blocks = [_block(0x2010, 4), _block(0x2000, 2, 2), _block(0x2020, 8)]
+    function = types.SimpleNamespace(getBlocks=lambda: blocks)
+
+    instance.show_local_match_coloring(function, {0x2000: 0x0000FF, 0x2020: 0xFF0000})
+    lines = [
+        types.SimpleNamespace(at=types.SimpleNamespace(toea=lambda a=a: a))
+        for a in (0x1FFF, 0x2000, 0x2002, 0x2004, 0x2010, 0x2020, 0x2027, 0x2028)
+    ]
+    entries = []
+    out = types.SimpleNamespace(entries=types.SimpleNamespace(push_back=entries.append))
+    instance._coloring.get_lines_rendering_info(
+        out, None, types.SimpleNamespace(sections_lines=[lines])
+    )
+
+    assert [(entry[0].at.toea(), entry[2]) for entry in entries] == [
+        (0x2000, 0x80FF0000),
+        (0x2002, 0x80FF0000),
+        (0x2020, 0x800000FF),
+        (0x2027, 0x800000FF),
+    ]

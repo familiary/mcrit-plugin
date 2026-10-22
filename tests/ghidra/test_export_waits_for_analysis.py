@@ -56,12 +56,18 @@ def test_background_work_waits_until_analysis_is_done(ghidra_backend):
     assert messages == ["MCRIT: exporting (waiting for analysis)", "MCRIT: exporting"]
 
 
-def test_a_closed_program_stops_the_wait(ghidra_backend):
+def test_a_program_closed_during_analysis_gets_no_export(ghidra_backend, monkeypatch):
     backend, analyzing, _messages = ghidra_backend
     analyzing.extend([True, True, True])
-    backend.closed = True
-    seen = []
+    worked = []
 
-    backend.run_background("MCRIT: exporting", lambda: "work", seen.append)
+    def close_while_waiting(_seconds):
+        backend.closed = True
 
-    assert seen == ["work"]
+    import mcrit_plugin.ghidra.GhidraBackend as module
+
+    monkeypatch.setattr(module.time, "sleep", close_while_waiting)
+    backend.run_background("MCRIT: exporting", lambda: worked.append(1), worked.append)
+
+    assert worked == []
+    assert len(analyzing) == 1

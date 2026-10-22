@@ -259,6 +259,8 @@ class GhidraBackend(Backend):
             try:
                 # reports must reflect finished analysis, as in Binary Ninja's run_background
                 backend._wait_for_analysis(monitor, title)
+                if backend.closed:
+                    return
                 monitor.setMessage(title)
                 result = work()
             except Exception:
@@ -274,7 +276,7 @@ class GhidraBackend(Backend):
         manager = AutoAnalysisManager.getAnalysisManager(self.program)
         if manager.isAnalyzing():
             monitor.setMessage(f"{title} (waiting for analysis)")
-        while manager.isAnalyzing() and not self.closed:
+        while not self.closed and manager.isAnalyzing():
             time.sleep(ANALYSIS_POLL_SECONDS)
 
     def run_request(self, title, work, on_done):
