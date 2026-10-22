@@ -125,7 +125,8 @@ Run Tools → MCRIT, or the script from the Script Manager. The window docks int
 with the same toolbar and tabs as the other plugins, one session per open program; it follows the
 active program and offers to open MCRIT for a program that has no session yet. Reports are exported
 from Ghidra's own analysis, matched local blocks are tinted in the listing (a marker, not saved with
-the program; Clear Match Coloring in the MCRIT window's menu removes it), and remote CFGs open in Ghidra's graph view.
+the program; Clear Match Coloring in the MCRIT window's menu removes it), and remote CFGs open
+in Ghidra's graph view.
 
 ## Settings
 

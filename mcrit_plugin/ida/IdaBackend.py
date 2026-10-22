@@ -1,3 +1,4 @@
+import bisect
 import functools
 import os
 import queue
@@ -16,7 +17,7 @@ import ida_undo
 import idc
 
 from mcrit_plugin.core.Backend import Backend
-from mcrit_plugin.core.ScoreColorProvider import ThemeRole
+from mcrit_plugin.core.ScoreColorProvider import ThemeRole, tint_over
 
 try:
     import ida_hexrays
@@ -140,14 +141,14 @@ SETTINGS_EDITOR_IDC_FUNC = "ida_settings_show_plugin_settings"
 SETTINGS_EDITOR_CAPTION = "Plugin Settings Manager"
 
 
-# dark themes get the role colors as tints over the table background, as Ghidra and Binary Ninja do
-TINT_STRENGTH = 0.4
+HIGHLIGHT_ALPHA = 0x80
 
 
 def _direct_color(rgb):
-    """A line-rendering bgcolor_t for 0xRRGGBB: IDA takes 0xFFBBGGRR as a color and anything
-    without the 0xFF top byte as one of its theme's color keys (CK_*)."""
-    return 0xFF000000 | ((rgb & 0xFF) << 16) | (rgb & 0xFF00) | (rgb >> 16)
+    """A line-rendering bgcolor_t for 0xRRGGBB at half opacity, as Binary Ninja draws its tint, so
+    colors the analyst set stay visible underneath. IDA reads 0xAABBGGRR with a non-zero alpha as a
+    color and anything without one as a theme color key (CK_*)."""
+    return (HIGHLIGHT_ALPHA << 24) | ((rgb & 0xFF) << 16) | (rgb & 0xFF00) | (rgb >> 16)
 
 
 class _MatchColoring(ida_kernwin.UI_Hooks):
@@ -156,7 +157,12 @@ class _MatchColoring(ida_kernwin.UI_Hooks):
 
     def __init__(self):
         super().__init__()
-        self.ranges = []
+        self.set_ranges([])
+
+    def set_ranges(self, ranges):
+        """(start, end, bgcolor) per block; blocks of one function do not overlap."""
+        self.ranges = sorted(ranges)
+        self._starts = [start for start, _end, _color in self.ranges]
 
     def get_lines_rendering_info(self, out, widget, info):
         if not self.ranges:
@@ -164,14 +170,13 @@ class _MatchColoring(ida_kernwin.UI_Hooks):
         for section_lines in info.sections_lines:
             for line in section_lines:
                 address = line.at.toea()
-                for start, end, color in self.ranges:
-                    if start <= address < end:
-                        out.entries.push_back(
-                            ida_kernwin.line_rendering_output_entry_t(
-                                line, ida_kernwin.LROEF_FULL_LINE, color
-                            )
+                index = bisect.bisect_right(self._starts, address) - 1
+                if index >= 0 and address < self.ranges[index][1]:
+                    out.entries.push_back(
+                        ida_kernwin.line_rendering_output_entry_t(
+                            line, ida_kernwin.LROEF_FULL_LINE, self.ranges[index][2]
                         )
-                        break
+                    )
 
 
 class IdaBackend(Backend):
@@ -396,7 +401,7 @@ class IdaBackend(Backend):
             self._delivering = False
 
     def close(self):
-        """Drop the results still to come; called when the MCRIT form closes."""
+        """Drop the results still to come and the match tint; called when the MCRIT form closes."""
         self.closed = True
         for _worker in self._workers:
             self._requests.put(None)
@@ -448,20 +453,19 @@ class IdaBackend(Backend):
 
         palette = get_QtWidgets().QApplication.palette()
         # IDA's themes are style sheets over the Qt palette, which carries their colors
-        dark = palette.color(palette.ColorRole.Window).lightness() < 128
+        base = palette.color(palette.ColorRole.Base)
+        dark = base.lightness() < 128
         if role == ThemeRole.TEXT_ON_TINT:
-            # light themes draw black on the tints; dark themes keep their own text color
             return None if dark else default
         if not dark:
             return default
-        base = palette.color(palette.ColorRole.Base)
         background = (base.red(), base.green(), base.blue())
         if role == ThemeRole.NEUTRAL:
             return background
         if role == ThemeRole.CURRENT:
             selection = palette.color(palette.ColorRole.Highlight)
             return (selection.red(), selection.green(), selection.blue())
-        return tuple(int(b + TINT_STRENGTH * (t - b)) for t, b in zip(default, background))
+        return tint_over(default, background)
 
     def show_local_match_coloring(self, smda_function, coloring):
         ranges = []
@@ -473,12 +477,12 @@ class IdaBackend(Backend):
         if self._coloring is None:
             self._coloring = _MatchColoring()
             self._coloring.hook()
-        self._coloring.ranges = ranges
+        self._coloring.set_ranges(ranges)
         ida_kernwin.refresh_idaview_anyway()
 
     def clear_local_match_coloring(self):
         if self._coloring is not None and self._coloring.ranges:
-            self._coloring.ranges = []
+            self._coloring.set_ranges([])
             ida_kernwin.refresh_idaview_anyway()
 
     def show_function_graph(self, parent, sample_entry, function_entry, smda_function, coloring):

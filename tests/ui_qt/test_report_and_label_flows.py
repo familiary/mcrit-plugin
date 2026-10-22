@@ -14,20 +14,31 @@ from mcrit_plugin.ui_qt.widgets.FunctionOverviewWidget import FunctionOverviewWi
 from mcrit_plugin.ui_qt.widgets.MainWidget import MainWidget  # noqa: E402
 
 
-def test_a_failed_export_is_reported_instead_of_raising():
+def test_a_failed_re_export_keeps_the_report_and_says_so():
+    report = SimpleNamespace(family="fam", version="1", is_library=False)
     widget = SimpleNamespace(
-        parent=SimpleNamespace(
-            local_smda_report=SimpleNamespace(family="fam", version="1", is_library=False),
-            local_widget=MagicMock(),
-        )
+        parent=SimpleNamespace(local_smda_report=report, local_widget=MagicMock())
     )
     for name in ("_keepMetadata", "_exportReport"):
         setattr(widget, name, types.MethodType(getattr(MainWidget, name), widget))
 
     widget._exportReport(None)
 
-    assert widget.parent.local_smda_report is None
-    assert "not converted" in widget.parent.local_widget.updateActivityInfo.call_args.args[0]
+    assert widget.parent.local_smda_report is report
+    assert "failed" in widget.parent.local_widget.updateActivityInfo.call_args.args[0]
+
+
+def test_a_re_export_keeps_family_version_and_library_flag():
+    widget = SimpleNamespace(
+        parent=SimpleNamespace(
+            local_smda_report=SimpleNamespace(family="fam", version="1", is_library=True)
+        )
+    )
+    updated = SimpleNamespace(family="", version="", is_library=False)
+
+    assert MainWidget._keepMetadata(widget, updated) is updated
+    assert (updated.family, updated.version, updated.is_library) == ("fam", "1", True)
+    assert widget.parent.local_smda_report is updated
 
 
 def test_a_refused_name_counts_as_skipped():

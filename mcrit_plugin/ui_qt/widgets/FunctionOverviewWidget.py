@@ -341,6 +341,10 @@ class FunctionOverviewWidget(QMainWindow):
             self.parent.local_widget.updateActivityInfo(
                 f"Success! Imported {num_names_applied} function names (skipped: {num_names_skipped})."
             )
+        elif num_names_skipped:
+            self.parent.local_widget.updateActivityInfo(
+                f"No function names imported (skipped: {num_names_skipped})."
+            )
         else:
             self.parent.local_widget.updateActivityInfo(
                 "No suitable function names found to import."

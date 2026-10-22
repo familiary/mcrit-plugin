@@ -13,7 +13,7 @@ import traceback
 from contextlib import contextmanager
 
 from mcrit_plugin.core.Backend import Backend
-from mcrit_plugin.core.ScoreColorProvider import ThemeRole
+from mcrit_plugin.core.ScoreColorProvider import ThemeRole, tint_over
 from mcrit_plugin.ghidra import swing
 from mcrit_plugin.ghidra.GhidraSmdaInterface import (
     GhidraSmdaInterface,
@@ -22,8 +22,6 @@ from mcrit_plugin.ghidra.GhidraSmdaInterface import (
 )
 
 TITLE = "MCRIT"
-# dark themes get the role colors as tints over the table background, as Binary Ninja does
-TINT_STRENGTH = 0.4
 # a remote CFG with more blocks than this is not worth laying out as a graph
 MAX_GRAPH_BLOCKS = 2000
 ANALYSIS_POLL_SECONDS = 0.2
@@ -124,18 +122,8 @@ class GhidraBackend(Backend):
     # analysis export
 
     def export_smda_report(self):
-        from ghidra.app.plugin.core.analysis import AutoAnalysisManager
-        from javax.swing import SwingUtilities
-
         from mcrit_plugin.ghidra.GhidraExporter import exportProgram
 
-        # a report must reflect finished analysis, as Binary Ninja's run_background ensures; the
-        # convert, upload and export buttons get here in a background task, and Swing's thread
-        # (the upload offered on close) must not wait for analyzers that may need it
-        manager = AutoAnalysisManager.getAnalysisManager(self.program)
-        if not SwingUtilities.isEventDispatchThread():
-            while manager.isAnalyzing():
-                time.sleep(ANALYSIS_POLL_SECONDS)
         return exportProgram(self.program)
 
     def get_binary_info(self):
@@ -268,8 +256,10 @@ class GhidraBackend(Backend):
         backend = self
 
         def run(monitor):
-            monitor.setMessage(title)
             try:
+                # reports must reflect finished analysis, as in Binary Ninja's run_background
+                backend._wait_for_analysis(monitor, title)
+                monitor.setMessage(title)
                 result = work()
             except Exception:
                 backend._report_failure(title)
@@ -277,6 +267,15 @@ class GhidraBackend(Backend):
             backend._on_ui_thread(lambda: on_done(result))
 
         swing.launch_background_task(title, run)
+
+    def _wait_for_analysis(self, monitor, title):
+        from ghidra.app.plugin.core.analysis import AutoAnalysisManager
+
+        manager = AutoAnalysisManager.getAnalysisManager(self.program)
+        if manager.isAnalyzing():
+            monitor.setMessage(f"{title} (waiting for analysis)")
+        while manager.isAnalyzing() and not self.closed:
+            time.sleep(ANALYSIS_POLL_SECONDS)
 
     def run_request(self, title, work, on_done):
         if self.tool is None:
@@ -345,7 +344,7 @@ class GhidraBackend(Backend):
             return background
         if role == ThemeRole.CURRENT:
             return swing.selection_background()
-        return tuple(int(b + TINT_STRENGTH * (t - b)) for t, b in zip(default, background))
+        return tint_over(default, background)
 
     def show_local_match_coloring(self, smda_function, coloring):
         markers = self._service("ghidra.app.services.MarkerService")

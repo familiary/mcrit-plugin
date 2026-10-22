@@ -15,8 +15,9 @@ Ninja or Ghidra applies to that plugin only.
   program. Reports are exported from Ghidra's own analysis through SMDA (4.9.0 or newer), matched
   local blocks are tinted in the listing with markers that are not saved with the program, remote
   CFGs open in Ghidra's graph view, and the settings are under Tool Options > MCRIT. It runs from
-  this repository's `ghidra_scripts` folder; see the README for setup. Not released yet; versioned
-  on its own from 0.1.0.
+  this repository's `ghidra_scripts` folder; see the README for setup. Converting, uploading and
+  exporting wait for auto-analysis to finish, and Clear Match Coloring in the MCRIT window's menu
+  removes the tint. Not released yet; versioned on its own from 0.1.0.
 - IDA and Binary Ninja: a Settings button on the toolbar, a "Change..." link on the remote server
   line, and a Settings entry in the menus (IDA: Edit → Plugins → MCRIT4IDA Settings...; Binary
   Ninja: Plugins → MCRIT → Settings). In IDA they open the Plugin Settings Manager on mcrit-ida when
@@ -36,7 +37,6 @@ Ninja or Ghidra applies to that plugin only.
   removes it, and closing MCRIT does too.
 - IDA: on a dark theme the score colors in the tables are tints over the table background, as in
   Binary Ninja and Ghidra, instead of the light theme's colors.
-- Ghidra: Clear Match Coloring in the MCRIT window's menu removes the tint from the listing.
 
 ### Fixed
 
@@ -46,12 +46,10 @@ Ninja or Ghidra applies to that plugin only.
   example, branch targets kept their exact bytes. The escaping now follows the report's
   architecture; one without an SMDA escaper keeps its raw bytes. Copy Escaped Bytes falls back to
   raw bytes like the rule text when escaping fails, instead of copying nothing.
-- Ghidra: converting, uploading or exporting while auto-analysis still runs waits for it, as Binary
-  Ninja does, instead of exporting the functions found so far.
-- IDA and Binary Ninja: importing labels counted names the disassembler refused as imported; they
-  count as skipped now. Applying a single label says whether it was accepted.
-- IDA and Binary Ninja: when re-exporting the report failed, Export and Upload raised an error
-  instead of saying so.
+- IDA: importing labels counted names IDA refused as imported; they count as skipped now, and
+  applying a single label says whether it was accepted.
+- IDA and Binary Ninja: when re-exporting the report failed, Export and Upload raised an error and
+  dropped the converted report; they keep the report and say that the export failed.
 - IDA and Binary Ninja: the toolbar and tab icons take the theme's text color, also after a theme
   change, so they are visible on dark themes; disabled toolbar icons show dimmed instead of almost
   black.

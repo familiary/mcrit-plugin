@@ -438,22 +438,20 @@ class MainWidget(QMainWindow):
         self._buildLocalSmdaReport(self._exportReport)
 
     def _keepMetadata(self, updated_report):
-        """Swap in a re-exported report, keeping the family, version and library flag; a failed
-        export (None) leaves nothing to keep them on."""
+        """Swap in a re-exported report, keeping the family, version and library flag; after a
+        failed re-export (None) the session keeps the report it has."""
+        if updated_report is None:
+            return None
         current = self.parent.local_smda_report
-        family = current.family if current else ""
-        version = current.version if current else ""
-        is_library = current.is_library if current else False
+        if current is not None:
+            updated_report.family = current.family
+            updated_report.version = current.version
+            updated_report.is_library = current.is_library
         self.parent.local_smda_report = updated_report
-        if updated_report is not None:
-            updated_report.family = family
-            updated_report.version = version
-            updated_report.is_library = is_library
         return updated_report
 
     def _exportReport(self, updated_report):
-        self._keepMetadata(updated_report)
-        if self.parent.local_smda_report:
+        if self._keepMetadata(updated_report):
             filepath = self.cc.backend.ask_save_file(
                 self.parent.local_smda_report.filename + ".smda", "Export SMDA report to file..."
             )
@@ -469,15 +467,14 @@ class MainWidget(QMainWindow):
                 self.parent.local_widget.updateActivityInfo("Export aborted.")
         else:
             self.parent.local_widget.updateActivityInfo(
-                "Database is not converted to SMDA report yet, can't export."
+                "Exporting the SMDA report failed, nothing to export."
             )
 
     def _onUploadSmdaButtonClicked(self):
         self._buildLocalSmdaReport(self._uploadReport)
 
     def _uploadReport(self, updated_report):
-        self._keepMetadata(updated_report)
-        if self.parent.local_smda_report:
+        if self._keepMetadata(updated_report):
             report = self.parent.local_smda_report
             # a second click while the request runs would upload again
             self.uploadSmdaAction.setEnabled(False)
@@ -488,7 +485,7 @@ class MainWidget(QMainWindow):
             )
         else:
             self.parent.local_widget.updateActivityInfo(
-                "Database is not converted to SMDA report yet, can't upload."
+                "Exporting the SMDA report failed, nothing to upload."
             )
 
     def _afterUpload(self, _result):

@@ -489,8 +489,8 @@ def test_matched_blocks_are_tinted_while_drawn_and_untinted_on_clear_and_close(b
 
     assert hooks.hooked
     assert [(entry[0].at.toea(), entry[2]) for entry in entries] == [
-        (0x1000, 0xFF332211),
-        (0x1002, 0xFF332211),
+        (0x1000, 0x80332211),
+        (0x1002, 0x80332211),
     ]
     instance.clear_local_match_coloring()
     assert hooks.ranges == [] and hooks.hooked
@@ -514,11 +514,11 @@ def test_dark_themes_get_the_score_colors_as_tints_over_the_table_background(bac
         application.setPalette(palette)
 
         assert instance.theme_color(ThemeRole.NEUTRAL, (255, 255, 255)) == (20, 20, 20)
-        assert instance.theme_color("high", (220, 120, 20)) == (100, 60, 20)
+        assert instance.theme_color(ThemeRole.ORANGE, (220, 120, 20)) == (100, 60, 20)
         assert instance.theme_color(ThemeRole.TEXT_ON_TINT, (0, 0, 0)) is None
 
-        palette.setColor(QtGui.QPalette.ColorRole.Window, QtGui.QColor(236, 236, 236))
+        palette.setColor(QtGui.QPalette.ColorRole.Base, QtGui.QColor(255, 255, 255))
         application.setPalette(palette)
-        assert instance.theme_color("high", (220, 120, 20)) == (220, 120, 20)
+        assert instance.theme_color(ThemeRole.ORANGE, (220, 120, 20)) == (220, 120, 20)
     finally:
         application.setPalette(original)
