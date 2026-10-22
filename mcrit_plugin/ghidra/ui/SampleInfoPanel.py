@@ -57,7 +57,7 @@ class SampleInfoPanel:
     def __init__(self, parent):
         self.parent = parent
         self.name = "Sample Match Summary"
-        self.icon_file = "puzzle.png"
+        self.icon_file = "chart.png"
         self.last_family_selected = None
         self._matching_data = None
         self._populating = False

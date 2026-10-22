@@ -41,7 +41,7 @@ class BlockMatchPanel:
         self._shown_function = None
         self._shown_block = None
         self.name = "Block Scope"
-        self.icon_file = "puzzle.png"
+        self.icon_file = "blocks.png"
         config = parent.config
         self.label_current_function_matches = Label("Block Matches for: <function_offset>")
         self.cb_filter_library = checkbox(

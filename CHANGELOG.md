@@ -32,8 +32,8 @@ Ninja or Ghidra applies to that plugin only.
 ### Changed
 
 - New toolbar and tab icons from one set (Lucide, plus the YARA mark from YARA-X), each tab with
-  its own icon; credits and licences are in `icons/NOTICE.md`. The toolbar icons are 24 px in both
-  IDA and Binary Ninja (IDA drew them at 32 px).
+  its own icon, in all three plugins; credits and licences are in `icons/NOTICE.md`. The toolbar
+  icons are 24 px in both IDA and Binary Ninja (IDA drew them at 32 px).
 
 ### Fixed
 

@@ -53,7 +53,7 @@ class FunctionOverviewPanel:
         self.parent = parent
         self.cc = parent.cc
         self.name = "Function Overview"
-        self.icon_file = "relationship.png"
+        self.icon_file = "network.png"
         self.scp = ScoreColorProvider(self.cc.backend)
         self.last_selected_fields = {}
         self.resolved_function_labels = {}
