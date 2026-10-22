@@ -67,5 +67,5 @@ def provider_class():
 
         return JClass(PROVIDER_CLASS)
     except Exception as exc:
-        print(f"[MCRIT] Java bridge unavailable ({exc}); using a floating window instead.")
+        print(f"[MCRIT] Java bridge unavailable ({exc}); the MCRIT window cannot open.")
         return None

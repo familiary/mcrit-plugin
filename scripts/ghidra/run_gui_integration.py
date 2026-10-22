@@ -309,7 +309,7 @@ def run_steps(args, gui):
     gui.shot("function_scope")
 
     # remote CFG of the best match, with the local blocks tinted
-    colorizer = tool.getService(JClass("ghidra.app.plugin.core.colorizer.ColorizingService"))
+    modification = program.getModificationNumber()
     gui.edt(lambda: function_widget._onFunctionMatchClicked(0, 0, 2))
     _wait(
         lambda: "Opened the graph" in session.local_widget.label_activity.text(),
@@ -318,8 +318,13 @@ def run_steps(args, gui):
     )
     _wait(lambda: any("MCRIT CFG" in str(w.getTitle()) for w in gui.windows()), "graph", 60)
     _check(
-        colorizer.getAllBackgroundColorAddresses().getNumAddresses() > 0,
+        backend._colored and any(not m.getAddressSet().isEmpty() for m in backend._colored),
         "graph opened and matched local blocks tinted",
+    )
+    # the tint is a transient marker: no undo entry, nothing to save on close
+    _check(
+        program.getModificationNumber() == modification,
+        "tinting left the program unmodified",
     )
     gui.shot("graph")
 
@@ -409,6 +414,12 @@ def run_gui(args, workdir):
 
     class Launcher(GuiPyGhidraLauncher):
         def _launch(self):
+            # load MouseEvent before any window opens: its initializer takes the AWT lock, and on
+            # a real display the X11 thread holds that lock while it waits for the class to load
+            # for a pointer crossing, which deadlocks press_tab's first import
+            from jpype import JClass
+
+            JClass("java.awt.event.MouseEvent")
             threading.Thread(target=steps, daemon=True).start()
             super()._launch()
 

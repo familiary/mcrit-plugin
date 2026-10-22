@@ -111,20 +111,19 @@ on, into Ghidra's settings folder. It is rebuilt automatically for a new plugin 
 
 ### Configure
 
-Settings are under Edit → Tool Options → MCRIT: the same settings as in the other plugins, listed
-by their display names. The API
-token field is masked, but Ghidra stores it with the tool's options in plain text. A
-`config_override.json` in the repository root takes precedence as it does in IDA. Settings are read
-whenever they are used, except the connection settings (server, token, username, timeout), which
-are read when MCRIT opens for a program; reopen the program after changing those.
+Settings are under Edit → Tool Options → MCRIT: the same settings as in the other plugins, listed by
+their display names. The API token field is masked, but Ghidra stores it with the tool's options in
+plain text. A `config_override.json` in the repository root takes precedence as it does in IDA.
+Settings are read whenever they are used, except the connection settings (server, token, username,
+timeout), which are read when MCRIT opens for a program; reopen the program after changing those.
 
 ### Use
 
 Run Tools → MCRIT, or the script from the Script Manager. The window docks into the CodeBrowser
 with the same toolbar and tabs as the other plugins, one session per open program; it follows the
 active program and offers to open MCRIT for a program that has no session yet. Reports are exported
-from Ghidra's own analysis, matched local blocks are tinted in the listing, and remote CFGs open in
-Ghidra's graph view.
+from Ghidra's own analysis, matched local blocks are tinted in the listing (a marker, not saved with
+the program), and remote CFGs open in Ghidra's graph view.
 
 ## Settings
 

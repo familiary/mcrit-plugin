@@ -25,6 +25,8 @@ TITLE = "MCRIT"
 TINT_STRENGTH = 0.4
 # a remote CFG with more blocks than this is not worth laying out as a graph
 MAX_GRAPH_BLOCKS = 2000
+# below the selection (100) and search highlight (50) markers, so both stay visible over a tint
+MARKER_PRIORITY = 40
 
 
 class GhidraBackend(Backend):
@@ -327,37 +329,41 @@ class GhidraBackend(Backend):
             return swing.selection_background()
         return tuple(int(b + TINT_STRENGTH * (t - b)) for t, b in zip(default, background))
 
-    def _colorizer(self):
-        return self._service("ghidra.app.plugin.core.colorizer.ColorizingService")
-
     def show_local_match_coloring(self, smda_function, coloring):
-        colorizer = self._colorizer()
-        if colorizer is None:
+        markers = self._service("ghidra.app.services.MarkerService")
+        if markers is None:
             return
         from java.awt import Color
 
         self.clear_local_match_coloring()
-        colored = []
-        with self.mutation("MCRIT match coloring"):
-            for block in smda_function.getBlocks():
-                if block.offset not in coloring:
-                    continue
-                last = list(block.getInstructions())[-1]
-                end = last.offset + len(last.bytes) // 2 - 1
-                start_address, end_address = self._address(block.offset), self._address(end)
-                colorizer.setBackgroundColor(
-                    start_address, end_address, Color(coloring[block.offset])
+        # area markers tint the listing without touching the program: no undo entry, no save
+        marker_sets = {}
+        for block in smda_function.getBlocks():
+            color = coloring.get(block.offset)
+            if color is None:
+                continue
+            if color not in marker_sets:
+                marker_sets[color] = markers.createAreaMarker(
+                    f"MCRIT match 0x{color:06x}",
+                    "MCRIT match",
+                    self.program,
+                    MARKER_PRIORITY,
+                    True,
+                    True,
+                    True,
+                    Color(color),
                 )
-                colored.append((start_address, end_address))
-        self._colored = colored
+            last = list(block.getInstructions())[-1]
+            end = last.offset + len(last.bytes) // 2 - 1
+            marker_sets[color].add(self._address(block.offset), self._address(end))
+        self._colored = list(marker_sets.values())
 
     def clear_local_match_coloring(self):
-        colorizer = self._colorizer()
-        if colorizer is None or not self._colored:
+        markers = self._service("ghidra.app.services.MarkerService")
+        if markers is None or not self._colored:
             return
-        with self.mutation("Clear MCRIT match coloring"):
-            for start_address, end_address in self._colored:
-                colorizer.clearBackgroundColor(start_address, end_address)
+        for marker_set in self._colored:
+            markers.removeMarker(marker_set, self.program)
         self._colored = None
 
     # remote CFG
