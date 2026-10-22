@@ -38,7 +38,7 @@ class MainPanel:
                 "",
                 handler,
                 enabled=enabled,
-                icon=load_icon(icons + icon, 24, tint=True),
+                icon=load_icon(icons + icon, 24),
                 tooltip=tooltip,
             )
             self.toolbar.add(widget)
@@ -76,9 +76,7 @@ class MainPanel:
         )
         self.tabs = scrolling_tabs()
         for widget in self.tabbed_widgets:
-            self.tabs.addTab(
-                widget.name, load_icon(icons + widget.icon_file, 16, tint=True), widget.component
-            )
+            self.tabs.addTab(widget.name, load_icon(icons + widget.icon_file, 16), widget.component)
         self.splitter = JSplitPane(
             JSplitPane.VERTICAL_SPLIT, parent.local_widget.component, self.tabs
         )

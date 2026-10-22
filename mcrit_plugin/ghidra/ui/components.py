@@ -212,9 +212,9 @@ def grid(pairs):
     return panel
 
 
-def load_icon(path, size=20, tint=False):
-    """An ImageIcon scaled to size pixels, or None when the file cannot be read. With tint, the
-    one-colour glyph is drawn in the theme's label colour, so it stays visible on dark themes."""
+def load_icon(path, size=20):
+    """An ImageIcon scaled to size pixels, or None when the file cannot be read. The icons are
+    one-colour glyphs, drawn here in the theme's label colour so they show on dark themes too."""
     try:
         from java.awt import AlphaComposite, Image
         from java.awt.image import BufferedImage
@@ -224,7 +224,7 @@ def load_icon(path, size=20, tint=False):
         if icon.getIconWidth() <= 0:
             return None
         image = icon.getImage()
-        color = UIManager.getColor("Label.foreground") if tint else None
+        color = UIManager.getColor("Label.foreground")
         if color is not None:
             width, height = icon.getIconWidth(), icon.getIconHeight()
             tinted = BufferedImage(width, height, BufferedImage.TYPE_INT_ARGB)

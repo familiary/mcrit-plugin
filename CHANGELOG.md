@@ -15,8 +15,9 @@ Ninja or Ghidra applies to that plugin only.
   program. Reports are exported from Ghidra's own analysis through SMDA (4.9.0 or newer), matched
   local blocks are tinted in the listing with markers that are not saved with the program, remote
   CFGs open in Ghidra's graph view, and the settings are under Tool Options > MCRIT. It runs from
-  this repository's `ghidra_scripts` folder; see the README for setup. Not released yet; versioned
-  on its own from 0.1.0.
+  this repository's `ghidra_scripts` folder; see the README for setup. Its toolbar and tabs use
+  the same icons, at 24 px in the toolbar and in the theme's text colour from when the window
+  opens. Not released yet; versioned on its own from 0.1.0.
 - IDA and Binary Ninja: a Settings button on the toolbar, a "Change..." link on the remote server
   line, and a Settings entry in the menus (IDA: Edit → Plugins → MCRIT4IDA Settings...; Binary
   Ninja: Plugins → MCRIT → Settings). In IDA they open the Plugin Settings Manager on mcrit-ida when
@@ -33,10 +34,9 @@ Ninja or Ghidra applies to that plugin only.
 
 ### Changed
 
-- New toolbar and tab icons from one set (Lucide, plus the YARA mark from YARA-X), each tab with
-  its own icon, in all three plugins; credits and licences are in `icons/NOTICE.md`. The toolbar
-  icons are 24 px everywhere (IDA drew them at 32 px, Ghidra at 20 px), and Ghidra draws them in
-  the theme's text colour like IDA and Binary Ninja, so they show on its dark themes.
+- IDA and Binary Ninja: new toolbar and tab icons from one set (Lucide, plus the YARA mark from
+  YARA-X), each tab with its own icon; credits and licences are in `icons/NOTICE.md`. The toolbar
+  icons are 24 px in both (IDA drew them at 32 px).
 
 ### Fixed
 

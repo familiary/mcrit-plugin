@@ -65,7 +65,7 @@ class MainWidget(QMainWindow):
         """
         # TODO for MCRIT 1.0.0 release, we hide the other buttons until they are properly developed
         self.toolbar = self.addToolBar(self.cc.backend.plugin_name + " Toolbar")
-        # the hosts' styles differ (IDA 32, Binary Ninja 24); 24 is the icons' design size
+        # the hosts' styles pick different sizes; 24 is the icons' design size
         self.toolbar.setIconSize(self.cc.QtCore.QSize(24, 24))
         self._createParseSmdaAction()
         self.toolbar.addAction(self.parseSmdaAction)
@@ -102,7 +102,7 @@ class MainWidget(QMainWindow):
         for action, filename in self._toolbarIconFiles:
             action.setIcon(self._toolbarIcon(filename))
         for index, widget in enumerate(self.tabbed_widgets):
-            self.tabs.setTabIcon(index, self._themedIcon(widget.icon.pixmap(64, 64)))
+            self.tabs.setTabIcon(index, self._themedIcon(widget.icon.pixmap(48, 48)))
 
     def _toolbarIcon(self, filename):
         return self._themedIcon(self.cc.QtGui.QPixmap(self.parent.config.ICON_FILE_PATH + filename))
