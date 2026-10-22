@@ -11,7 +11,7 @@ imported, and unit tested with stand-ins, without a JVM.
 from smda.export.BackendInterface import BackendInterface
 from smda.export.segment_mapping import assembleSegmentBuffer
 
-from mcrit_plugin.ghidra.presentation import api_name, is_default_name
+from mcrit_plugin.ghidra.naming import api_name, is_default_name
 
 READ_CHUNK = 0x100000
 

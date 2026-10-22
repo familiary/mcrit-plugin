@@ -2,14 +2,14 @@
 YaraStringBuilderDialog. Each has exec_() like its Qt counterpart; it blocks while the dialog is
 open, with Swing still processing events."""
 
-from mcrit_plugin.core.ScoreColorProvider import ScoreColorProvider, ThemeRole
-from mcrit_plugin.ghidra import swing
-from mcrit_plugin.ghidra.presentation import (
+from mcrit_plugin.core.presentation import (
     build_yara_rule,
-    escape_instruction,
+    escaped_hex_string,
     format_data_bytes,
     format_hex_lines,
 )
+from mcrit_plugin.core.ScoreColorProvider import ScoreColorProvider, ThemeRole
+from mcrit_plugin.ghidra import swing
 from mcrit_plugin.ghidra.ui.components import (
     Label,
     button,
@@ -367,11 +367,10 @@ class YaraStringBuilderDialog(_Dialog):
     def _onCopyEscapedClicked(self):
         if self.is_data_mode:
             hex_string = self.data.hex()
-        elif self._useWildcards():
-            report = self.session.local_smda_report
-            hex_string = " ".join(escape_instruction(i, report) for i in self._instructions())
         else:
-            hex_string = " ".join(instruction.bytes for instruction in self._instructions())
+            hex_string = escaped_hex_string(
+                self._instructions(), self.session.local_smda_report, self._useWildcards()
+            )
         copy_to_clipboard(hex_string)
         self.session.local_widget.updateActivityInfo(
             f"Copied escaped bytes to clipboard: {len(hex_string)} bytes"

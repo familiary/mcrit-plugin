@@ -346,9 +346,9 @@ def test_a_label_update_reuses_the_label_free_aggregation(overview, monkeypatch)
     report = SimpleNamespace(function_matches=[_match(1, 10, 80), _match(2, 11, 90)])
     widget._aggregateMatches(report, 0, False, {})
     calls = []
-    original = overview_module._matchSets
+    original = overview_module.match_sets
     monkeypatch.setattr(
-        overview_module, "_matchSets", lambda *args: calls.append(args) or original(*args)
+        overview_module, "match_sets", lambda *args: calls.append(args) or original(*args)
     )
     entry = SimpleNamespace(
         function_labels=[SimpleNamespace(function_label="a", username="u", timestamp="t")]

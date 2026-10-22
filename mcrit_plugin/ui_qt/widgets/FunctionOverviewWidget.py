@@ -2,6 +2,7 @@ import time
 
 import mcrit_plugin.core.McritTableColumn as McritTableColumn
 import mcrit_plugin.ui_qt.QtShim as QtShim
+from mcrit_plugin.core.presentation import label_criticality, match_sets
 from mcrit_plugin.ui_qt.widgets.OverviewTable import OverviewTableView, build_row
 
 # ids in the first label request and in each later one, and the least time between two table
@@ -368,28 +369,6 @@ class FunctionOverviewWidget(QMainWindow):
             self.sb_minhash_threshold.setValue(config_adjusted_lower_value)
             self.sb_minhash_threshold.blockSignals(False)
 
-    def _calculateLabelCriticality(self, label_list, has_function_name=False, is_resolved=False):
-        criticality = 0
-        if len(label_list) == 0:
-            return criticality
-        if has_function_name:
-            criticality = 1
-            return criticality
-        if is_resolved:
-            criticality = 2
-            return criticality
-        criticality = 3
-        label_set = set([label_entry[1] for label_entry in label_list])
-        top_score = max([label_entry[0] for label_entry in label_list])
-        top_score_label_pool = [
-            label_entry for label_entry in label_list if label_entry[0] == top_score
-        ]
-        if len(label_set) > 1:
-            criticality += 1
-            if len(set([label_entry[1] for label_entry in top_score_label_pool])) > 1:
-                criticality += 1
-        return criticality
-
     @staticmethod
     def _sortedLabels(function_info):
         """The labels of an aggregate, best first, sorted once for as long as the aggregate lives."""
@@ -462,7 +441,7 @@ class FunctionOverviewWidget(QMainWindow):
             for function_id, (offset, matches) in grouped.items():
                 selected = [match for match in matches if match[0] >= threshold_value]
                 if selected:
-                    cached[function_id] = _matchSets(offset, selected)
+                    cached[function_id] = match_sets(offset, selected)
             # like _aggregates, only the current threshold is kept
             self._label_free_aggregates = {threshold_value: cached}
         return cached
@@ -495,15 +474,15 @@ class FunctionOverviewWidget(QMainWindow):
                         (int(match[0]), label.function_label, label.username, label.timestamp)
                     )
         if filtered:
-            match_sets = {
-                function_id: _matchSets(grouped[function_id][0], selected)
+            aggregates = {
+                function_id: match_sets(grouped[function_id][0], selected)
                 for function_id, selected in labeled_matches.items()
             }
         else:
-            match_sets = self._labelFreeAggregates(grouped, threshold_value)
+            aggregates = self._labelFreeAggregates(grouped, threshold_value)
         aggregated_matches = {}
         matches_beyond_filters = 0
-        for function_id, (sets, num_selected) in match_sets.items():
+        for function_id, (sets, num_selected) in aggregates.items():
             matches_beyond_filters += num_selected
             # a new dict per aggregation: populating the table adds keys to it
             aggregated_matches[function_id] = dict(
@@ -556,7 +535,7 @@ class FunctionOverviewWidget(QMainWindow):
         crit_function_labels = []
         for function_id, function_info in sorted(aggregated_matches.items()):
             is_custom_name = not self.cc.backend.has_default_function_name(function_info["offset"])
-            criticality = self._calculateLabelCriticality(
+            criticality = label_criticality(
                 self._sortedLabels(function_info),
                 has_function_name=is_custom_name,
                 is_resolved=function_info["offset"] in self.resolved_function_labels,
@@ -704,15 +683,3 @@ class FunctionOverviewWidget(QMainWindow):
             self.parent.function_match_widget.queryCurrentFunction()
         elif mi.column() == function_offset_column:
             self.cc.backend.jump_to(clicked_function_address)
-
-
-def _matchSets(offset, selected):
-    """The sets the overview shows for one local function's selected matches, and their number."""
-    sets = {
-        "offset": offset,
-        "families": {match[1] for match in selected},
-        "samples": {match[2] for match in selected},
-        "functions": {match[3] for match in selected},
-        "library_matches": {match[3] for match in selected if match[4]},
-    }
-    return sets, len(selected)

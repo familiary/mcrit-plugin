@@ -1,7 +1,7 @@
 """Sample Match Summary tab: best matching sample per family and all samples of one family. Ports
 the Qt SampleInfoWidget."""
 
-from mcrit_plugin.ghidra.presentation import aggregate_sample_matches
+from mcrit_plugin.core.presentation import aggregate_sample_matches
 from mcrit_plugin.ghidra.ui.components import Label, checkbox, separator, stack
 from mcrit_plugin.ghidra.ui.table import MatchRow, MatchTableView
 

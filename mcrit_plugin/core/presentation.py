@@ -1,31 +1,11 @@
-"""Toolkit-free logic of the Ghidra frontend: naming, the aggregations behind the tables, and the
-YARA rule text. Nothing here imports JPype, Ghidra or Swing, so the unit tests run without a JVM.
-
-The aggregations follow the Qt widgets (FunctionOverviewWidget, BlockMatchWidget, SampleInfoWidget,
-YaraStringBuilderDialog) step by step.
-"""
+"""Toolkit-free logic behind the match views, shared by the Qt widgets (IDA, Binary Ninja) and the
+Ghidra panels: the aggregations behind the tables, and the YARA rule text."""
 
 import datetime
-import re
 
 import mcrit_plugin.core.McritTableColumn as McritTableColumn
 
-# Ghidra's auto-generated function names: FUN_00401000, thunk_FUN_00401000, and SUB_ for some loaders
-DEFAULT_NAME = re.compile(r"(thunk_)?(FUN|SUB)_[0-9a-fA-F]+$")
-# the library Ghidra files imports under when the binary does not name one (ELF)
-UNKNOWN_LIBRARY = "<EXTERNAL>"
 NO_LABEL = "-"
-
-
-def is_default_name(name):
-    return DEFAULT_NAME.match(name or "") is not None
-
-
-def api_name(library, name):
-    """SMDA's "dll!api" form: library names in lower case, none for an unknown library."""
-    if library and library != UNKNOWN_LIBRARY:
-        return f"{library.lower()}!{name}"
-    return name
 
 
 def match_sets(offset, selected):
@@ -59,7 +39,7 @@ def label_criticality(label_list, has_function_name=False, is_resolved=False):
 
 
 def row_cells(info, column_types):
-    """(texts, sort keys) of an aggregated function, like OverviewTable.build_row."""
+    """(texts, sort keys) of an aggregated function, one per column type."""
     texts, keys = [], []
     for column_type in column_types:
         if column_type == McritTableColumn.OFFSET:
@@ -89,7 +69,7 @@ def summarize_block_matches(pbh, blockhash_matches, family_infos, filter_library
     """Per block offset its hash, matches and summary, plus the counts for the headline.
 
     Returns (block_matches_by_offset, families, samples, functions, all_functions); the sets are
-    None without any block. Same aggregation as BlockMatchWidget._showBlockMatches."""
+    None without any block."""
     by_offset = {}
     for entry in pbh:
         matches = blockhash_matches.get(entry["hash"]) or []
@@ -137,6 +117,24 @@ def summarize_block_matches(pbh, blockhash_matches, family_infos, filter_library
     return by_offset, families, samples, functions, all_functions
 
 
+def block_matches_headline(
+    function_offset, families, samples, functions, all_functions, filter_library
+):
+    """The Block Scope headline for summarize_block_matches' counts. Families, samples and functions
+    are all counted without library matches; filtering adds how many functions it hid."""
+    if families is None:
+        return "No Block Matches for Function: 0x%x" % function_offset
+    text = "Block Matches for Function: 0x%x -- %d families, %d samples, %d functions" % (
+        function_offset,
+        len(families),
+        len(samples),
+        len(functions),
+    )
+    if filter_library:
+        return text + " (%d filtered)." % (len(all_functions) - len(functions))
+    return text + "."
+
+
 def aggregate_sample_matches(match_report, filter_library):
     """sample id -> the fields both tables show, from a MatchingResult."""
     if not match_report:
@@ -149,30 +147,50 @@ def aggregate_sample_matches(match_report, filter_library):
             "family": match.family,
             "version": match.version,
             "sha256": match.sha256,
+            "filename": match.filename,
             "sample_id": match.sample_id,
             "minhash_matches": match.matched_functions_minhash,
             "pichash_matches": match.matched_functions_pichash,
             "combined_matches": match.matched_functions_combined,
             "library_matches": match.matched_functions_library,
             "bytescore": match.matched_bytes_unweighted,
+            "bytescore_adjusted": match.matched_bytes_score_weighted,
             "percent": match.matched_percent_unweighted,
+            "percent_adjusted": match.matched_percent_score_weighted,
         }
         for match in sample_matches
     }
 
 
 def escape_instruction(instruction, report):
-    """The YARA-escaped hex of an instruction, wildcarding addresses inside the image."""
-    from smda.intel.IntelInstructionEscaper import IntelInstructionEscaper
+    """The YARA-escaped hex of an instruction, wildcarding addresses inside the image. The escaper
+    follows the report's architecture; one SMDA has no escaper for keeps the raw bytes."""
+    from smda.common.SmdaFunction import SmdaFunction
 
     return "".join(
         instruction.getEscapedBinary(
-            IntelInstructionEscaper,
+            SmdaFunction.getInstructionEscaper(report.architecture),
             escape_intraprocedural_jumps=True,
             lower_addr=report.base_addr,
             upper_addr=report.base_addr + report.binary_size,
         )
     )
+
+
+def instruction_hex(instruction, report, use_wildcards):
+    """An instruction's hex for a rule: escaped with wildcards, or raw, also when escaping fails."""
+    if use_wildcards:
+        try:
+            return escape_instruction(instruction, report)
+        except Exception:
+            pass
+    return instruction.bytes
+
+
+def escaped_hex_string(instructions, report, use_wildcards):
+    """The instructions' hex, one group per instruction, as the copy button puts it on the
+    clipboard."""
+    return " ".join(instruction_hex(i, report, use_wildcards) for i in instructions)
 
 
 def _disassembly(instruction):
@@ -183,15 +201,13 @@ def _disassembly(instruction):
 
 def format_hex_lines(instructions, report, use_wildcards):
     """The string lines of a rule, each commented with its address and disassembly."""
-    lines = []
-    for instruction in instructions:
-        hex_bytes = instruction.bytes
-        if use_wildcards:
-            try:
-                hex_bytes = escape_instruction(instruction, report)
-            except Exception:
-                pass
-        lines.append((hex_bytes, f"0x{instruction.offset:08X}: {_disassembly(instruction)}"))
+    lines = [
+        (
+            instruction_hex(instruction, report, use_wildcards),
+            f"0x{instruction.offset:08X}: {_disassembly(instruction)}",
+        )
+        for instruction in instructions
+    ]
     if not lines:
         return ""
     width = max(len(hex_bytes) for hex_bytes, _ in lines)

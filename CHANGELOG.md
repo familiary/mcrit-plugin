@@ -18,6 +18,15 @@ Ninja or Ghidra applies to that plugin only.
   this repository's `ghidra_scripts` folder; see the README for setup. Not released yet; versioned
   on its own from 0.1.0.
 
+### Fixed
+
+- Block Scope: with Filter out Library Matches off, the headline counted families and samples
+  without library matches but functions with them. It now counts all three without them.
+- YARA String Builder: wildcards used Intel escaping for every architecture, so on AArch64, for
+  example, branch targets kept their exact bytes. The escaping now follows the report's
+  architecture; one without an SMDA escaper keeps its raw bytes. Copy Escaped Bytes falls back to
+  raw bytes like the rule text when escaping fails, instead of copying nothing.
+
 ## [2.1.1] - 2026-10-15
 
 ### Fixed

@@ -7,8 +7,8 @@ from concurrent.futures import ThreadPoolExecutor
 
 import mcrit_plugin.core.McritTableColumn as McritTableColumn
 from mcrit_plugin.core.minimcrit.matchers.FunctionCfgMatcher import FunctionCfgMatcher
+from mcrit_plugin.core.presentation import block_matches_headline, summarize_block_matches
 from mcrit_plugin.core.ScoreColorProvider import ScoreColorProvider, ThemeRole
-from mcrit_plugin.ghidra.presentation import summarize_block_matches
 from mcrit_plugin.ghidra.ui.components import (
     Label,
     Spinner,
@@ -254,27 +254,11 @@ class BlockMatchPanel:
             pbh, self.parent.blockhash_matches, self.parent.family_infos, filter_library
         )
         offset = self.parent.current_function
-        if families is None:
-            self.label_current_function_matches.setText(
-                "No Block Matches for Function: 0x%x" % offset
+        self.label_current_function_matches.setText(
+            block_matches_headline(
+                offset, families, samples, functions, all_functions, filter_library
             )
-        elif filter_library:
-            self.label_current_function_matches.setText(
-                "Block Matches for Function: 0x%x -- %d families, %d samples, %d functions "
-                "(%d filtered)."
-                % (
-                    offset,
-                    len(families),
-                    len(samples),
-                    len(functions),
-                    len(all_functions) - len(functions),
-                )
-            )
-        else:
-            self.label_current_function_matches.setText(
-                "Block Matches for Function: 0x%x -- %d families, %d samples, %d functions."
-                % (offset, len(families), len(samples), len(all_functions))
-            )
+        )
         self._last_block_matches = by_offset
         self._shown_function = offset
         self.populateBlockSummaryTable(by_offset)

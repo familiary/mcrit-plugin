@@ -1,38 +1,22 @@
-"""The Ghidra frontend's toolkit-free logic: naming, table aggregations, YARA text and the remote
-CFG graph's edges. None of it needs a JVM, Ghidra or SMDA."""
+"""The toolkit-free logic behind the match views, shared by the Qt widgets and the Ghidra panels:
+table aggregations and YARA text. None of it needs Qt, a JVM or a disassembler."""
 
+import sys
 from types import SimpleNamespace
 
 import mcrit_plugin.core.McritTableColumn as McritTableColumn
-from mcrit_plugin.ghidra import RemoteCfgGraph
-from mcrit_plugin.ghidra.presentation import (
+from mcrit_plugin.core.presentation import (
     aggregate_sample_matches,
-    api_name,
+    block_matches_headline,
     build_yara_rule,
+    escaped_hex_string,
     format_data_bytes,
     format_hex_lines,
-    is_default_name,
     label_criticality,
     match_sets,
     row_cells,
     summarize_block_matches,
 )
-
-
-def test_default_names_are_ghidras_generated_ones():
-    assert is_default_name("FUN_00101129")
-    assert is_default_name("thunk_FUN_00401000")
-    assert is_default_name("SUB_00401000")
-    assert not is_default_name("entry")
-    assert not is_default_name("FUN_00101129_renamed")
-    assert not is_default_name(None)
-
-
-def test_api_names_follow_smda():
-    assert api_name("KERNEL32.DLL", "CreateFileA") == "kernel32.dll!CreateFileA"
-    # ELF imports have no library in Ghidra
-    assert api_name("<EXTERNAL>", "printf") == "printf"
-    assert api_name(None, "printf") == "printf"
 
 
 def test_label_criticality_levels():
@@ -93,6 +77,25 @@ def test_block_summary_counts_and_library_filter():
     assert functions == {100, 200} and len(all_functions - functions) == 1
 
 
+def test_block_headline_counts_functions_like_families_and_samples():
+    pbh = [{"offset": 0x10, "hash": 1, "size": 5}, {"offset": 0x20, "hash": 2, "size": 6}]
+    matches = {1: [(1, 10, 100, 0x10), (2, 20, 200, 0x10)], 2: [(9, 90, 900, 0x20)]}
+    families = {1: _family(1, 0), 2: _family(1, 0), 9: _family(2, 2)}
+
+    _, *counts = summarize_block_matches(pbh, matches, families, filter_library=False)
+    # the library family's function 900 counts nowhere, as its family and sample do not
+    assert block_matches_headline(0x1000, *counts, filter_library=False) == (
+        "Block Matches for Function: 0x1000 -- 2 families, 2 samples, 2 functions."
+    )
+    _, *counts = summarize_block_matches(pbh, matches, families, filter_library=True)
+    assert block_matches_headline(0x1000, *counts, filter_library=True) == (
+        "Block Matches for Function: 0x1000 -- 2 families, 2 samples, 2 functions (1 filtered)."
+    )
+    assert block_matches_headline(0x1000, None, None, None, None, False) == (
+        "No Block Matches for Function: 0x1000"
+    )
+
+
 def test_block_summary_without_blocks():
     assert summarize_block_matches([], {}, {}, False) == ({}, None, None, None, None)
 
@@ -103,13 +106,16 @@ def _sample_match(sample_id, family, is_library=False, score=1):
         family=family,
         version="v",
         sha256="ab" * 32,
+        filename="sample.bin",
         is_library=is_library,
         matched_functions_minhash=1,
         matched_functions_pichash=2,
         matched_functions_combined=3,
         matched_functions_library=0,
         matched_bytes_unweighted=score,
+        matched_bytes_score_weighted=score,
         matched_percent_unweighted=50.0,
+        matched_percent_score_weighted=40.0,
     )
 
 
@@ -139,54 +145,60 @@ def test_yara_rule_from_raw_instruction_bytes():
     assert rule.rstrip().endswith("}")
 
 
+class _EscapableInstruction:
+    def __init__(self, offset, raw, fail=False):
+        self.offset = offset
+        self.bytes = raw
+        self.mnemonic = "call"
+        self.operands = "0x401000"
+        self._fail = fail
+
+    def getEscapedBinary(self, escaper, **_kwargs):
+        if self._fail:
+            raise ValueError("cannot escape")
+        return [escaper, "????????"]
+
+
+def _escapers(monkeypatch):
+    smda_function = sys.modules["smda.common.SmdaFunction"].SmdaFunction
+    monkeypatch.setattr(
+        smda_function,
+        "getInstructionEscaper",
+        staticmethod(lambda arch: f"<{arch}>"),
+        raising=False,
+    )
+
+
+def test_wildcards_use_the_reports_architecture(monkeypatch):
+    _escapers(monkeypatch)
+    instructions = [_EscapableInstruction(0x1000, "e8aabbccdd")]
+    for architecture in ("intel", "aarch64"):
+        report = SimpleNamespace(architecture=architecture, base_addr=0x400000, binary_size=0x1000)
+        assert escaped_hex_string(instructions, report, use_wildcards=True) == (
+            f"<{architecture}>????????"
+        )
+        assert format_hex_lines(instructions, report, use_wildcards=True).split()[0] == (
+            f"<{architecture}>????????"
+        )
+
+
+def test_failed_escaping_keeps_raw_bytes(monkeypatch):
+    _escapers(monkeypatch)
+    report = SimpleNamespace(architecture="intel", base_addr=0, binary_size=0x1000)
+    instructions = [
+        _EscapableInstruction(0x1000, "e8aabbccdd", fail=True),
+        _EscapableInstruction(0x1005, "c3"),
+    ]
+    # the copy button falls back like the rule text does, instead of raising
+    assert (
+        escaped_hex_string(instructions, report, use_wildcards=True) == "e8aabbccdd <intel>????????"
+    )
+    assert escaped_hex_string(instructions, report, use_wildcards=False) == "e8aabbccdd c3"
+    assert format_hex_lines(instructions, report, use_wildcards=True).split()[0] == "e8aabbccdd"
+
+
 def test_data_bytes_wrap_at_sixteen():
     text = format_data_bytes(bytes(range(20)))
     lines = text.splitlines()
     assert len(lines) == 2
     assert lines[0].strip().split() == ["%02X" % b for b in range(16)]
-
-
-class _Instruction:
-    def __init__(self, offset, size, mnemonic="nop", operands=""):
-        self.offset = offset
-        self.bytes = "90" * size
-        self.mnemonic = mnemonic
-        self.operands = operands
-
-
-class _Block:
-    def __init__(self, offset, instructions):
-        self.offset = offset
-        self._instructions = instructions
-
-    def getInstructions(self):
-        return iter(self._instructions)
-
-
-class _Function:
-    def __init__(self, blocks, blockrefs, apirefs=None):
-        self._blocks = blocks
-        self.blockrefs = blockrefs
-        self.apirefs = apirefs or {}
-
-    def getBlocks(self):
-        return iter(self._blocks)
-
-
-def test_remote_cfg_edges_classify_branches():
-    entry = _Block(0x10, [_Instruction(0x10, 2, "jz", "0x20")])
-    fall_through = _Block(0x12, [_Instruction(0x12, 2, "jmp", "0x20")])
-    target = _Block(0x20, [_Instruction(0x20, 1, "call", "0x400")])
-    function = _Function(
-        [entry, fall_through, target],
-        # a reference to a block outside the function is dropped
-        {0x10: [0x12, 0x20], 0x12: [0x20], 0x20: [0x999]},
-        apirefs={0x20: "kernel32.dll!ExitProcess"},
-    )
-    assert sorted(RemoteCfgGraph.edges(function)) == [
-        (0x10, 0x12, RemoteCfgGraph.EDGE_FALL_THROUGH),
-        (0x10, 0x20, RemoteCfgGraph.EDGE_TAKEN),
-        (0x12, 0x20, RemoteCfgGraph.EDGE_UNCONDITIONAL),
-    ]
-    # API calls show the API name, as in the IDA and Binary Ninja graphs
-    assert RemoteCfgGraph.block_label(function, target) == "20  call   [kernel32.dll!ExitProcess]"
