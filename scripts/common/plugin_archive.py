@@ -1,5 +1,6 @@
 """ZIP building shared by the IDA plugin and Ghidra extension packagers."""
 
+import stat
 import subprocess
 import time
 import zipfile
@@ -51,7 +52,7 @@ def _write_text(archive, arcname, text):
     # writestr alone gives the member mode 0600, which Ghidra applies when it unpacks
     info = zipfile.ZipInfo(arcname, date_time=time.localtime()[:6])
     info.compress_type = zipfile.ZIP_DEFLATED
-    info.external_attr = 0o644 << 16
+    info.external_attr = (stat.S_IFREG | 0o644) << 16
     archive.writestr(info, text)
 
 

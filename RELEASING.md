@@ -200,8 +200,9 @@ manager reads it.
 The Ghidra plugin has not been released yet. Its version is `VERSION` in
 `mcrit_plugin/ghidra/config.py`, versioned on its own like the other two. Users install it as a
 Ghidra extension ZIP built by `scripts/ghidra/package_extension.py` (see the README), so a release
-attaches that ZIP; a source archive cannot build it, since `.gitattributes` leaves `scripts/` out.
-`--ghidra-version` sets the Ghidra version in `extension.properties`; Ghidra offers to install a
-ZIP marked for another version anyway. Its changes get
-`Ghidra:` entries in `CHANGELOG.md` like the other plugins' do. Before a first release, decide on
-a tag scheme (e.g. `ghidra-vX.Y.Z`) and whether a release guard like the IDA one should check it.
+has to attach that ZIP; no workflow does that yet. A source archive cannot build it, since
+`.gitattributes` leaves `scripts/` out. `--ghidra-version` sets the Ghidra version in
+`extension.properties`; Ghidra offers to install a ZIP marked for another version anyway. Its
+changes get `Ghidra:` entries in `CHANGELOG.md` like the other plugins' do. Before a first
+release, decide on a tag scheme (e.g. `ghidra-vX.Y.Z`) and whether a release guard like the IDA
+one should check it.
