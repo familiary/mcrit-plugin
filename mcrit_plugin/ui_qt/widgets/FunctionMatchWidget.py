@@ -500,7 +500,13 @@ class FunctionMatchWidget(QMainWindow):
             function_name = self.table_function_names.table_model.entryAt(mi.row()).function_label
             with self.cc.backend.mutation("Apply MCRIT label"):
                 # last_viewed moves on when a query starts, before the tables show its answer
-                self.cc.backend.set_function_name(self.current_function_offset, function_name)
+                named = self.cc.backend.set_function_name(
+                    self.current_function_offset, function_name
+                )
+            self.parent.local_widget.updateActivityInfo(
+                ("Named function 0x%x %s." if named else "The name for 0x%x was refused: %s.")
+                % (self.current_function_offset, function_name)
+            )
 
     def _showMatchGraph(self, smda_report_a, smda_function_a, remote_function_id):
         """Fetch the remote function off the UI thread, then match it and show its graph."""

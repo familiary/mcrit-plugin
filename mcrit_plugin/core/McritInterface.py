@@ -1,5 +1,6 @@
 import threading
 import traceback
+from contextlib import contextmanager
 
 import requests
 
@@ -51,16 +52,103 @@ class McritInterface(object):
         self.config = parent.config
         self._cache_lock = threading.Lock()
         self._remote_info_lock = threading.Lock()
-        self._mcrit_server = self.config.MCRIT_SERVER
-        self.mcrit_client = McritClient(self.config.MCRIT_SERVER)
-        # setTimeout maps 0 to no limit; skipping it would keep the client's 10 s connect timeout
-        self.mcrit_client.setTimeout(self.config.MCRIT_REQUEST_TIMEOUT)
-        if self.config.MCRITWEB_API_TOKEN:
-            self.mcrit_client.setApitoken(self.config.MCRITWEB_API_TOKEN)
-        if self.config.MCRITWEB_USERNAME:
-            self.mcrit_client.setUsername(self.config.MCRITWEB_USERNAME)
+        self._check_id = 0
+        # a switch tests for held data, and an answer is checked and stored, under this lock: the
+        # switch then either sees the stored answer and waits, or the answer sees the switch
+        self._switch_lock = threading.Lock()
+        self._server_generation = 0
+        self._mcrit_server = None
+        self._buildClient(self._readConnectionSettings())
 
-    def _getMcritServerAddress(self):
+    def _readConnectionSettings(self):
+        return (
+            self.config.MCRIT_SERVER,
+            self.config.MCRIT_REQUEST_TIMEOUT,
+            self.config.MCRITWEB_API_TOKEN,
+            self.config.MCRITWEB_USERNAME,
+        )
+
+    def _buildClient(self, connection_settings):
+        server, timeout, api_token, username = connection_settings
+        client = McritClient(server)
+        # setTimeout maps 0 to no limit; skipping it would keep the client's 10 s connect timeout
+        client.setTimeout(timeout)
+        if api_token:
+            client.setApitoken(api_token)
+        if username:
+            client.setUsername(username)
+        self._connection_settings = connection_settings
+        # a connection check started before this client answers for nothing any more
+        self._check_id += 1
+        # requests already running keep the client they started with; set before the generation
+        # moves, as _pinConnection reads the two without the lock
+        self.mcrit_client = client
+        if server != self._mcrit_server:
+            self._mcrit_server = server
+            self._server_generation += 1
+
+    def _pinConnection(self):
+        """The client a request works with and the server generation that tells whether its answer
+        still belongs to the session. Read in this order, a switch in between can only make an
+        answer from the new server look stale, never one from the old server look current."""
+        generation = self._server_generation
+        return self.mcrit_client, generation
+
+    def _isStale(self, generation):
+        """True, after saying so, when the server changed while the request ran."""
+        if generation == self._server_generation:
+            return False
+        self.parent.local_widget.updateActivityInfo(
+            "Dropped an answer from the previous server; the server changed meanwhile."
+        )
+        return True
+
+    @contextmanager
+    def _storing(self, generation):
+        """Yields whether an answer still belongs to the session; store it inside the block."""
+        with self._switch_lock:
+            yield not self._isStale(generation)
+
+    def _holdsServerData(self):
+        parent = self.parent
+        return bool(
+            parent.remote_sample_id is not None
+            or parent.remote_sample_entry is not None
+            or parent.matching_report is not None
+            or parent.matched_function_entries
+            or parent.function_matches
+            or parent.blockhash_matches
+            or parent.sample_infos is not None
+            or parent.family_infos is not None
+        )
+
+    def reloadSettings(self, recheck=False):
+        """Pick up changed connection settings and check the connection again; UI thread only.
+
+        With recheck, the connection is checked even when nothing changed. A new server is only
+        taken while the session holds nothing from the current one, whose ids mean nothing there;
+        until then the session keeps the current server's token and username and takes only the new
+        timeout. Returns the server waiting for a reopen, or None.
+        """
+        connection_settings = self._readConnectionSettings()
+        waiting_server = None
+        with self._switch_lock:
+            if connection_settings[0] != self._mcrit_server and self._holdsServerData():
+                waiting_server = connection_settings[0]
+                server, _timeout, api_token, username = self._connection_settings
+                connection_settings = (server, connection_settings[1], api_token, username)
+            changed = connection_settings != self._connection_settings
+            if changed:
+                self._buildClient(connection_settings)
+        if changed:
+            self.checkConnection(async_=True)
+        elif recheck:
+            self.checkConnection(async_=True)
+        return waiting_server
+
+    @property
+    def server(self):
+        """The server the session works with."""
         return self._mcrit_server
 
     @staticmethod
@@ -84,7 +172,7 @@ class McritInterface(object):
         self.parent.local_widget.updateActivityInfo(
             "%s failed (%s)." % (operation, self._describeError(exc))
         )
-        self.parent.local_widget.updateServerInfo(self._getMcritServerAddress())
+        self.parent.local_widget.updateServerInfo(self.server)
 
     def _select_smda_backend(self, binary_info):
         """One of SMDA's own backend names, or None for SMDA's default; an unknown name leaves the
@@ -125,9 +213,9 @@ class McritInterface(object):
         self.parent.local_widget.updateActivityInfo("Conversion to SMDA finished.")
         return report
 
-    def _check_connection_impl(self):
+    def _check_connection_impl(self, client=None):
         try:
-            mcrit_version = self.mcrit_client.getVersion()
+            mcrit_version = (client or self.mcrit_client).getVersion()
             return mcrit_version, None
         except Exception as exc:
             self._logTraceback(exc)
@@ -135,46 +223,62 @@ class McritInterface(object):
 
     def checkConnection(self, async_=False):
         self.parent.local_widget.updateActivityInfo(
-            "Checking connection to server: %s" % self._getMcritServerAddress()
+            "Checking connection to server: %s" % self.server
         )
+        self.parent.local_widget.updateServerInfo(self.server, version="checking...")
+        client = self.mcrit_client
+        self._check_id += 1
+        check_id = self._check_id
 
         def apply_result(result):
+            if check_id != self._check_id:
+                # a newer check or other settings came since; that one reports instead
+                return
             mcrit_version, err = result
             if mcrit_version:
                 self.parent.local_widget.updateActivityInfo("Connection check successful!")
-                self.parent.local_widget.updateServerInfo(
-                    self._getMcritServerAddress(), version=mcrit_version
-                )
+                self.parent.local_widget.updateServerInfo(self.server, version=mcrit_version)
             else:
                 reason = (
                     "server rejected the request or sent no version"
                     if err is None
                     else self._describeError(err)
                 )
-                self.parent.local_widget.updateActivityInfo(
-                    "Connection check failed (%s)." % reason
+                hint = (
+                    " The server is still the default one, use %s to change it."
+                    % self.backend.settings_location
+                    if self.config.isDefaultServer(self.server)
+                    else ""
                 )
-                self.parent.local_widget.updateServerInfo(self._getMcritServerAddress())
+                self.parent.local_widget.updateActivityInfo(
+                    "Connection check failed (%s).%s" % (reason, hint)
+                )
+                self.parent.local_widget.updateServerInfo(self.server)
 
         if async_:
 
             def runner():
-                result = self._check_connection_impl()
+                result = self._check_connection_impl(client)
                 self.backend.run_on_ui_thread(lambda: apply_result(result))
 
             thread = threading.Thread(target=runner, daemon=True)
             thread.start()
             return
 
-        apply_result(self._check_connection_impl())
+        apply_result(self._check_connection_impl(client))
 
     def querySampleSha256(self, sha256):
         self.parent.local_widget.updateActivityInfo("Querying for SHA256")
+        client, generation = self._pinConnection()
         try:
-            sample_by_sha256 = self.mcrit_client.getSampleBySha256(sha256)
+            sample_by_sha256 = client.getSampleBySha256(sha256)
+            with self._storing(generation) as current:
+                if not current:
+                    return
+                if sample_by_sha256:
+                    self.parent.remote_sample_entry = sample_by_sha256
+                    self.parent.remote_sample_id = sample_by_sha256.sample_id
             if sample_by_sha256:
-                self.parent.remote_sample_entry = sample_by_sha256
-                self.parent.remote_sample_id = sample_by_sha256.sample_id
                 self.parent.local_widget.updateActivityInfo(
                     "Success! Received remote Sample Entry."
                 )
@@ -185,10 +289,17 @@ class McritInterface(object):
 
     def uploadReport(self, report):
         self.parent.local_widget.updateActivityInfo(
-            "Sending SMDA report to server %s" % self._getMcritServerAddress()
+            "Sending SMDA report to server %s" % self.server
         )
+        client, generation = self._pinConnection()
         try:
-            sample_entry, job_id = self.mcrit_client.addReport(report) or (None, None)
+            sample_entry, job_id = client.addReport(report) or (None, None)
+            with self._storing(generation) as current:
+                if not current:
+                    return
+                if sample_entry:
+                    self.parent.remote_sample_entry = sample_entry
+                    self.parent.remote_sample_id = sample_entry.sample_id
             if sample_entry:
                 if job_id:
                     self.parent.local_widget.updateActivityInfo(
@@ -199,8 +310,6 @@ class McritInterface(object):
                     self.parent.local_widget.updateActivityInfo(
                         "Upload finished, remote sample_id is: %d." % sample_entry.sample_id
                     )
-                self.parent.remote_sample_entry = sample_entry
-                self.parent.remote_sample_id = sample_entry.sample_id
             else:
                 self.parent.local_widget.updateActivityInfo("Upload failed.")
         except Exception as exc:
@@ -258,11 +367,17 @@ class McritInterface(object):
 
     def getMatchingJobById(self, job_id):
         self.parent.local_widget.updateActivityInfo("Querying result for job with id: %s" % job_id)
+        client, generation = self._pinConnection()
         try:
-            matching_result = self.mcrit_client.getResultForJob(job_id)
-            if matching_result:
-                self.parent.matching_job_id = job_id
-                self.parent.matching_report = MatchingResult.fromDict(matching_result)
+            matching_result = client.getResultForJob(job_id)
+            matching_report = MatchingResult.fromDict(matching_result) if matching_result else None
+            with self._storing(generation) as current:
+                if not current:
+                    return
+                if matching_report is not None:
+                    self.parent.matching_job_id = job_id
+                    self.parent.matching_report = matching_report
+            if matching_report is not None:
                 self.parent.local_widget.updateActivityInfo("Success! Downloaded MatchResult.")
             else:
                 self.parent.local_widget.updateActivityInfo("Result query failed.")
@@ -287,11 +402,16 @@ class McritInterface(object):
 
     def queryAllFamilyEntries(self):
         self.parent.local_widget.updateActivityInfo("Querying for FamilyEntries")
+        client, generation = self._pinConnection()
         try:
-            family_entries = self.mcrit_client.getFamilies()
+            family_entries = client.getFamilies()
             # None is a failed request; an empty dict is a server without families
+            with self._storing(generation) as current:
+                if not current:
+                    return
+                if family_entries is not None:
+                    self.parent.family_infos = {int(k): v for k, v in family_entries.items()}
             if family_entries is not None:
-                self.parent.family_infos = {int(k): v for k, v in family_entries.items()}
                 self.parent.local_widget.updateActivityInfo(
                     "Success! Received all remote FamilyEntries."
                 )
@@ -306,12 +426,18 @@ class McritInterface(object):
             if not functions:
                 return None
             smda_function = functions[0]
+            client, generation = self._pinConnection()
             if smda_function.offset not in self.parent.function_matches:
-                match_report_dict = self.mcrit_client.getMatchesForSmdaFunction(
+                match_report_dict = client.getMatchesForSmdaFunction(
                     smda_report, exclude_self_matches=False
                 )
-                if match_report_dict:
-                    self.parent.function_matches.update({smda_function.offset: match_report_dict})
+                with self._storing(generation) as current:
+                    if not current:
+                        return None
+                    if match_report_dict:
+                        self.parent.function_matches.update(
+                            {smda_function.offset: match_report_dict}
+                        )
                 if match_report_dict:
                     match_report = MatchingResult.fromDict(match_report_dict)
                     matched_function_ids = [
@@ -323,21 +449,25 @@ class McritInterface(object):
                         if fid not in self.parent.function_id_to_offset
                     ]
                     if unknown_function_ids:
-                        function_entries = self.queryFunctionEntriesById(unknown_function_ids)
-                        if function_entries:
-                            for function_id, function_entry in function_entries.items():
-                                self.parent.function_id_to_offset[function_id] = (
-                                    function_entry.offset
-                                )
+                        function_entries = self.queryFunctionEntriesById(
+                            unknown_function_ids, connection=(client, generation)
+                        )
+                        with self._storing(generation) as current:
+                            if current and function_entries:
+                                for function_id, function_entry in function_entries.items():
+                                    self.parent.function_id_to_offset[function_id] = (
+                                        function_entry.offset
+                                    )
                     return match_report
         except Exception as exc:
             self._reportFailure("querySmdaFunctionMatches", exc)
 
-    def queryFunctionEntriesById(self, function_ids, with_label_only=False):
-        """The entries by id, or None when the request raised; McritClient answers {} both when
-        none qualify and when the server rejects the request."""
+    def queryFunctionEntriesById(self, function_ids, with_label_only=False, connection=None):
+        """The entries by id, or None when the request raised or the server changed meanwhile;
+        McritClient answers {} both when none qualify and when the server rejects the request."""
+        client, generation = connection or self._pinConnection()
         try:
-            function_entries = self.mcrit_client.getFunctionsByIds(
+            function_entries = client.getFunctionsByIds(
                 function_ids, with_label_only=with_label_only
             )
         except Exception as exc:
@@ -345,20 +475,28 @@ class McritInterface(object):
             return None
         if function_entries is None:
             return None
-        if function_entries:
-            # requests run on worker threads while the UI iterates the cache: swap in a new dict
-            with self._cache_lock:
-                merged = dict(self.parent.matched_function_entries or {})
-                merged.update(function_entries)
-                self.parent.matched_function_entries = merged
+        with self._storing(generation) as current:
+            if not current:
+                return None
+            if function_entries:
+                # requests run on worker threads while the UI iterates the cache: swap in a new dict
+                with self._cache_lock:
+                    merged = dict(self.parent.matched_function_entries or {})
+                    merged.update(function_entries)
+                    self.parent.matched_function_entries = merged
         return function_entries
 
     def queryAllSampleEntries(self):
         self.parent.local_widget.updateActivityInfo("Querying for SampleEntries")
+        client, generation = self._pinConnection()
         try:
-            sample_entries = self.mcrit_client.getSamples()
+            sample_entries = client.getSamples()
+            with self._storing(generation) as current:
+                if not current:
+                    return
+                if sample_entries is not None:
+                    self.parent.sample_infos = sample_entries
             if sample_entries is not None:
-                self.parent.sample_infos = sample_entries
                 self.parent.local_widget.updateActivityInfo(
                     "Success! Received all remote SampleEntries."
                 )
@@ -371,8 +509,9 @@ class McritInterface(object):
         """(function entry with its CFG, its SmdaFunction, its sample entry), or None after reporting
         why; touches no widget, so it can run off the UI thread. The sample entry comes from the
         downloaded sample list when that has it."""
+        client, generation = self._pinConnection()
         try:
-            function_entry = self.mcrit_client.getFunctionById(function_id, with_xcfg=True)
+            function_entry = client.getFunctionById(function_id, with_xcfg=True)
             if function_entry is None:
                 self.parent.local_widget.updateActivityInfo(
                     f"Failed to fetch function entry {function_id}."
@@ -385,11 +524,13 @@ class McritInterface(object):
                 else None
             )
             if sample_entry is None:
-                sample_entry = self.mcrit_client.getSampleById(function_entry.sample_id)
+                sample_entry = client.getSampleById(function_entry.sample_id)
             if sample_entry is None:
                 self.parent.local_widget.updateActivityInfo(
                     f"Failed to fetch sample entry {function_entry.sample_id}."
                 )
+                return None
+            if self._isStale(generation):
                 return None
             # a malformed CFG raises here; the widgets then still get their None answer
             return function_entry, function_entry.toSmdaFunction(), sample_entry
@@ -399,7 +540,11 @@ class McritInterface(object):
             return None
 
     def getMatchesForPicBlockHash(self, picblockhash):
+        """The matches, or None when the request failed or the server changed meanwhile; the
+        widgets keep None out of the session's cache."""
+        client, generation = self._pinConnection()
         try:
-            return self.mcrit_client.getMatchesForPicBlockHash(picblockhash)
+            matches = client.getMatchesForPicBlockHash(picblockhash)
+            return None if self._isStale(generation) else matches
         except Exception as exc:
             self._reportFailure("getMatchesForPicBlockHash", exc)

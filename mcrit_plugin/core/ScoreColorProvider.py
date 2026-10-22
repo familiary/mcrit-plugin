@@ -16,6 +16,15 @@ class ThemeRole:
     TEXT_ON_TINT = "text_on_tint"
 
 
+# a role color at full strength overpowers a dark theme, so it is laid over the background this much
+TINT_STRENGTH = 0.4
+
+
+def tint_over(color, background):
+    """RGB tuple of color laid over background at TINT_STRENGTH."""
+    return tuple(int(b + TINT_STRENGTH * (c - b)) for c, b in zip(color, background))
+
+
 class ScoreColorProvider(object):
     frequency_color_map = {
         # white

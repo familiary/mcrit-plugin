@@ -229,3 +229,10 @@ def test_a_config_override_that_is_not_an_object_is_ignored(fresh_config, tmp_pa
     settings = fresh_config.McritConfig("0.0.0", {"mcrit_server": "http://store:8000/"}.__getitem__)
 
     assert settings.MCRIT_SERVER == "http://store:8000/"
+
+
+def test_only_the_shipped_localhost_server_is_the_default(fresh_config):
+    settings = fresh_config.McritConfig("0.0.0")
+
+    assert settings.isDefaultServer(settings.MCRIT_SERVER)
+    assert not settings.isDefaultServer("https://mcrit.example.com/")

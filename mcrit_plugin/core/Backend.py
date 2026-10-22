@@ -76,7 +76,7 @@ class Backend(ABC):
 
     @abstractmethod
     def set_function_name(self, address, name):
-        """Rename the function starting at address."""
+        """Rename the function starting at address; True when the disassembler took the name."""
 
     @abstractmethod
     def has_default_function_name(self, address):
@@ -118,6 +118,25 @@ class Backend(ABC):
     @abstractmethod
     def show_warning(self, message):
         """Modal warning."""
+
+    # shown under the plugin's own connection form, e.g. where the remaining settings live
+    settings_hint = ""
+    # what rebuilds the session, so a new server can take over
+    reopen_hint = "reopen MCRIT"
+    # where the user changes the server, named in the hint after a failed connection check
+    settings_location = "the Settings button"
+
+    def open_settings(self, config):
+        """Open the disassembler's own settings UI on this plugin and return its QWidget, or True
+        when it opened but cannot be watched for closing.
+
+        None means there is none, and the plugin shows its own connection form instead.
+        """
+        return None
+
+    def save_settings(self, values):
+        """Store the connection form's values (setting key -> value) in the settings store."""
+        raise NotImplementedError
 
     def theme_color(self, role, default):
         """RGB tuple for a ScoreColorProvider.ThemeRole; None keeps the widget's own color and is

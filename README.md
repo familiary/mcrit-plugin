@@ -60,7 +60,7 @@ For offline machines, each release has a wheelhouse bundle: unpack it and run `p
 Settings are handled by [ida-settings](https://github.com/williballenthin/ida-settings):
 
 - HCLI: `hcli plugin config mcrit-ida set mcrit_server https://mcrit.example.com/api/` (`list`, `get`, `export` and `import` also work)
-- GUI: install `ida-settings-editor` and use Edit → Plugins → Plugin Settings Manager
+- GUI: the Settings button on the MCRIT toolbar (also Edit → Plugins → MCRIT4IDA Settings...). With `ida-settings-editor` installed it opens the Plugin Settings Manager on mcrit-ida; without it, a small form for the server, API token, username and timeout.
 - File: put a `config_override.json` next to `ida_mcrit.py`. Its keys take precedence over the other two, so keep only the ones you want to force; `docs/config_override.json.template` shows the format, and the plugin prints the keys it forces when it loads.
 
 ### Use
@@ -68,6 +68,8 @@ Settings are handled by [ida-settings](https://github.com/williballenthin/ida-se
 1. Open a binary and start MCRIT4IDA from Edit → Plugins, or press Ctrl-F4.
 2. Use the toolbar to convert the database to an SMDA report, upload it, and fetch a matching result.
 3. Browse the results in the Block Scope, Function Scope, Function Overview and Sample Match Summary tabs.
+   Opening a match's graph tints the matched blocks of the local function in IDA's disassembly;
+   Edit → Plugins → MCRIT4IDA Clear Match Coloring removes the tint.
 
 ## Binary Ninja
 
@@ -79,7 +81,7 @@ Install MCRIT from the Extension Manager, or clone this repository into your Bin
 
 ### Configure
 
-Settings are under Settings → MCRIT, with the same keys as the IDA plugin. Where a system keychain is available, an API token entered there is moved into it and the field is cleared; otherwise the token stays in the Settings entry. Plugins → MCRIT → Clear Stored API Token removes it. The sidebar reads the connection settings (server, token, username, timeout) when it opens for a file, so reopen the file after changing them. A `config_override.json` in the plugin's folder, next to `plugin.json`, takes precedence as it does in IDA.
+Settings are under Settings → MCRIT, with the same keys as the IDA plugin; the Settings button on the sidebar toolbar and Plugins → MCRIT → Settings open them there. Where a system keychain is available, an API token entered there is moved into it and the field is cleared; otherwise the token stays in the Settings entry. Plugins → MCRIT → Clear Stored API Token removes it. The sidebar reads the connection settings (server, token, username, timeout) when it opens for a file, and again when you close the Settings tab its button opened (a different server only until the sidebar holds results from the current one); after changing them any other way, reopen the file. A `config_override.json` in the plugin's folder, next to `plugin.json`, takes precedence as it does in IDA.
 
 ### Use
 
@@ -123,7 +125,8 @@ Run Tools → MCRIT, or the script from the Script Manager. The window docks int
 with the same toolbar and tabs as the other plugins, one session per open program; it follows the
 active program and offers to open MCRIT for a program that has no session yet. Reports are exported
 from Ghidra's own analysis, matched local blocks are tinted in the listing (a marker, not saved with
-the program), and remote CFGs open in Ghidra's graph view.
+the program; Clear Match Coloring in the MCRIT window's menu removes it), and remote CFGs open
+in Ghidra's graph view.
 
 ## Settings
 
