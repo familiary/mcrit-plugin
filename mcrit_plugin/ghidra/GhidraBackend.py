@@ -8,6 +8,7 @@ Ghidra background task so the status bar shows it.
 import hashlib
 import os
 import threading
+import time
 import traceback
 from contextlib import contextmanager
 
@@ -25,6 +26,7 @@ TITLE = "MCRIT"
 TINT_STRENGTH = 0.4
 # a remote CFG with more blocks than this is not worth laying out as a graph
 MAX_GRAPH_BLOCKS = 2000
+ANALYSIS_POLL_SECONDS = 0.2
 # below the selection (100) and search highlight (50) markers, so both stay visible over a tint
 MARKER_PRIORITY = 40
 
@@ -122,8 +124,18 @@ class GhidraBackend(Backend):
     # analysis export
 
     def export_smda_report(self):
+        from ghidra.app.plugin.core.analysis import AutoAnalysisManager
+        from javax.swing import SwingUtilities
+
         from mcrit_plugin.ghidra.GhidraExporter import exportProgram
 
+        # a report must reflect finished analysis, as Binary Ninja's run_background ensures; the
+        # convert, upload and export buttons get here in a background task, and Swing's thread
+        # (the upload offered on close) must not wait for analyzers that may need it
+        manager = AutoAnalysisManager.getAnalysisManager(self.program)
+        if not SwingUtilities.isEventDispatchThread():
+            while manager.isAnalyzing():
+                time.sleep(ANALYSIS_POLL_SECONDS)
         return exportProgram(self.program)
 
     def get_binary_info(self):

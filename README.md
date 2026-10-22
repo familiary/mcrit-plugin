@@ -68,6 +68,8 @@ Settings are handled by [ida-settings](https://github.com/williballenthin/ida-se
 1. Open a binary and start MCRIT4IDA from Edit → Plugins, or press Ctrl-F4.
 2. Use the toolbar to convert the database to an SMDA report, upload it, and fetch a matching result.
 3. Browse the results in the Block Scope, Function Scope, Function Overview and Sample Match Summary tabs.
+   Opening a match's graph tints the matched blocks of the local function in IDA's disassembly;
+   Edit → Plugins → MCRIT4IDA Clear Match Coloring removes the tint.
 
 ## Binary Ninja
 
@@ -123,7 +125,7 @@ Run Tools → MCRIT, or the script from the Script Manager. The window docks int
 with the same toolbar and tabs as the other plugins, one session per open program; it follows the
 active program and offers to open MCRIT for a program that has no session yet. Reports are exported
 from Ghidra's own analysis, matched local blocks are tinted in the listing (a marker, not saved with
-the program), and remote CFGs open in Ghidra's graph view.
+the program; Clear Match Coloring in the MCRIT window's menu removes it), and remote CFGs open in Ghidra's graph view.
 
 ## Settings
 

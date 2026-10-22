@@ -213,39 +213,64 @@ def show_mcrit_form():
 
 
 SETTINGS_ACTION = "mcrit4ida:settings"
+CLEAR_COLORING_ACTION = "mcrit4ida:clear_coloring"
 # the open database's plugmod; weak, so the action registry keeps neither it nor its form alive
 _current_plugmod = None
 
 
-def _register_settings_action():
-    """Edit > Plugins > MCRIT4IDA Settings..., beside the plugin's own entry. Registered once per
-    IDA process and never removed: a plugmod's __del__ may run late, after the next database's
-    plugmod exists, so tying the action to a plugmod could remove the next database's entry."""
+def _open_settings(plugmod):
+    plugmod.run(0)
+    if plugmod.form is not None:
+        plugmod.form.main_widget._onSettingsButtonClicked()
 
-    class SettingsHandler(ida_kernwin.action_handler_t):
+
+def _clear_coloring(plugmod):
+    if plugmod.form is not None:
+        plugmod.form.cc.backend.clear_local_match_coloring()
+
+
+# (action name, menu label, tooltip, what it does with the current database's plugmod)
+MENU_ACTIONS = [
+    (
+        SETTINGS_ACTION,
+        "MCRIT4IDA Settings...",
+        "Set the MCRIT server, API token and other plugin settings.",
+        _open_settings,
+    ),
+    (
+        CLEAR_COLORING_ACTION,
+        "MCRIT4IDA Clear Match Coloring",
+        "Remove the tint MCRIT put on matched blocks in the disassembly.",
+        _clear_coloring,
+    ),
+]
+
+
+def _register_menu_actions():
+    """The Edit > Plugins entries beside the plugin's own one. Registered once per IDA process
+    and never removed: a plugmod's __del__ may run late, after the next database's plugmod
+    exists, so tying them to a plugmod could remove the next database's entries."""
+
+    class Handler(ida_kernwin.action_handler_t):
+        def __init__(self, act):
+            super().__init__()
+            self.act = act
+
         def activate(self, ctx):
             current = _current_plugmod() if _current_plugmod is not None else None
             if current is not None:
-                current.run(0)
-                if current.form is not None:
-                    current.form.main_widget._onSettingsButtonClicked()
+                self.act(current)
             return 1
 
         def update(self, ctx):
             return ida_kernwin.AST_ENABLE_ALWAYS
 
-    # registering fails once the action exists, e.g. for the second database
-    if ida_kernwin.register_action(
-        ida_kernwin.action_desc_t(
-            SETTINGS_ACTION,
-            "MCRIT4IDA Settings...",
-            SettingsHandler(),
-            None,
-            "Set the MCRIT server, API token and other plugin settings.",
-            -1,
-        )
-    ):
-        ida_kernwin.attach_action_to_menu("Edit/Plugins/", SETTINGS_ACTION, ida_kernwin.SETMENU_APP)
+    for name, label, tooltip, act in MENU_ACTIONS:
+        # registering fails once the action exists, e.g. for the second database
+        if ida_kernwin.register_action(
+            ida_kernwin.action_desc_t(name, label, Handler(act), None, tooltip, -1)
+        ):
+            ida_kernwin.attach_action_to_menu("Edit/Plugins/", name, ida_kernwin.SETMENU_APP)
 
 
 class Mcrit4IdaPlugmod(ida_idaapi.plugmod_t):
@@ -257,7 +282,7 @@ class Mcrit4IdaPlugmod(ida_idaapi.plugmod_t):
         self.form = None
         if _has_gui():
             _current_plugmod = weakref.ref(self)
-            _register_settings_action()
+            _register_menu_actions()
 
     def run(self, arg):
         # a closed form still holds the previous session's reports, so reopening needs a new form

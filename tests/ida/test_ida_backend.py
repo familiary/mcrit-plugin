@@ -34,6 +34,17 @@ def _no_ida_timers(interval, callback):
     raise AssertionError("IDA hangs in register_timer called inside another timer's callback")
 
 
+class _UIHooks:
+    def __init__(self):
+        self.hooked = False
+
+    def hook(self):
+        self.hooked = True
+
+    def unhook(self):
+        self.hooked = False
+
+
 @pytest.fixture
 def backend(monkeypatch):
     waker = _Waker()
@@ -43,6 +54,10 @@ def backend(monkeypatch):
         warning=MagicMock(),
         register_timer=_no_ida_timers,
         waker=waker,
+        UI_Hooks=_UIHooks,
+        LROEF_FULL_LINE=1,
+        line_rendering_output_entry_t=lambda line, flags, color: (line, flags, color),
+        refresh_idaview_anyway=MagicMock(),
     )
     for name in ("ida_bytes", "ida_expr", "ida_funcs", "ida_idaapi", "ida_nalt", "ida_undo", "idc"):
         monkeypatch.setitem(sys.modules, name, types.ModuleType(name))
@@ -218,6 +233,7 @@ def test_the_waker_runs_its_callback_on_the_thread_that_created_it(monkeypatch):
         "idc",
     ):
         monkeypatch.setitem(sys.modules, name, types.ModuleType(name))
+    sys.modules["ida_kernwin"].UI_Hooks = _UIHooks
     monkeypatch.setitem(sys.modules, "ida_hexrays", None)
     monkeypatch.delitem(sys.modules, "mcrit_plugin.ida.IdaBackend", raising=False)
     module = importlib.import_module("mcrit_plugin.ida.IdaBackend")
@@ -447,3 +463,62 @@ def test_save_settings_stores_strings_through_ida_settings(backend, monkeypatch)
         "mcrit-ida", "mcrit_server", "https://mcrit.example.com/"
     )
     ida_settings.set_plugin_setting.assert_any_call("mcrit-ida", "mcrit_request_timeout", "30")
+
+
+def _block(offset, *instruction_sizes):
+    instructions, address = [], offset
+    for size in instruction_sizes:
+        instructions.append(types.SimpleNamespace(offset=address, bytes="00" * size))
+        address += size
+    return types.SimpleNamespace(offset=offset, getInstructions=lambda: instructions)
+
+
+def test_matched_blocks_are_tinted_while_drawn_and_untinted_on_clear_and_close(backend):
+    instance, kernwin = backend
+    function = types.SimpleNamespace(getBlocks=lambda: [_block(0x1000, 2, 3), _block(0x1005, 4)])
+
+    instance.show_local_match_coloring(function, {0x1000: 0x112233})
+    hooks = instance._coloring
+    lines = [
+        types.SimpleNamespace(at=types.SimpleNamespace(toea=lambda a=a: a))
+        for a in (0x0FFF, 0x1000, 0x1002, 0x1005)
+    ]
+    entries = []
+    out = types.SimpleNamespace(entries=types.SimpleNamespace(push_back=entries.append))
+    hooks.get_lines_rendering_info(out, None, types.SimpleNamespace(sections_lines=[lines]))
+
+    assert hooks.hooked
+    assert [(entry[0].at.toea(), entry[2]) for entry in entries] == [
+        (0x1000, 0xFF332211),
+        (0x1002, 0xFF332211),
+    ]
+    instance.clear_local_match_coloring()
+    assert hooks.ranges == [] and hooks.hooked
+    instance.close()
+    assert not hooks.hooked
+    assert kernwin.refresh_idaview_anyway.call_count == 3
+
+
+def test_dark_themes_get_the_score_colors_as_tints_over_the_table_background(backend):
+    QtGui = pytest.importorskip("PySide6.QtGui")
+    QtWidgets = pytest.importorskip("PySide6.QtWidgets")
+    from mcrit_plugin.core.ScoreColorProvider import ThemeRole
+
+    instance, _kernwin = backend
+    application = QtWidgets.QApplication.instance() or QtWidgets.QApplication([])
+    original = application.palette()
+    try:
+        palette = QtGui.QPalette(original)
+        palette.setColor(QtGui.QPalette.ColorRole.Window, QtGui.QColor(40, 40, 40))
+        palette.setColor(QtGui.QPalette.ColorRole.Base, QtGui.QColor(20, 20, 20))
+        application.setPalette(palette)
+
+        assert instance.theme_color(ThemeRole.NEUTRAL, (255, 255, 255)) == (20, 20, 20)
+        assert instance.theme_color("high", (220, 120, 20)) == (100, 60, 20)
+        assert instance.theme_color(ThemeRole.TEXT_ON_TINT, (0, 0, 0)) is None
+
+        palette.setColor(QtGui.QPalette.ColorRole.Window, QtGui.QColor(236, 236, 236))
+        application.setPalette(palette)
+        assert instance.theme_color("high", (220, 120, 20)) == (220, 120, 20)
+    finally:
+        application.setPalette(original)

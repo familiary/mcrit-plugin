@@ -175,9 +175,9 @@ def test_an_event_from_another_view_keeps_the_disassembly_move(monkeypatch):
     ]
 
 
-def test_the_settings_menu_entry_opens_the_current_database_s_settings(monkeypatch):
-    """Edit > Plugins > MCRIT4IDA Settings... opens the settings of the database open now; a
-    previous database's plugmod going away late leaves the entry in place."""
+def test_the_menu_entries_act_on_the_current_database(monkeypatch):
+    """Edit > Plugins > MCRIT4IDA Settings... and Clear Match Coloring act on the database open
+    now; a previous database's plugmod going away late leaves the entries in place."""
     actions = {}
 
     class _ActionDesc:
@@ -216,10 +216,18 @@ def test_the_settings_menu_entry_opens_the_current_database_s_settings(monkeypat
     previous = module.Mcrit4IdaPlugmod()
     plugmod = module.Mcrit4IdaPlugmod()
     del previous
-    kernwin.attach_action_to_menu.assert_called_once_with(
-        "Edit/Plugins/", module.SETTINGS_ACTION, kernwin.SETMENU_APP
-    )
+    assert [call.args for call in kernwin.attach_action_to_menu.call_args_list] == [
+        ("Edit/Plugins/", module.SETTINGS_ACTION, kernwin.SETMENU_APP),
+        ("Edit/Plugins/", module.CLEAR_COLORING_ACTION, kernwin.SETMENU_APP),
+    ]
+
+    actions[module.CLEAR_COLORING_ACTION].activate(None)
+    assert plugmod.form is None
 
     actions[module.SETTINGS_ACTION].activate(None)
     assert plugmod.form is form
     form.main_widget._onSettingsButtonClicked.assert_called_once_with()
+
+    form.cc = MagicMock()
+    actions[module.CLEAR_COLORING_ACTION].activate(None)
+    form.cc.backend.clear_local_match_coloring.assert_called_once_with()

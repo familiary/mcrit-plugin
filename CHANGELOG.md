@@ -30,6 +30,13 @@ Ninja or Ghidra applies to that plugin only.
   that arrives from the previous server after a switch is dropped.
 - A failed connection check while the server is still the default `http://127.0.0.1:8000/` points
   at the Settings button (Ghidra: Edit > Tool Options > MCRIT).
+- IDA: opening a matched function's graph, or a block match's function, tints the matched basic
+  blocks of the local function in IDA's disassembly and graph views, as Binary Ninja and Ghidra do.
+  The tint is drawn, not stored in the database. Edit → Plugins → MCRIT4IDA Clear Match Coloring
+  removes it, and closing MCRIT does too.
+- IDA: on a dark theme the score colors in the tables are tints over the table background, as in
+  Binary Ninja and Ghidra, instead of the light theme's colors.
+- Ghidra: Clear Match Coloring in the MCRIT window's menu removes the tint from the listing.
 
 ### Fixed
 
@@ -39,6 +46,12 @@ Ninja or Ghidra applies to that plugin only.
   example, branch targets kept their exact bytes. The escaping now follows the report's
   architecture; one without an SMDA escaper keeps its raw bytes. Copy Escaped Bytes falls back to
   raw bytes like the rule text when escaping fails, instead of copying nothing.
+- Ghidra: converting, uploading or exporting while auto-analysis still runs waits for it, as Binary
+  Ninja does, instead of exporting the functions found so far.
+- IDA and Binary Ninja: importing labels counted names the disassembler refused as imported; they
+  count as skipped now. Applying a single label says whether it was accepted.
+- IDA and Binary Ninja: when re-exporting the report failed, Export and Upload raised an error
+  instead of saying so.
 - IDA and Binary Ninja: the toolbar and tab icons take the theme's text color, also after a theme
   change, so they are visible on dark themes; disabled toolbar icons show dimmed instead of almost
   black.

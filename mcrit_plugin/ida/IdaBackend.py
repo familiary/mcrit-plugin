@@ -16,6 +16,7 @@ import ida_undo
 import idc
 
 from mcrit_plugin.core.Backend import Backend
+from mcrit_plugin.core.ScoreColorProvider import ThemeRole
 
 try:
     import ida_hexrays
@@ -139,6 +140,40 @@ SETTINGS_EDITOR_IDC_FUNC = "ida_settings_show_plugin_settings"
 SETTINGS_EDITOR_CAPTION = "Plugin Settings Manager"
 
 
+# dark themes get the role colors as tints over the table background, as Ghidra and Binary Ninja do
+TINT_STRENGTH = 0.4
+
+
+def _direct_color(rgb):
+    """A line-rendering bgcolor_t for 0xRRGGBB: IDA takes 0xFFBBGGRR as a color and anything
+    without the 0xFF top byte as one of its theme's color keys (CK_*)."""
+    return 0xFF000000 | ((rgb & 0xFF) << 16) | (rgb & 0xFF00) | (rgb >> 16)
+
+
+class _MatchColoring(ida_kernwin.UI_Hooks):
+    """Tints the lines of matched local blocks while IDA draws them, in the disassembly listing and
+    graph; nothing is written to the database, so the tint goes with the session."""
+
+    def __init__(self):
+        super().__init__()
+        self.ranges = []
+
+    def get_lines_rendering_info(self, out, widget, info):
+        if not self.ranges:
+            return
+        for section_lines in info.sections_lines:
+            for line in section_lines:
+                address = line.at.toea()
+                for start, end, color in self.ranges:
+                    if start <= address < end:
+                        out.entries.push_back(
+                            ida_kernwin.line_rendering_output_entry_t(
+                                line, ida_kernwin.LROEF_FULL_LINE, color
+                            )
+                        )
+                        break
+
+
 class IdaBackend(Backend):
     name = "IDA"
     plugin_name = "MCRIT4IDA"
@@ -158,6 +193,7 @@ class IdaBackend(Backend):
         self._pending = 0
         self._waker = None
         self._delivering = False
+        self._coloring = None
 
     @_on_main_thread
     def get_input_md5(self):
@@ -365,6 +401,10 @@ class IdaBackend(Backend):
         for _worker in self._workers:
             self._requests.put(None)
         self._workers = []
+        if self._coloring is not None:
+            self._coloring.unhook()
+            self._coloring = None
+            ida_kernwin.refresh_idaview_anyway()
 
     def run_on_ui_thread(self, func):
         result = []
@@ -402,6 +442,44 @@ class IdaBackend(Backend):
 
         for key, value in values.items():
             set_setting(key, value)
+
+    def theme_color(self, role, default):
+        from mcrit_plugin.ui_qt.QtShim import get_QtWidgets
+
+        palette = get_QtWidgets().QApplication.palette()
+        # IDA's themes are style sheets over the Qt palette, which carries their colors
+        dark = palette.color(palette.ColorRole.Window).lightness() < 128
+        if role == ThemeRole.TEXT_ON_TINT:
+            # light themes draw black on the tints; dark themes keep their own text color
+            return None if dark else default
+        if not dark:
+            return default
+        base = palette.color(palette.ColorRole.Base)
+        background = (base.red(), base.green(), base.blue())
+        if role == ThemeRole.NEUTRAL:
+            return background
+        if role == ThemeRole.CURRENT:
+            selection = palette.color(palette.ColorRole.Highlight)
+            return (selection.red(), selection.green(), selection.blue())
+        return tuple(int(b + TINT_STRENGTH * (t - b)) for t, b in zip(default, background))
+
+    def show_local_match_coloring(self, smda_function, coloring):
+        ranges = []
+        for block in smda_function.getBlocks():
+            if block.offset in coloring:
+                last = list(block.getInstructions())[-1]
+                end = last.offset + len(last.bytes) // 2
+                ranges.append((block.offset, end, _direct_color(coloring[block.offset])))
+        if self._coloring is None:
+            self._coloring = _MatchColoring()
+            self._coloring.hook()
+        self._coloring.ranges = ranges
+        ida_kernwin.refresh_idaview_anyway()
+
+    def clear_local_match_coloring(self):
+        if self._coloring is not None and self._coloring.ranges:
+            self._coloring.ranges = []
+            ida_kernwin.refresh_idaview_anyway()
 
     def show_function_graph(self, parent, sample_entry, function_entry, smda_function, coloring):
         from mcrit_plugin.ida.SmdaGraphViewer import SmdaGraphViewer
