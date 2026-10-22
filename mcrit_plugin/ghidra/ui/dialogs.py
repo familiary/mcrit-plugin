@@ -2,14 +2,14 @@
 YaraStringBuilderDialog. Each has exec_() like its Qt counterpart; it blocks while the dialog is
 open, with Swing still processing events."""
 
-from mcrit_plugin.core.ScoreColorProvider import ScoreColorProvider, ThemeRole
-from mcrit_plugin.ghidra import swing
-from mcrit_plugin.ghidra.presentation import (
+from mcrit_plugin.core.presentation import (
     build_yara_rule,
     escape_instruction,
     format_data_bytes,
     format_hex_lines,
 )
+from mcrit_plugin.core.ScoreColorProvider import ScoreColorProvider, ThemeRole
+from mcrit_plugin.ghidra import swing
 from mcrit_plugin.ghidra.ui.components import (
     Label,
     button,

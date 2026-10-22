@@ -5,6 +5,7 @@ from concurrent.futures import ThreadPoolExecutor
 import mcrit_plugin.core.McritTableColumn as McritTableColumn
 import mcrit_plugin.ui_qt.QtShim as QtShim
 from mcrit_plugin.core.minimcrit.matchers.FunctionCfgMatcher import FunctionCfgMatcher
+from mcrit_plugin.core.presentation import summarize_block_matches
 from mcrit_plugin.core.ScoreColorProvider import ScoreColorProvider, ThemeRole
 from mcrit_plugin.ui_qt.widgets.MatchTable import MatchRow, MatchTableView
 
@@ -302,83 +303,16 @@ class BlockMatchWidget(QMainWindow):
         )
 
     def _showBlockMatches(self, pbh):
-        block_matches_by_offset = {}
         for entry in pbh:
-            pichash_matches = self.parent.blockhash_matches.get(entry["hash"]) or []
             # cache this so we only query once per block
-            if entry["offset"] not in self.parent.block_to_hash:
-                self.parent.block_to_hash[entry["offset"]] = entry["hash"]
-            summary = {
-                "families": len(set([e[0] for e in pichash_matches])),
-                "samples": len(set([e[1] for e in pichash_matches])),
-                "functions": len(set([e[2] for e in pichash_matches])),
-                "offsets": len(pichash_matches),
-            }
-            block_matches_by_offset[entry["offset"]] = {
-                "picblockhash": entry,
-                "matches": pichash_matches,
-                "summary": summary,
-                "has_library_matches": False,
-            }
-        if block_matches_by_offset:
-            # TODO when filtering, we should actually fully remove them by offset here, as we don't want to see such blocks in the summary later on
-            set_families = set([])
-            set_samples = set([])
-            set_all_functions = set([])
-            set_functions = set([])
-            library_families = []
-            for k, v in self.parent.family_infos.items():
-                if v.num_samples and v.num_library_samples == v.num_samples:
-                    library_families.append(k)
-            offsets_to_drop = set([])
-            for offset, data in block_matches_by_offset.items():
-                set_all_functions.update([entry[2] for entry in data["matches"]])
-                filtered_matches = [
-                    entry for entry in data["matches"] if entry[0] not in library_families
-                ]
-                if len(filtered_matches) < len(data["matches"]):
-                    block_matches_by_offset[offset]["has_library_matches"] = True
-                    offsets_to_drop.add(offset)
-                # reduce matches if we actually have matched some blocks against libraries
-                if (
-                    self.cb_filter_library.isChecked()
-                    and block_matches_by_offset[offset]["has_library_matches"]
-                ):
-                    block_matches_by_offset[offset]["matches"] = filtered_matches
-                    continue
-                block_matches_by_offset[offset]["summary"] = {
-                    "families": len(set([e[0] for e in filtered_matches])),
-                    "samples": len(set([e[1] for e in filtered_matches])),
-                    "functions": len(set([e[2] for e in filtered_matches])),
-                    "offsets": len(filtered_matches),
-                }
-                set_families.update([entry[0] for entry in filtered_matches])
-                set_samples.update([entry[1] for entry in filtered_matches])
-                set_functions.update([entry[2] for entry in filtered_matches])
-            if self.cb_filter_library.isChecked():
-                for offset in offsets_to_drop:
-                    block_matches_by_offset.pop(offset, None)
-                self.label_current_function_matches.setText(
-                    "Block Matches for Function: 0x%x -- %d families, %d samples, %d functions (%d filtered)."
-                    % (
-                        self.parent.current_function,
-                        len(set_families),
-                        len(set_samples),
-                        len(set_functions),
-                        len(set_all_functions) - len(set_functions),
-                    )
-                )
-            else:
-                self.label_current_function_matches.setText(
-                    "Block Matches for Function: 0x%x -- %d families, %d samples, %d functions."
-                    % (
-                        self.parent.current_function,
-                        len(set_families),
-                        len(set_samples),
-                        len(set_all_functions),
-                    )
-                )
-        else:
+            self.parent.block_to_hash.setdefault(entry["offset"], entry["hash"])
+        filter_library = self.cb_filter_library.isChecked()
+        block_matches_by_offset, families, samples, functions, all_functions = (
+            summarize_block_matches(
+                pbh, self.parent.blockhash_matches, self.parent.family_infos, filter_library
+            )
+        )
+        if families is None:
             self.label_current_function_matches.setText(
                 "No Block Matches for Function: 0x%x" % self.parent.current_function
             )
@@ -386,6 +320,27 @@ class BlockMatchWidget(QMainWindow):
                 self.label_block_matches.setText(
                     "No Block Matches for: 0x%x" % self.parent.current_block
                 )
+        elif filter_library:
+            self.label_current_function_matches.setText(
+                "Block Matches for Function: 0x%x -- %d families, %d samples, %d functions (%d filtered)."
+                % (
+                    self.parent.current_function,
+                    len(families),
+                    len(samples),
+                    len(functions),
+                    len(all_functions) - len(functions),
+                )
+            )
+        else:
+            self.label_current_function_matches.setText(
+                "Block Matches for Function: 0x%x -- %d families, %d samples, %d functions."
+                % (
+                    self.parent.current_function,
+                    len(families),
+                    len(samples),
+                    len(all_functions),
+                )
+            )
         self._last_block_matches = block_matches_by_offset
         self._shown_function = self.parent.current_function
         # populate tables with data

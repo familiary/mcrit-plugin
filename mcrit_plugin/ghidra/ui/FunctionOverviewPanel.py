@@ -9,8 +9,8 @@ function's labels are. "-|-" opts a function out of the import.
 import time
 
 import mcrit_plugin.core.McritTableColumn as McritTableColumn
+from mcrit_plugin.core.presentation import label_criticality, match_sets, row_cells
 from mcrit_plugin.core.ScoreColorProvider import ScoreColorProvider, ThemeRole
-from mcrit_plugin.ghidra.presentation import label_criticality, match_sets, row_cells
 from mcrit_plugin.ghidra.ui.components import Label, Spinner, button, row, separator, stack
 
 LABEL_FIRST_CHUNK_SIZE = 2000

@@ -1,38 +1,19 @@
-"""The Ghidra frontend's toolkit-free logic: naming, table aggregations, YARA text and the remote
-CFG graph's edges. None of it needs a JVM, Ghidra or SMDA."""
+"""The toolkit-free logic behind the match views, shared by the Qt widgets and the Ghidra panels:
+table aggregations and YARA text. None of it needs Qt, a JVM or a disassembler."""
 
 from types import SimpleNamespace
 
 import mcrit_plugin.core.McritTableColumn as McritTableColumn
-from mcrit_plugin.ghidra import RemoteCfgGraph
-from mcrit_plugin.ghidra.presentation import (
+from mcrit_plugin.core.presentation import (
     aggregate_sample_matches,
-    api_name,
     build_yara_rule,
     format_data_bytes,
     format_hex_lines,
-    is_default_name,
     label_criticality,
     match_sets,
     row_cells,
     summarize_block_matches,
 )
-
-
-def test_default_names_are_ghidras_generated_ones():
-    assert is_default_name("FUN_00101129")
-    assert is_default_name("thunk_FUN_00401000")
-    assert is_default_name("SUB_00401000")
-    assert not is_default_name("entry")
-    assert not is_default_name("FUN_00101129_renamed")
-    assert not is_default_name(None)
-
-
-def test_api_names_follow_smda():
-    assert api_name("KERNEL32.DLL", "CreateFileA") == "kernel32.dll!CreateFileA"
-    # ELF imports have no library in Ghidra
-    assert api_name("<EXTERNAL>", "printf") == "printf"
-    assert api_name(None, "printf") == "printf"
 
 
 def test_label_criticality_levels():
@@ -103,13 +84,16 @@ def _sample_match(sample_id, family, is_library=False, score=1):
         family=family,
         version="v",
         sha256="ab" * 32,
+        filename="sample.bin",
         is_library=is_library,
         matched_functions_minhash=1,
         matched_functions_pichash=2,
         matched_functions_combined=3,
         matched_functions_library=0,
         matched_bytes_unweighted=score,
+        matched_bytes_score_weighted=score,
         matched_percent_unweighted=50.0,
+        matched_percent_score_weighted=40.0,
     )
 
 
@@ -144,49 +128,3 @@ def test_data_bytes_wrap_at_sixteen():
     lines = text.splitlines()
     assert len(lines) == 2
     assert lines[0].strip().split() == ["%02X" % b for b in range(16)]
-
-
-class _Instruction:
-    def __init__(self, offset, size, mnemonic="nop", operands=""):
-        self.offset = offset
-        self.bytes = "90" * size
-        self.mnemonic = mnemonic
-        self.operands = operands
-
-
-class _Block:
-    def __init__(self, offset, instructions):
-        self.offset = offset
-        self._instructions = instructions
-
-    def getInstructions(self):
-        return iter(self._instructions)
-
-
-class _Function:
-    def __init__(self, blocks, blockrefs, apirefs=None):
-        self._blocks = blocks
-        self.blockrefs = blockrefs
-        self.apirefs = apirefs or {}
-
-    def getBlocks(self):
-        return iter(self._blocks)
-
-
-def test_remote_cfg_edges_classify_branches():
-    entry = _Block(0x10, [_Instruction(0x10, 2, "jz", "0x20")])
-    fall_through = _Block(0x12, [_Instruction(0x12, 2, "jmp", "0x20")])
-    target = _Block(0x20, [_Instruction(0x20, 1, "call", "0x400")])
-    function = _Function(
-        [entry, fall_through, target],
-        # a reference to a block outside the function is dropped
-        {0x10: [0x12, 0x20], 0x12: [0x20], 0x20: [0x999]},
-        apirefs={0x20: "kernel32.dll!ExitProcess"},
-    )
-    assert sorted(RemoteCfgGraph.edges(function)) == [
-        (0x10, 0x12, RemoteCfgGraph.EDGE_FALL_THROUGH),
-        (0x10, 0x20, RemoteCfgGraph.EDGE_TAKEN),
-        (0x12, 0x20, RemoteCfgGraph.EDGE_UNCONDITIONAL),
-    ]
-    # API calls show the API name, as in the IDA and Binary Ninja graphs
-    assert RemoteCfgGraph.block_label(function, target) == "20  call   [kernel32.dll!ExitProcess]"

@@ -7,8 +7,8 @@ from concurrent.futures import ThreadPoolExecutor
 
 import mcrit_plugin.core.McritTableColumn as McritTableColumn
 from mcrit_plugin.core.minimcrit.matchers.FunctionCfgMatcher import FunctionCfgMatcher
+from mcrit_plugin.core.presentation import summarize_block_matches
 from mcrit_plugin.core.ScoreColorProvider import ScoreColorProvider, ThemeRole
-from mcrit_plugin.ghidra.presentation import summarize_block_matches
 from mcrit_plugin.ghidra.ui.components import (
     Label,
     Spinner,

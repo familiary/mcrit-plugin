@@ -1,6 +1,10 @@
-import datetime
-
 import mcrit_plugin.ui_qt.QtShim as QtShim
+from mcrit_plugin.core.presentation import (
+    build_yara_rule,
+    escape_instruction,
+    format_data_bytes,
+    format_hex_lines,
+)
 
 QDialog = QtShim.get_QDialog()
 
@@ -164,78 +168,13 @@ class YaraStringBuilderDialog(QDialog):
 
     def _escapeInstruction(self, instruction):
         """Escape an instruction for YARA rule"""
-        if not instruction:
-            return b""
-        # Escape the instruction bytes
-        # Use escaped version with wildcards, annotated with disassembly
-        from smda.common.BinaryInfo import BinaryInfo
-        from smda.intel.IntelInstructionEscaper import IntelInstructionEscaper
-
-        binary_info = BinaryInfo(b"")
-        binary_info.architecture = self.parent.parent.local_smda_report.architecture
-        binary_info.base_addr = self.parent.parent.local_smda_report.base_addr
-        binary_info.binary_size = self.parent.parent.local_smda_report.binary_size
-        escaped_bytes = instruction.getEscapedBinary(
-            IntelInstructionEscaper,
-            escape_intraprocedural_jumps=True,
-            lower_addr=binary_info.base_addr,
-            upper_addr=binary_info.base_addr + binary_info.binary_size,
-        )
-        return escaped_bytes
+        return escape_instruction(instruction, self.parent.parent.local_smda_report)
 
     def _formatHexBytes(self, instructions):
         """Format bytes as hex string for YARA rule"""
-        if not instructions:
-            return ""
-
-        hex_string = ""
-        hex_lines = []
-
-        if self.use_wildcards:
-            for instruction in instructions:
-                try:
-                    escaped_bytes = self._escapeInstruction(instruction)
-                    # Convert escaped string to hex format
-                    hex_bytes = "".join(escaped_bytes)
-                    disasm = (
-                        f"{instruction.mnemonic} {instruction.operands}"
-                        if hasattr(instruction, "operands") and instruction.operands
-                        else instruction.mnemonic
-                    )
-                    hex_lines.append((hex_bytes, f"0x{instruction.offset:08X}: {disasm}"))
-                except Exception:
-                    # Fallback to raw bytes if escaping fails
-                    hex_bytes = instruction.bytes
-                    disasm = (
-                        f"{instruction.mnemonic} {instruction.operands}"
-                        if hasattr(instruction, "operands") and instruction.operands
-                        else instruction.mnemonic
-                    )
-                    hex_lines.append((hex_bytes, f"0x{instruction.offset:08X}: {disasm}"))
-        else:
-            # Use raw bytes without wildcards
-            for instruction in instructions:
-                hex_bytes = instruction.bytes
-                disasm = (
-                    f"{instruction.mnemonic} {instruction.operands}"
-                    if hasattr(instruction, "operands") and instruction.operands
-                    else instruction.mnemonic
-                )
-                hex_lines.append((hex_bytes, f"0x{instruction.offset:08X}: {disasm}"))
-
-        # Find the longest hex string to align comments
-        if hex_lines:
-            max_hex_length = max(len(hex_bytes) for hex_bytes, _ in hex_lines)
-
-            # Format each line with proper alignment
-            for hex_bytes, comment in hex_lines:
-                if comment:
-                    padding = " " * (max_hex_length - len(hex_bytes))
-                    hex_string += f"          {hex_bytes}{padding} // {comment}\n"
-                else:
-                    hex_string += f"          {hex_bytes}\n"
-
-        return hex_string
+        return format_hex_lines(
+            instructions, self.parent.parent.local_smda_report, self.use_wildcards
+        )
 
     def _updateYaraRule(self):
         """Update the YARA rule text area"""
@@ -254,34 +193,11 @@ class YaraStringBuilderDialog(QDialog):
         elif instructions and len(instructions) > 0:
             scope_offset = instructions[0].offset
 
-        # Generate rule name
-        rule_name = f"{self.sha256[:8]}_0x{scope_offset:08X}"
-
-        # Generate current date
-        current_date = datetime.datetime.now().strftime("%Y-%m-%d")
-
-        # Format hex bytes
-        hex_content = ""
         if self.is_data_mode:
-            hex_bytes = " ".join([f"{byte:02X}" for byte in self.data])
-            # Format into lines of 16 bytes each
-            hex_lines = [hex_bytes[i : i + 47] for i in range(0, len(hex_bytes), 48)]
-            for line in hex_lines:
-                hex_content += f"          {line}\n"
+            hex_content = format_data_bytes(self.data)
         else:
             hex_content = self._formatHexBytes(instructions)
-
-        # Generate YARA rule
-        yara_rule = f"""rule {rule_name} {{
-    meta:
-      date = "{current_date}"
-      info = "Rule fragment created from {scope_name} found at offset 0x{scope_offset:08X} in file {self.sha256}."
-    strings:
-      $_0x{scope_offset:08X} = {{
-{hex_content}      }}
-    condition:
-      any of them
-}}"""
+        yara_rule = build_yara_rule(self.sha256, scope_name, scope_offset, hex_content)
 
         self.text_yara.setText(yara_rule)
 

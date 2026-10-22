@@ -5,8 +5,8 @@ Filling or filtering a result with thousands of rows only resets the model, and 
 paints just the cells in view. A real combo box exists for one cell at a time, while the user edits
 it."""
 
-import mcrit_plugin.core.McritTableColumn as McritTableColumn
 import mcrit_plugin.ui_qt.QtShim as QtShim
+from mcrit_plugin.core.presentation import row_cells
 from mcrit_plugin.core.ScoreColorProvider import ScoreColorProvider, ThemeRole
 
 QtCore = QtShim.get_QtCore()
@@ -74,24 +74,7 @@ class OverviewRow:
 
 def build_row(source_row, info, column_types, label_entries, selected_text):
     """The row of one aggregated function, see FunctionOverviewWidget.populateFunctionTable."""
-    texts = []
-    sort_keys = []
-    for column_type in column_types:
-        if column_type == McritTableColumn.OFFSET:
-            text, key = "0x%x" % info["offset"], info["offset"]
-        elif column_type == McritTableColumn.FAMILIES:
-            text, key = "%d" % len(info["families"]), len(info["families"])
-        elif column_type == McritTableColumn.SAMPLES:
-            text, key = "%d" % len(info["samples"]), len(info["samples"])
-        elif column_type == McritTableColumn.FUNCTIONS:
-            text, key = "%d" % len(info["functions"]), len(info["functions"])
-        elif column_type == McritTableColumn.IS_LIBRARY:
-            text = "YES" if len(info["library_matches"]) > 0 else "NO"
-            key = text
-        else:
-            text, key = "-", "-"
-        texts.append(text)
-        sort_keys.append(key)
+    texts, sort_keys = row_cells(info, column_types)
     return OverviewRow(
         source_row,
         info["offset"],
