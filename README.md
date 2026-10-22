@@ -87,24 +87,31 @@ Open the MCRIT sidebar, or run any MCRIT action from the command palette or Plug
 
 ## Ghidra
 
-Requires Ghidra 12.0 or newer, started in PyGhidra mode, on a JDK 21 (Ghidra's own requirement).
-The Ghidra plugin is new and has not been released yet; its version is `0.1.0`.
+Requires Ghidra 12.0 or newer, started in PyGhidra mode, on the JDK that Ghidra version asks for
+(21 up to 12.1, 25 from 12.2). The Ghidra plugin is new and has not been released yet; its version
+is `0.1.0`.
 
 ### Install
 
-1. Get this repository: clone it, or download and unpack a source archive. Ghidra runs the plugin
-   from there.
+1. Get the extension ZIP. Until the first release, build it from a clone of this repository:
+   `python scripts/ghidra/package_extension.py --repo . --output mcrit-ghidra.zip --ghidra-version <your Ghidra version>`.
+   Each run of the Ghidra CI workflow also keeps one as the `mcrit-ghidra-extension` artifact.
 2. Start Ghidra in PyGhidra mode: `support/pyghidraRun` (Linux, macOS) or
    `support\pyghidraRun.bat` (Windows). The first start offers to set up PyGhidra in a virtual
    environment in Ghidra's settings folder.
-3. Install the dependencies into that environment, e.g. on Linux
+3. In the project window, choose File → Install Extensions, click +, pick the ZIP and restart
+   Ghidra. If the ZIP was built for another Ghidra version, Ghidra warns about it and lets you
+   install it anyway; the plugin does not depend on the exact version.
+4. Install the dependencies into PyGhidra's environment, e.g. on Linux
    `~/.config/ghidra/ghidra_<version>/venv/bin/python -m pip install "smda>=4.9.0" requests`.
    When they are missing, MCRIT shows the exact command for your installation.
-4. In the CodeBrowser, open Window → Script Manager, choose Manage Script Directories and add
-   `ghidra_scripts` from this repository.
-5. In the Script Manager, find `MCRIT.py` in the MCRIT category and tick its "In Tool" box. This
-   adds Tools → MCRIT and the key binding Ctrl+Shift+M; Ghidra creates script menu entries only
-   for scripts marked this way.
+5. In the CodeBrowser, open Window → Script Manager, find `MCRIT.py` in the MCRIT category and tick
+   its "In Tool" box. This adds Tools → MCRIT and the key binding Ctrl+Shift+M; Ghidra creates script
+   menu entries only for scripts marked this way.
+
+To run the plugin straight from a clone instead, skip steps 1 and 3 and add
+`mcrit_plugin/ghidra/ghidra_scripts` from the clone under Script Manager → Manage Script
+Directories.
 
 The first start compiles a small Java class that hosts the MCRIT window, with the JDK Ghidra runs
 on, into Ghidra's settings folder. It is rebuilt automatically for a new plugin or Ghidra version.
@@ -113,7 +120,8 @@ on, into Ghidra's settings folder. It is rebuilt automatically for a new plugin 
 
 Settings are under Edit → Tool Options → MCRIT: the same settings as in the other plugins, listed by
 their display names. The API token field is masked, but Ghidra stores it with the tool's options in
-plain text. A `config_override.json` in the repository root takes precedence as it does in IDA.
+plain text. A `config_override.json` in the extension's folder (`Extensions/MCRIT` in Ghidra's settings
+folder), or in the clone's root, takes precedence as it does in IDA.
 Settings are read whenever they are used, except the connection settings (server, token, username,
 timeout), which are read when MCRIT opens for a program; reopen the program after changing those.
 
