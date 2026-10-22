@@ -449,8 +449,10 @@ class FunctionOverviewPanel:
                 if len(fields) < 2:
                     continue
                 if backend.has_default_function_name(table_row.offset):
-                    backend.set_function_name(table_row.offset, fields[1])
-                    applied += 1
+                    if backend.set_function_name(table_row.offset, fields[1]):
+                        applied += 1
+                    else:
+                        skipped += 1
         if applied:
             self.parent.local_widget.updateActivityInfo(
                 f"Success! Imported {applied} function names (skipped: {skipped})."

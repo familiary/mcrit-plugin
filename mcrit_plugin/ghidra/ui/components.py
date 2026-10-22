@@ -98,7 +98,9 @@ class Spinner:
     def __init__(self, minimum, maximum, value, on_change=None):
         from javax.swing import JSpinner, SpinnerNumberModel
 
-        self.model = SpinnerNumberModel(int(value), int(minimum), int(maximum), 1)
+        # config_override.json values reach here unclamped, and the model rejects one out of range
+        value = max(int(minimum), min(int(maximum), int(value)))
+        self.model = SpinnerNumberModel(value, int(minimum), int(maximum), 1)
         self.component = JSpinner(self.model)
         self._on_change = on_change
         self._quiet = False

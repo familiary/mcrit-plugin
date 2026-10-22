@@ -10,12 +10,13 @@ Ninja or Ghidra applies to that plugin only.
 
 ### Added
 
-- Ghidra: a new MCRIT plugin for Ghidra 12.0 or newer in PyGhidra mode, with the toolbar and tabs
-  of the IDA and Binary Ninja plugins in a window docked into the CodeBrowser, one session per
-  open program. Reports are exported from Ghidra's own analysis through SMDA (4.9.0 or newer),
-  matched local blocks are tinted in the listing with markers that are not saved with the
-  program, remote CFGs open in Ghidra's graph view, and the settings are under Tool Options > MCRIT. It runs from this repository's `ghidra_scripts` folder;
-  see the README for setup. Not released yet; versioned on its own from 0.1.0.
+- Ghidra: a new MCRIT plugin for Ghidra 12.0 or newer in PyGhidra mode, with the toolbar and tabs of
+  the IDA and Binary Ninja plugins in a window docked into the CodeBrowser, one session per open
+  program. Reports are exported from Ghidra's own analysis through SMDA (4.9.0 or newer), matched
+  local blocks are tinted in the listing with markers that are not saved with the program, remote
+  CFGs open in Ghidra's graph view, and the settings are under Tool Options > MCRIT. It runs from
+  this repository's `ghidra_scripts` folder; see the README for setup. Not released yet; versioned
+  on its own from 0.1.0.
 
 ### Fixed
 

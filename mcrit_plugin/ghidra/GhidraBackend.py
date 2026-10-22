@@ -223,9 +223,15 @@ class GhidraBackend(Backend):
         if function is None:
             return False
         from ghidra.program.model.symbol import SourceType
+        from ghidra.util.exception import DuplicateNameException, InvalidInputException
 
         with self.mutation("Rename function"):
-            function.setName(name, SourceType.USER_DEFINED)
+            try:
+                function.setName(name, SourceType.USER_DEFINED)
+            except (DuplicateNameException, InvalidInputException) as exc:
+                # e.g. a space, legal in Binary Ninja names; skipped like IDA's SN_NOWARN does
+                print(f"[MCRIT] cannot name 0x{address:x} {name!r}: {exc}")
+                return False
         return True
 
     def has_default_function_name(self, address):

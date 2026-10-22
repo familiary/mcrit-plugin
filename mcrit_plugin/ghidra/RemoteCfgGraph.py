@@ -96,14 +96,15 @@ def build_graph(title, smda_function, coloring):
 
     options = GraphDisplayOptions(graph_type)
     options.setDefaultVertexShape(VertexShape.RECTANGLE)
-    options.setDefaultVertexColor("#D3D3D3")
+    from java.awt import Color, Font
+
+    # a str selects the overloads that take a theme color id, not a hex value
+    options.setDefaultVertexColor(Color.decode("#D3D3D3"))
     options.setVertexLabelOverrideAttributeKey(LABEL_KEY)
     options.setVertexColorOverrideAttributeKey(COLOR_KEY)
     options.setLabelPosition(GraphLabelPosition.CENTER)
     options.setFavoredEdgeType(EDGE_FALL_THROUGH)
-    from java.awt import Font
-
     options.setFont(Font(Font.MONOSPACED, Font.PLAIN, 12))
     for edge_type, color in EDGE_COLORS.items():
-        options.setEdgeColor(edge_type, color)
+        options.setEdgeColor(edge_type, Color.decode(color))
     return graph, options
