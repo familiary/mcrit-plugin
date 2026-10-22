@@ -234,6 +234,33 @@ def test_toolbar_icons_take_the_theme_text_color_and_keep_their_shape(app):
     ]
 
 
+def test_a_theme_change_tints_the_icons_again(app):
+    methods = ("changeEvent", "_applyIconTint", "_toolbarIcon", "_themedIcon")
+    host_class = type(
+        "Host", (QtWidgets.QMainWindow,), {name: getattr(MainWidget, name) for name in methods}
+    )
+    host = host_class()
+    host.cc = ClassCollection(QtShim, None)
+    host.parent = SimpleNamespace(config=SimpleNamespace(ICON_FILE_PATH=_ICON_PATH))
+    action = QtShim.get_QtGui().QAction("Settings", host)
+    host._toolbarIconFiles = [(action, "settings.png")]
+    host.tabbed_widgets = []
+    host.tabs = QtWidgets.QTabWidget()
+    source = QtShim.get_QtGui().QImage(_ICON_PATH + "settings.png")
+    size = source.width()
+    opaque = next(
+        (x, y) for y in range(size) for x in range(size) if source.pixelColor(x, y).alpha() == 255
+    )
+
+    for gray in (30, 230):
+        palette = host.palette()
+        palette.setColor(
+            QtShim.get_QPalette().WindowText, QtShim.get_QtGui().QColor(gray, gray, gray)
+        )
+        host.setPalette(palette)
+        assert action.icon().pixmap(size, size).toImage().pixelColor(*opaque).red() == gray
+
+
 def test_the_server_line_escapes_what_the_server_sends_and_offers_the_change_link(app):
     from mcrit_plugin.ui_qt.widgets.LocalInfoWidget import LocalInfoWidget
 

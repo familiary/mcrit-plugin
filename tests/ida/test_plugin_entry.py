@@ -175,8 +175,9 @@ def test_an_event_from_another_view_keeps_the_disassembly_move(monkeypatch):
     ]
 
 
-def test_the_settings_menu_entry_lives_as_long_as_the_plugmod(monkeypatch):
-    """Edit > Plugins > MCRIT4IDA Settings... opens the form's settings, and goes with the database."""
+def test_the_settings_menu_entry_opens_the_current_database_s_settings(monkeypatch):
+    """Edit > Plugins > MCRIT4IDA Settings... opens the settings of the database open now; a
+    previous database's plugmod going away late leaves the entry in place."""
     actions = {}
 
     class _ActionDesc:
@@ -204,10 +205,17 @@ def test_the_settings_menu_entry_lives_as_long_as_the_plugmod(monkeypatch):
     monkeypatch.setitem(sys.modules, "ida_kernwin", kernwin)
     monkeypatch.delitem(sys.modules, "mcrit_plugin.ida.ida_mcrit", raising=False)
     module = importlib.import_module("mcrit_plugin.ida.ida_mcrit")
-    form = types.SimpleNamespace(released=False, Show=lambda: True, main_widget=MagicMock())
+    form = types.SimpleNamespace(
+        released=False, Show=lambda: True, release=lambda: None, main_widget=MagicMock()
+    )
     monkeypatch.setattr(module, "show_mcrit_form", lambda: form)
 
+    kernwin.register_action = lambda desc: (
+        desc.name not in actions and actions.setdefault(desc.name, desc.handler) is not None
+    )
+    previous = module.Mcrit4IdaPlugmod()
     plugmod = module.Mcrit4IdaPlugmod()
+    del previous
     kernwin.attach_action_to_menu.assert_called_once_with(
         "Edit/Plugins/", module.SETTINGS_ACTION, kernwin.SETMENU_APP
     )
@@ -215,8 +223,3 @@ def test_the_settings_menu_entry_lives_as_long_as_the_plugmod(monkeypatch):
     actions[module.SETTINGS_ACTION].activate(None)
     assert plugmod.form is form
     form.main_widget._onSettingsButtonClicked.assert_called_once_with()
-
-    plugmod.form = None
-    del plugmod
-    assert module.SETTINGS_ACTION not in actions
-    kernwin.detach_action_from_menu.assert_called_once_with("Edit/Plugins/", module.SETTINGS_ACTION)
