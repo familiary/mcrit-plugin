@@ -1,7 +1,7 @@
 import mcrit_plugin.ui_qt.QtShim as QtShim
 from mcrit_plugin.core.presentation import (
     build_yara_rule,
-    escape_instruction,
+    escaped_hex_string,
     format_data_bytes,
     format_hex_lines,
 )
@@ -166,10 +166,6 @@ class YaraStringBuilderDialog(QDialog):
             return self.function_sequence or []
         return []
 
-    def _escapeInstruction(self, instruction):
-        """Escape an instruction for YARA rule"""
-        return escape_instruction(instruction, self.parent.parent.local_smda_report)
-
     def _formatHexBytes(self, instructions):
         """Format bytes as hex string for YARA rule"""
         return format_hex_lines(
@@ -207,15 +203,9 @@ class YaraStringBuilderDialog(QDialog):
         if self.is_data_mode:
             hex_string = self.data.hex()
         else:
-            if self.use_wildcards:
-                hex_string = " ".join(
-                    [
-                        "".join([self._escapeInstruction(instruction)])
-                        for instruction in instructions
-                    ]
-                )
-            else:
-                hex_string = " ".join([instruction.bytes for instruction in instructions])
+            hex_string = escaped_hex_string(
+                instructions, self.parent.parent.local_smda_report, self.use_wildcards
+            )
         self.cc.QApplication.clipboard().setText(hex_string)
         self.parent.parent.local_widget.updateActivityInfo(
             f"Copied escaped bytes to clipboard: {len(hex_string)} bytes"

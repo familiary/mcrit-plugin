@@ -1,6 +1,7 @@
 """The toolkit-free logic behind the match views, shared by the Qt widgets and the Ghidra panels:
 table aggregations and YARA text. None of it needs Qt, a JVM or a disassembler."""
 
+import sys
 from types import SimpleNamespace
 
 import mcrit_plugin.core.McritTableColumn as McritTableColumn
@@ -8,6 +9,7 @@ from mcrit_plugin.core.presentation import (
     aggregate_sample_matches,
     block_matches_headline,
     build_yara_rule,
+    escaped_hex_string,
     format_data_bytes,
     format_hex_lines,
     label_criticality,
@@ -141,6 +143,58 @@ def test_yara_rule_from_raw_instruction_bytes():
     assert 'date = "2026-01-01"' in rule
     assert "$_0x00001000 = {" in rule
     assert rule.rstrip().endswith("}")
+
+
+class _EscapableInstruction:
+    def __init__(self, offset, raw, fail=False):
+        self.offset = offset
+        self.bytes = raw
+        self.mnemonic = "call"
+        self.operands = "0x401000"
+        self._fail = fail
+
+    def getEscapedBinary(self, escaper, **_kwargs):
+        if self._fail:
+            raise ValueError("cannot escape")
+        return [escaper, "????????"]
+
+
+def _escapers(monkeypatch):
+    smda_function = sys.modules["smda.common.SmdaFunction"].SmdaFunction
+    monkeypatch.setattr(
+        smda_function,
+        "getInstructionEscaper",
+        staticmethod(lambda arch: f"<{arch}>"),
+        raising=False,
+    )
+
+
+def test_wildcards_use_the_reports_architecture(monkeypatch):
+    _escapers(monkeypatch)
+    instructions = [_EscapableInstruction(0x1000, "e8aabbccdd")]
+    for architecture in ("intel", "aarch64"):
+        report = SimpleNamespace(architecture=architecture, base_addr=0x400000, binary_size=0x1000)
+        assert escaped_hex_string(instructions, report, use_wildcards=True) == (
+            f"<{architecture}>????????"
+        )
+        assert format_hex_lines(instructions, report, use_wildcards=True).split()[0] == (
+            f"<{architecture}>????????"
+        )
+
+
+def test_failed_escaping_keeps_raw_bytes(monkeypatch):
+    _escapers(monkeypatch)
+    report = SimpleNamespace(architecture="intel", base_addr=0, binary_size=0x1000)
+    instructions = [
+        _EscapableInstruction(0x1000, "e8aabbccdd", fail=True),
+        _EscapableInstruction(0x1005, "c3"),
+    ]
+    # the copy button falls back like the rule text does, instead of raising
+    assert (
+        escaped_hex_string(instructions, report, use_wildcards=True) == "e8aabbccdd <intel>????????"
+    )
+    assert escaped_hex_string(instructions, report, use_wildcards=False) == "e8aabbccdd c3"
+    assert format_hex_lines(instructions, report, use_wildcards=True).split()[0] == "e8aabbccdd"
 
 
 def test_data_bytes_wrap_at_sixteen():

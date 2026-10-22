@@ -163,17 +163,34 @@ def aggregate_sample_matches(match_report, filter_library):
 
 
 def escape_instruction(instruction, report):
-    """The YARA-escaped hex of an instruction, wildcarding addresses inside the image."""
-    from smda.intel.IntelInstructionEscaper import IntelInstructionEscaper
+    """The YARA-escaped hex of an instruction, wildcarding addresses inside the image. The escaper
+    follows the report's architecture; one SMDA has no escaper for keeps the raw bytes."""
+    from smda.common.SmdaFunction import SmdaFunction
 
     return "".join(
         instruction.getEscapedBinary(
-            IntelInstructionEscaper,
+            SmdaFunction.getInstructionEscaper(report.architecture),
             escape_intraprocedural_jumps=True,
             lower_addr=report.base_addr,
             upper_addr=report.base_addr + report.binary_size,
         )
     )
+
+
+def instruction_hex(instruction, report, use_wildcards):
+    """An instruction's hex for a rule: escaped with wildcards, or raw, also when escaping fails."""
+    if use_wildcards:
+        try:
+            return escape_instruction(instruction, report)
+        except Exception:
+            pass
+    return instruction.bytes
+
+
+def escaped_hex_string(instructions, report, use_wildcards):
+    """The instructions' hex, one group per instruction, as the copy button puts it on the
+    clipboard."""
+    return " ".join(instruction_hex(i, report, use_wildcards) for i in instructions)
 
 
 def _disassembly(instruction):
@@ -184,15 +201,13 @@ def _disassembly(instruction):
 
 def format_hex_lines(instructions, report, use_wildcards):
     """The string lines of a rule, each commented with its address and disassembly."""
-    lines = []
-    for instruction in instructions:
-        hex_bytes = instruction.bytes
-        if use_wildcards:
-            try:
-                hex_bytes = escape_instruction(instruction, report)
-            except Exception:
-                pass
-        lines.append((hex_bytes, f"0x{instruction.offset:08X}: {_disassembly(instruction)}"))
+    lines = [
+        (
+            instruction_hex(instruction, report, use_wildcards),
+            f"0x{instruction.offset:08X}: {_disassembly(instruction)}",
+        )
+        for instruction in instructions
+    ]
     if not lines:
         return ""
     width = max(len(hex_bytes) for hex_bytes, _ in lines)
