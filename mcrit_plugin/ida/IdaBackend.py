@@ -278,7 +278,11 @@ class IdaBackend(Backend):
             return
         self._mutation_depth += 1
         try:
-            ida_undo.create_undo_point(self.plugin_name, title)
+            try:
+                ida_undo.create_undo_point(self.plugin_name, title)
+            except TypeError:
+                # IDA 9.0's binding takes only the packed undo record, so no undo point is set there
+                pass
             yield
         finally:
             self._mutation_depth -= 1

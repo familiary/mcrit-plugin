@@ -26,6 +26,9 @@ Ninja or Ghidra applies to that plugin only.
   example, branch targets kept their exact bytes. The escaping now follows the report's
   architecture; one without an SMDA escaper keeps its raw bytes. Copy Escaped Bytes falls back to
   raw bytes like the rule text when escaping fails, instead of copying nothing.
+- IDA 9.0: importing labels, and every other change the plugin makes to the database, failed with
+  a `TypeError`, because IDA 9.0 cannot set an undo point the way later versions do. The change now
+  goes ahead there without one.
 
 ## [2.1.1] - 2026-10-15
 
