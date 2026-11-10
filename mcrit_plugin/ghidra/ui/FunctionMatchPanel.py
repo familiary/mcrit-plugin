@@ -39,7 +39,7 @@ class FunctionMatchPanel:
         self.scp = ScoreColorProvider(self.cc.backend)
         self.last_viewed = None
         self.name = "Function Scope"
-        self.icon_file = "flag-triangle.png"
+        self.icon_file = "compare.png"
         self.current_function_offset = None
         self._graph_fetches = set()
         config = parent.config

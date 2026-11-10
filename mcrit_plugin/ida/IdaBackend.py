@@ -7,6 +7,7 @@ import traceback
 from contextlib import contextmanager
 
 import ida_bytes
+import ida_expr
 import ida_funcs
 import ida_idaapi
 import ida_kernwin
@@ -133,9 +134,20 @@ def _smda_ida_interface():
     return IdaInterface()
 
 
+HCLI_PLUGIN_NAME = "mcrit-ida"
+SETTINGS_EDITOR_IDC_FUNC = "ida_settings_show_plugin_settings"
+SETTINGS_EDITOR_CAPTION = "Plugin Settings Manager"
+
+
 class IdaBackend(Backend):
     name = "IDA"
     plugin_name = "MCRIT4IDA"
+    reopen_hint = "close and reopen MCRIT"
+    settings_hint = (
+        "The other settings are in the Plugin Settings Manager, which comes with "
+        "<code>hcli plugin install ida-settings-editor</code> (restart IDA afterwards), "
+        "or in a terminal: <code>hcli plugin config mcrit-ida setup</code>."
+    )
 
     def __init__(self):
         self._mutation_depth = 0
@@ -374,6 +386,22 @@ class IdaBackend(Backend):
 
     def show_warning(self, message):
         ida_kernwin.warning(message)
+
+    def open_settings(self, config):
+        # registered by the ida-settings-editor plugin, which installing mcrit-ida does not bring
+        if ida_expr.find_idc_func(SETTINGS_EDITOR_IDC_FUNC) == SETTINGS_EDITOR_IDC_FUNC:
+            idc.eval_idc('%s("%s")' % (SETTINGS_EDITOR_IDC_FUNC, HCLI_PLUGIN_NAME))
+            widget = ida_kernwin.find_widget(SETTINGS_EDITOR_CAPTION)
+            if widget is None:
+                return True
+            return ida_kernwin.PluginForm.FormToPyQtWidget(widget)
+        return None
+
+    def save_settings(self, values):
+        from mcrit_plugin.ida.config import set_setting
+
+        for key, value in values.items():
+            set_setting(key, value)
 
     def show_function_graph(self, parent, sample_entry, function_entry, smda_function, coloring):
         from mcrit_plugin.ida.SmdaGraphViewer import SmdaGraphViewer

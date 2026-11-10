@@ -60,7 +60,7 @@ For offline machines, each release has a wheelhouse bundle: unpack it and run `p
 Settings are handled by [ida-settings](https://github.com/williballenthin/ida-settings):
 
 - HCLI: `hcli plugin config mcrit-ida set mcrit_server https://mcrit.example.com/api/` (`list`, `get`, `export` and `import` also work)
-- GUI: install `ida-settings-editor` and use Edit → Plugins → Plugin Settings Manager
+- GUI: the Settings button on the MCRIT toolbar (also Edit → Plugins → MCRIT4IDA Settings...). With `ida-settings-editor` installed it opens the Plugin Settings Manager on mcrit-ida; without it, a small form for the server, API token, username and timeout.
 - File: put a `config_override.json` next to `ida_mcrit.py`. Its keys take precedence over the other two, so keep only the ones you want to force; `docs/config_override.json.template` shows the format, and the plugin prints the keys it forces when it loads.
 
 ### Use
@@ -79,7 +79,7 @@ Install MCRIT from the Extension Manager, or clone this repository into your Bin
 
 ### Configure
 
-Settings are under Settings → MCRIT, with the same keys as the IDA plugin. Where a system keychain is available, an API token entered there is moved into it and the field is cleared; otherwise the token stays in the Settings entry. Plugins → MCRIT → Clear Stored API Token removes it. The sidebar reads the connection settings (server, token, username, timeout) when it opens for a file, so reopen the file after changing them. A `config_override.json` in the plugin's folder, next to `plugin.json`, takes precedence as it does in IDA.
+Settings are under Settings → MCRIT, with the same keys as the IDA plugin; the Settings button on the sidebar toolbar and Plugins → MCRIT → Settings open them there. Where a system keychain is available, an API token entered there is moved into it and the field is cleared; otherwise the token stays in the Settings entry. Plugins → MCRIT → Clear Stored API Token removes it. The sidebar reads the connection settings (server, token, username, timeout) when it opens for a file, and again when you close the Settings tab its button opened (a different server only until the sidebar holds results from the current one); after changing them any other way, reopen the file. A `config_override.json` in the plugin's folder, next to `plugin.json`, takes precedence as it does in IDA.
 
 ### Use
 
@@ -147,7 +147,8 @@ See [CHANGELOG.md](CHANGELOG.md) for the full release history.
 
 ## License
 
-GPL-3.0, see [LICENSE](LICENSE).
+GPL-3.0, see [LICENSE](LICENSE). The third-party icons and their licences are listed in
+[icons/NOTICE.md](icons/NOTICE.md).
 
 ## Authors
 
