@@ -86,9 +86,11 @@ def _load_plugin(plugin_root):
     qt_modules_before = {name for name in sys.modules if name.startswith(("PySide", "PyQt"))}
     import ida_mcrit
 
+    qt_modules = {name for name in sys.modules if name.startswith(("PySide", "PyQt"))}
     _assert(
-        qt_modules_before == {name for name in sys.modules if name.startswith(("PySide", "PyQt"))},
-        "loading the plugin entry point imported a Qt binding under IDALib",
+        qt_modules == qt_modules_before,
+        "loading the plugin entry point imported a Qt binding under IDALib: "
+        f"{sorted(qt_modules - qt_modules_before)}",
     )
     plugin = ida_mcrit.PLUGIN_ENTRY()
     _assert(plugin.wanted_name == "MCRIT4IDA", "unexpected plugin name")
