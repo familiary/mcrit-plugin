@@ -539,12 +539,18 @@ class McritInterface(object):
             self._reportFailure(f"Fetching function {function_id} for the graph viewer", exc)
             return None
 
-    def getMatchesForPicBlockHash(self, picblockhash):
+    def getMatchesForPicBlockHash(self, picblockhash, connection=None):
         """The matches, or None when the request failed or the server changed meanwhile; the
         widgets keep None out of the session's cache."""
-        client, generation = self._pinConnection()
+        client, generation = connection or self._pinConnection()
         try:
             matches = client.getMatchesForPicBlockHash(picblockhash)
             return None if self._isStale(generation) else matches
         except Exception as exc:
             self._reportFailure("getMatchesForPicBlockHash", exc)
+
+    def storeBlockMatches(self, found, connection):
+        """Caches block matches looked up through connection, unless the server changed since."""
+        with self._storing(connection[1]) as current:
+            if current:
+                self.parent.blockhash_matches.update(found)
