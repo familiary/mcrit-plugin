@@ -238,8 +238,17 @@ def run_steps(args, gui):
         30,
     )
     _check(True, "MCRIT window open and connected")
-    pressed_tab = gui.press_tab(main.tabs)
-    _wait(lambda: main.tabs.getSelectedIndex() == pressed_tab, "tab selected by a click", 10)
+    # a press can land before the freshly docked window takes input; a broken click fails all three
+    for attempt in range(3):
+        pressed_tab = gui.press_tab(main.tabs)
+        try:
+            _wait(
+                lambda: main.tabs.getSelectedIndex() == pressed_tab, "tab selected by a click", 10
+            )
+            break
+        except TimeoutError:
+            if attempt == 2:
+                raise
     _check(True, "clicking a tab header selects it")
     gui.shot("opened")
 
@@ -302,7 +311,15 @@ def run_steps(args, gui):
     gui.edt(lambda: main.setTabFocus(function_widget.name))
     target = max(report.getFunctions(), key=lambda function: function.num_instructions)
     gui.edt(lambda: backend.jump_to(target.offset))
-    _wait(lambda: function_widget.table_function_matches.rows, "live function query", 120)
+    # turning live tracking on queries the function the cursor was on, so rows alone may be its
+    _wait(
+        lambda: (
+            function_widget.current_function_offset == target.offset
+            and function_widget.table_function_matches.rows
+        ),
+        "live function query",
+        120,
+    )
     _check(
         session.current_function == target.offset,
         "cursor move reached the Function Scope",

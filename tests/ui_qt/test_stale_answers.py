@@ -46,7 +46,11 @@ def test_block_scope_shows_only_the_latest_block_size(cc, monkeypatch):
         family_infos=None,
         sample_infos=None,
         blockhash_matches={},
-        mcrit_interface=SimpleNamespace(getMatchesForPicBlockHash=lambda block_hash: []),
+        mcrit_interface=SimpleNamespace(
+            _pinConnection=lambda: (None, 0),
+            getMatchesForPicBlockHash=lambda block_hash, connection: [],
+            storeBlockMatches=lambda found, connection: None,
+        ),
     )
     widget = BlockMatchWidgetModule.BlockMatchWidget(session)
     monkeypatch.setattr(
@@ -82,7 +86,11 @@ def test_block_lookups_stop_once_the_form_closed(cc, monkeypatch):
         family_infos=None,
         sample_infos=None,
         blockhash_matches={},
-        mcrit_interface=SimpleNamespace(getMatchesForPicBlockHash=queried.append),
+        mcrit_interface=SimpleNamespace(
+            _pinConnection=lambda: (None, 0),
+            getMatchesForPicBlockHash=lambda block_hash, connection: queried.append(block_hash),
+            storeBlockMatches=lambda found, connection: None,
+        ),
     )
     widget = BlockMatchWidgetModule.BlockMatchWidget(session)
     monkeypatch.setattr(

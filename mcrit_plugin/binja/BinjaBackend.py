@@ -38,6 +38,7 @@ TINT_STRENGTH = 0.4
 class BinjaBackend(Backend):
     name = "Binary Ninja"
     plugin_name = "MCRIT4BinaryNinja"
+    reopen_hint = "reopen the file"
 
     def __init__(self, bv):
         self.bv = bv
@@ -246,6 +247,31 @@ class BinjaBackend(Backend):
         interaction.show_message_box(
             TITLE, message, MessageBoxButtonSet.OKButtonSet, MessageBoxIcon.WarningIcon
         )
+
+    def open_settings(self, config):
+        from binaryninjaui import SettingsView, UIContext
+        from PySide6.QtWidgets import QApplication
+
+        from mcrit_plugin.binja.config import GROUP
+
+        context = UIContext.activeContext() or next(iter(UIContext.allContexts()), None)
+        if context is not None:
+            # the "Settings" action opens the Settings tab, or brings an open one to the front
+            context.globalActions().executeAction("Settings")
+            views = [w for w in QApplication.allWidgets() if isinstance(w, SettingsView)]
+            # with several windows open, watch the tab this window just showed
+            views.sort(key=lambda view: not context.mainWindow().isAncestorOf(view))
+            for view in views:
+                view.setDefaultGroupSelection(GROUP)
+            if views:
+                return views[0]
+        return None
+
+    def save_settings(self, values):
+        from mcrit_plugin.binja.config import set_setting
+
+        for key, value in values.items():
+            set_setting(key, value)
 
     def theme_color(self, role, default):
         try:
