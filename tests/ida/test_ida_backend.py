@@ -524,6 +524,27 @@ def test_dark_themes_get_the_score_colors_as_tints_over_the_table_background(bac
         application.setPalette(original)
 
 
+def test_theme_colors_are_read_with_the_role_names_pyqt5_has(backend, monkeypatch):
+    import mcrit_plugin.ui_qt.QtShim as QtShim
+    from mcrit_plugin.core.ScoreColorProvider import ThemeRole
+
+    instance, _kernwin = backend
+    color = types.SimpleNamespace(
+        lightness=lambda: 10, red=lambda: 20, green=lambda: 20, blue=lambda: 20
+    )
+    palette = types.SimpleNamespace(color={"base": color, "highlight": color}.__getitem__)
+    # PyQt5's QPalette has Base and Highlight but no ColorRole.Base
+    monkeypatch.setattr(
+        QtShim, "get_QPalette", lambda: types.SimpleNamespace(Base="base", Highlight="highlight")
+    )
+    monkeypatch.setattr(
+        QtShim, "get_QApplication", lambda: types.SimpleNamespace(palette=lambda: palette)
+    )
+
+    assert instance.theme_color(ThemeRole.NEUTRAL, (255, 255, 255)) == (20, 20, 20)
+    assert instance.theme_color(ThemeRole.CURRENT, (255, 255, 255)) == (20, 20, 20)
+
+
 def test_the_tint_follows_each_block_given_out_of_order_and_leaves_the_gaps(backend):
     instance, _kernwin = backend
     blocks = [_block(0x2010, 4), _block(0x2000, 2, 2), _block(0x2020, 8)]

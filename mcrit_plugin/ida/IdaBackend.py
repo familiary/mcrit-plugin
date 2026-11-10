@@ -449,11 +449,13 @@ class IdaBackend(Backend):
             set_setting(key, value)
 
     def theme_color(self, role, default):
-        from mcrit_plugin.ui_qt.QtShim import get_QtWidgets
+        from mcrit_plugin.ui_qt.QtShim import get_QApplication, get_QPalette
 
-        palette = get_QtWidgets().QApplication.palette()
+        # the roles are named without ColorRole, which PyQt5 (IDA up to 9.1) does not have
+        QPalette = get_QPalette()
+        palette = get_QApplication().palette()
         # IDA's themes are style sheets over the Qt palette, which carries their colors
-        base = palette.color(palette.ColorRole.Base)
+        base = palette.color(QPalette.Base)
         dark = base.lightness() < 128
         if role == ThemeRole.TEXT_ON_TINT:
             return None if dark else default
@@ -463,7 +465,7 @@ class IdaBackend(Backend):
         if role == ThemeRole.NEUTRAL:
             return background
         if role == ThemeRole.CURRENT:
-            selection = palette.color(palette.ColorRole.Highlight)
+            selection = palette.color(QPalette.Highlight)
             return (selection.red(), selection.green(), selection.blue())
         return tint_over(default, background)
 
