@@ -238,8 +238,17 @@ def run_steps(args, gui):
         30,
     )
     _check(True, "MCRIT window open and connected")
-    pressed_tab = gui.press_tab(main.tabs)
-    _wait(lambda: main.tabs.getSelectedIndex() == pressed_tab, "tab selected by a click", 10)
+    # a press can land before the freshly docked window takes input; a broken click fails all three
+    for attempt in range(3):
+        pressed_tab = gui.press_tab(main.tabs)
+        try:
+            _wait(
+                lambda: main.tabs.getSelectedIndex() == pressed_tab, "tab selected by a click", 10
+            )
+            break
+        except TimeoutError:
+            if attempt == 2:
+                raise
     _check(True, "clicking a tab header selects it")
     gui.shot("opened")
 
