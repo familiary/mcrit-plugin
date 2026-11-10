@@ -95,6 +95,9 @@ class _QtImportRecorder:
 def _load_plugin(plugin_root):
     if str(plugin_root) not in sys.path:
         sys.path.insert(0, str(plugin_root))
+    # ida-settings imports QtCore itself where IDA ships an importable binding (IDA 9.0)
+    import ida_settings  # noqa: F401
+
     qt_modules_before = {name for name in sys.modules if name.startswith(("PySide", "PyQt"))}
     recorder = _QtImportRecorder()
     sys.meta_path.insert(0, recorder)
