@@ -80,17 +80,34 @@ def _matches_sample(matches, sample_id):
     )
 
 
+class _QtImportRecorder:
+    """A meta path entry that finds nothing and records where the first Qt import came from."""
+
+    def __init__(self):
+        self.stack = None
+
+    def find_spec(self, name, path=None, target=None):
+        if self.stack is None and name.startswith(("PySide", "PyQt")):
+            self.stack = "".join(traceback.format_stack(limit=12))
+        return None
+
+
 def _load_plugin(plugin_root):
     if str(plugin_root) not in sys.path:
         sys.path.insert(0, str(plugin_root))
     qt_modules_before = {name for name in sys.modules if name.startswith(("PySide", "PyQt"))}
-    import ida_mcrit
+    recorder = _QtImportRecorder()
+    sys.meta_path.insert(0, recorder)
+    try:
+        import ida_mcrit
+    finally:
+        sys.meta_path.remove(recorder)
 
     qt_modules = {name for name in sys.modules if name.startswith(("PySide", "PyQt"))}
     _assert(
         qt_modules == qt_modules_before,
         "loading the plugin entry point imported a Qt binding under IDALib: "
-        f"{sorted(qt_modules - qt_modules_before)}",
+        f"{sorted(qt_modules - qt_modules_before)}, first imported from\n{recorder.stack}",
     )
     plugin = ida_mcrit.PLUGIN_ENTRY()
     _assert(plugin.wanted_name == "MCRIT4IDA", "unexpected plugin name")
