@@ -49,6 +49,19 @@ class ActionListener:
             traceback.print_exc()
 
 
+@JImplements("java.util.function.Consumer", deferred=True)
+class Consumer:
+    def __init__(self, func):
+        self._func = func
+
+    @JOverride
+    def accept(self, value):
+        try:
+            self._func(value)
+        except Exception:
+            traceback.print_exc()
+
+
 @JImplements("javax.swing.event.ChangeListener", deferred=True)
 class ChangeListener:
     def __init__(self, func):

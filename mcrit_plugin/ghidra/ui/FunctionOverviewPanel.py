@@ -457,6 +457,10 @@ class FunctionOverviewPanel:
             self.parent.local_widget.updateActivityInfo(
                 f"Success! Imported {applied} function names (skipped: {skipped})."
             )
+        elif skipped:
+            self.parent.local_widget.updateActivityInfo(
+                f"No function names imported (skipped: {skipped})."
+            )
         else:
             self.parent.local_widget.updateActivityInfo(
                 "No suitable function names found to import."

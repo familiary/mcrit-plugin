@@ -171,6 +171,14 @@ class McritConfig:
         """URL of the MCRIT server."""
         return self._get("mcrit_server")
 
+    def isDefaultServer(self, server):
+        """True for the shipped localhost default of mcrit_server."""
+        return server == self._defaults["mcrit_server"]
+
+    def overriddenSettings(self):
+        """Keys forced by config_override.json, which the settings store cannot change."""
+        return set(self._overrides)
+
     @property
     def MCRITWEB_API_TOKEN(self):
         """API token for MCRITWeb authentication."""

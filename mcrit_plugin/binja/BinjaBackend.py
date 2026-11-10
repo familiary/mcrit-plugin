@@ -17,7 +17,7 @@ from binaryninja.enums import (
 
 from mcrit_plugin.binja.MatchRenderLayer import HIGHLIGHT_ALPHA, MatchRenderLayer
 from mcrit_plugin.core.Backend import Backend
-from mcrit_plugin.core.ScoreColorProvider import ThemeRole
+from mcrit_plugin.core.ScoreColorProvider import ThemeRole, tint_over
 
 TITLE = "MCRIT"
 logger = Logger(0, TITLE)
@@ -31,13 +31,12 @@ THEME_HIGHLIGHT_ROLES = {
     ThemeRole.RED: ThemeColor.RedStandardHighlightColor,
     ThemeRole.MAGENTA: ThemeColor.MagentaStandardHighlightColor,
 }
-# the standard highlight colors are meant as tints; at full strength they overpower any theme
-TINT_STRENGTH = 0.4
 
 
 class BinjaBackend(Backend):
     name = "Binary Ninja"
     plugin_name = "MCRIT4BinaryNinja"
+    reopen_hint = "reopen the file"
 
     def __init__(self, bv):
         self.bv = bv
@@ -247,6 +246,31 @@ class BinjaBackend(Backend):
             TITLE, message, MessageBoxButtonSet.OKButtonSet, MessageBoxIcon.WarningIcon
         )
 
+    def open_settings(self, config):
+        from binaryninjaui import SettingsView, UIContext
+        from PySide6.QtWidgets import QApplication
+
+        from mcrit_plugin.binja.config import GROUP
+
+        context = UIContext.activeContext() or next(iter(UIContext.allContexts()), None)
+        if context is not None:
+            # the "Settings" action opens the Settings tab, or brings an open one to the front
+            context.globalActions().executeAction("Settings")
+            views = [w for w in QApplication.allWidgets() if isinstance(w, SettingsView)]
+            # with several windows open, watch the tab this window just showed
+            views.sort(key=lambda view: not context.mainWindow().isAncestorOf(view))
+            for view in views:
+                view.setDefaultGroupSelection(GROUP)
+            if views:
+                return views[0]
+        return None
+
+    def save_settings(self, values):
+        from mcrit_plugin.binja.config import set_setting
+
+        for key, value in values.items():
+            set_setting(key, value)
+
     def theme_color(self, role, default):
         try:
             from binaryninjaui import getThemeColor
@@ -263,13 +287,8 @@ class BinjaBackend(Backend):
         if role not in THEME_HIGHLIGHT_ROLES:
             return default
         tint = getThemeColor(THEME_HIGHLIGHT_ROLES[role])
-        return tuple(
-            int(b + TINT_STRENGTH * (t - b))
-            for t, b in (
-                (tint.red(), base.red()),
-                (tint.green(), base.green()),
-                (tint.blue(), base.blue()),
-            )
+        return tint_over(
+            (tint.red(), tint.green(), tint.blue()), (base.red(), base.green(), base.blue())
         )
 
     def _refresh_views(self):
