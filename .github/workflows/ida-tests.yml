@@ -398,11 +398,17 @@ jobs:
         env:
           PYTHONPATH: ${{ runner.temp }}/ida-py-deps
           IDALOG: ${{ runner.temp }}/ida-gui-startup.log
+          IDA_VERSION: ${{ matrix.version }}
         run: |
           # keep the keyfile outside the isolated IDAUSR: that profile is uploaded as a CI artifact
           LICENSE_FILE=$(find "${{ steps.ida.outputs.ida-dir }}" -maxdepth 1 -type f -name '*.hexlic' -print -quit)
           test -n "$LICENSE_FILE"
-          export IDA_LICENSE="keyfile=${LICENSE_FILE}:setpref"
+          # IDA 9.0 rejects the ":setpref" suffix as part of the file name
+          if [[ "$IDA_VERSION" == "9.0" ]]; then
+            export IDA_LICENSE="keyfile=${LICENSE_FILE}"
+          else
+            export IDA_LICENSE="keyfile=${LICENSE_FILE}:setpref"
+          fi
           xvfb-run -a python scripts/ida/run_gui_integration.py \
             --ida-dir "${{ steps.ida.outputs.ida-dir }}" \
             --input "${{ runner.temp }}/mcrit-gui-query.exe" \
