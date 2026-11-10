@@ -281,8 +281,9 @@ class IdaBackend(Backend):
             try:
                 ida_undo.create_undo_point(self.plugin_name, title)
             except TypeError:
-                # IDA 9.0's binding takes only the packed undo record, so no undo point is set there
-                pass
+                # IDA 9.0's binding takes only the record the SDK packs from the two strings
+                record = b"".join(text.encode() + b"\0" for text in (self.plugin_name, title))
+                ida_undo.create_undo_point(record)
             yield
         finally:
             self._mutation_depth -= 1

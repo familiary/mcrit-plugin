@@ -62,15 +62,14 @@ def _finish_work(instance):
     assert instance._deliveries.qsize() == instance._pending
 
 
-def test_a_mutation_goes_ahead_where_ida_cannot_take_the_undo_point(backend):
+def test_a_mutation_sets_ida_90s_undo_point_from_the_packed_record(backend):
     instance, _ = backend
-
+    records = []
     # IDA 9.0's signature: one packed record, so the two-argument call raises TypeError
-    sys.modules["ida_undo"].create_undo_point = lambda record: True
-    ran = []
+    sys.modules["ida_undo"].create_undo_point = lambda record: records.append(record)
     with instance.mutation("Import MCRIT labels"):
-        ran.append(True)
-    assert ran == [True]
+        pass
+    assert records == [instance.plugin_name.encode() + b"\0Import MCRIT labels\0"]
 
 
 def test_run_background_runs_work_on_a_worker_like_a_request(backend):
