@@ -1,6 +1,8 @@
 import json
 
 import mcrit_plugin.ui_qt.QtShim as QtShim
+from mcrit_plugin.core.config import same_server
+from mcrit_plugin.ui_qt.widgets.ConnectionSettingsDialog import ConnectionSettingsDialog
 from mcrit_plugin.ui_qt.widgets.ResultChooserDialog import ResultChooserDialog
 from mcrit_plugin.ui_qt.widgets.SmdaInfoDialog import SmdaInfoDialog
 from mcrit_plugin.ui_qt.widgets.YaraStringBuilderDialog import YaraStringBuilderDialog
@@ -27,8 +29,11 @@ class MainWidget(QMainWindow):
         self.central_widget = self.cc.QWidget()
         self.setCentralWidget(self.central_widget)
         self.SmdaInfoDialog = SmdaInfoDialog
+        self.ConnectionSettingsDialog = ConnectionSettingsDialog
         self.ResultChooserDialog = ResultChooserDialog
         self.YaraStringBuilderDialog = YaraStringBuilderDialog
+        self._watchedSettingsWidget = None
+        self._reportedWaitingServer = None
         self._createGui()
         self.parent.mcrit_interface.checkConnection(async_=True)
 
@@ -42,7 +47,7 @@ class MainWidget(QMainWindow):
         self.tabs = self.cc.QTabWidget()
         self.tabs.setTabsClosable(False)
         for widget in self.tabbed_widgets:
-            self.tabs.addTab(widget, widget.icon, widget.name)
+            self.tabs.addTab(widget, widget.name)
         layout = self.cc.QVBoxLayout()
         self.splitter = self.cc.QSplitter(self.cc.QtCore.Qt.Vertical)
         q_clean_style = self.cc.QStyleFactory.create("Plastique")
@@ -53,6 +58,7 @@ class MainWidget(QMainWindow):
         layout.addWidget(self.splitter)
         self.central_widget.setLayout(layout)
         self.setTabFocus(self.parent.sample_widget.name)
+        self._applyIconTint()
 
     def _createToolbar(self):
         """
@@ -70,13 +76,50 @@ class MainWidget(QMainWindow):
         self.toolbar.addAction(self.exportSmdaAction)
         self._createBuildYaraStringAction()
         self.toolbar.addAction(self.buildYaraStringAction)
+        self._createSettingsAction()
+        self.toolbar.addAction(self.settingsAction)
+        self.toolbar.widgetForAction(self.settingsAction).setToolButtonStyle(
+            self.cc.QtCore.Qt.ToolButtonTextBesideIcon
+        )
+        self._toolbarIconFiles = [
+            (self.parseSmdaAction, "fingerprint_scan.png"),
+            (self.uploadSmdaAction, "cloud-upload.png"),
+            (self.getMatchResultAction, "satellite_dish.png"),
+            (self.exportSmdaAction, "export.png"),
+            (self.buildYaraStringAction, "yara.png"),
+            (self.settingsAction, "settings.png"),
+        ]
+
+    def changeEvent(self, event):
+        QMainWindow.changeEvent(self, event)
+        # a theme switch while the plugin is open changes the text color the icons are drawn in
+        event_types = (self.cc.QtCore.QEvent.PaletteChange, self.cc.QtCore.QEvent.StyleChange)
+        if event.type() in event_types and getattr(self, "tabs", None) is not None:
+            self._applyIconTint()
+
+    def _applyIconTint(self):
+        for action, filename in self._toolbarIconFiles:
+            action.setIcon(self._toolbarIcon(filename))
+        for index, widget in enumerate(self.tabbed_widgets):
+            self.tabs.setTabIcon(index, self._themedIcon(widget.icon.pixmap(64, 64)))
+
+    def _toolbarIcon(self, filename):
+        return self._themedIcon(self.cc.QtGui.QPixmap(self.parent.config.ICON_FILE_PATH + filename))
+
+    def _themedIcon(self, pixmap):
+        """The black glyph in the theme's text color; Qt derives a dimmed disabled state from it,
+        so the icons stay visible on dark themes."""
+        painter = self.cc.QPainter(pixmap)
+        painter.setCompositionMode(self.cc.QPainter.CompositionMode_SourceIn)
+        painter.fillRect(pixmap.rect(), self.palette().color(self.cc.QPalette.WindowText))
+        painter.end()
+        return self.cc.QIcon(pixmap)
 
     def _createParseSmdaAction(self):
         """
         Create an action for parsing the IDB into a SMDA report.
         """
         self.parseSmdaAction = self.cc.QAction(
-            self.cc.QIcon(self.parent.config.ICON_FILE_PATH + "fingerprint_scan.png"),
             "Convert this database to a SMDA report which can then be used to query MCRIT.",
             self,
         )
@@ -88,7 +131,6 @@ class MainWidget(QMainWindow):
         TODO: will require addition of some more meta data.
         """
         self.uploadSmdaAction = self.cc.QAction(
-            self.cc.QIcon(self.parent.config.ICON_FILE_PATH + "cloud-upload.png"),
             "Reparse and upload the SMDA report to the MCRIT server.",
             self,
         )
@@ -100,7 +142,6 @@ class MainWidget(QMainWindow):
         Create an action for requesting a MatchReport for the given remote sample
         """
         self.getMatchResultAction = self.cc.QAction(
-            self.cc.QIcon(self.parent.config.ICON_FILE_PATH + "satellite_dish.png"),
             "Request the MatchResult for the uploaded sample.",
             self,
         )
@@ -112,7 +153,6 @@ class MainWidget(QMainWindow):
         Create an action for exporting the parsed SMDA report into json/smda format.
         """
         self.exportSmdaAction = self.cc.QAction(
-            self.cc.QIcon(self.parent.config.ICON_FILE_PATH + "export.png"),
             "Export the SMDA report to local disk.",
             self,
         )
@@ -124,12 +164,80 @@ class MainWidget(QMainWindow):
         Create an action for building a YARA string from the current selection.
         """
         self.buildYaraStringAction = self.cc.QAction(
-            self.cc.QIcon(self.parent.config.ICON_FILE_PATH + "yara.png"),
             "Build a YARA string from the current selection.",
             self,
         )
         self.buildYaraStringAction.setEnabled(False)
         self.buildYaraStringAction.triggered.connect(self._onBuildYaraStringButtonClicked)
+
+    def _createSettingsAction(self):
+        """
+        Create an action for opening the plugin settings.
+        """
+        self.settingsAction = self.cc.QAction("Settings", self)
+        self.settingsAction.setToolTip("Set the MCRIT server, API token and other plugin settings.")
+        self.settingsAction.triggered.connect(self._onSettingsButtonClicked)
+
+    def _onSettingsButtonClicked(self):
+        widget = self.cc.backend.open_settings(self.parent.config)
+        if widget is None:
+            dialog = self.ConnectionSettingsDialog(self, self.parent.config)
+            if dialog.exec_():
+                try:
+                    self.cc.backend.save_settings(dialog.changedValues())
+                except Exception as exc:
+                    self.cc.backend.show_warning("Saving the MCRIT settings failed: %s" % exc)
+                    # the keys written before the failure are in the store all the same
+                    self._reloadSettings(recheck=True)
+                    return
+                self._reportWaitingServer(self._reloadSettings(recheck=True), always=True)
+            return
+        if widget is True:
+            self.parent.local_widget.updateActivityInfo(
+                "Settings opened; %s after changing the connection." % self.cc.backend.reopen_hint
+            )
+            return
+        if widget is not self._watchedSettingsWidget:
+            self._watchedSettingsWidget = widget
+            widget.destroyed.connect(self._onSettingsClosed)
+
+    def _onSettingsClosed(self):
+        self._watchedSettingsWidget = None
+        waiting_server = self._reloadSettings()
+        # not modal from inside the destroyed signal of the closing settings window
+        self.cc.QtCore.QTimer.singleShot(0, lambda: self._reportWaitingServer(waiting_server))
+
+    def _reloadSettings(self, recheck=False):
+        interface = self.parent.mcrit_interface
+        server = interface.server
+        waiting_server = interface.reloadSettings(recheck=recheck)
+        report = self.parent.local_smda_report
+        if report is not None and not same_server(interface.server, server):
+            # the sample the old server did not know may be on the new one
+            self.cc.backend.run_request(
+                "MCRIT: looking up the converted sample",
+                lambda: interface.querySampleSha256(report.sha256),
+                lambda _result: self._onSampleLookedUpAgain(report),
+            )
+        return waiting_server
+
+    def _onSampleLookedUpAgain(self, report):
+        if self.parent.remote_sample_entry is not None:
+            self._applyConvertedReport(report)
+
+    def _reportWaitingServer(self, waiting_server, always=False):
+        """Warn once per waiting server when a settings window closes, every time after the form."""
+        if waiting_server is None:
+            self._reportedWaitingServer = None
+            return
+        if not always and waiting_server == self._reportedWaitingServer:
+            return
+        self._reportedWaitingServer = waiting_server
+        self.cc.backend.show_warning(
+            "The new settings are saved. MCRIT keeps using %s for the results it already has; "
+            "%s to switch to %s."
+            % (self.parent.mcrit_interface.server, self.cc.backend.reopen_hint, waiting_server)
+        )
 
     def getLocalSmdaReport(self):
         local_report = None
@@ -269,9 +377,14 @@ class MainWidget(QMainWindow):
         # IDA reads the database for the export behind a wait box on its main thread, so the
         # request must not be part of the export
         self._building = True
+        server = self.parent.mcrit_interface.server
 
         def done(_result):
             self._building = False
+            if not same_server(server, self.parent.mcrit_interface.server):
+                # the server changed while the lookup ran, which dropped its answer: ask the new one
+                self._lookUpConvertedSample(local_smda_report)
+                return
             self._applyConvertedReport(local_smda_report)
 
         self.cc.backend.run_request(

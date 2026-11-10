@@ -1,4 +1,5 @@
 import datetime
+import html
 
 import mcrit_plugin.ui_qt.QtShim as QtShim
 from mcrit_plugin.core.revision import core_revision
@@ -27,7 +28,11 @@ class LocalInfoWidget(QMainWindow):
             f"{self.cc.backend.plugin_name} v{parent.config.VERSION} started "
             f"(core {core_revision()})."
         )
-        self.label_mcrit_server_info = self.cc.QLabel("MCRIT Remote server: <not_active>")
+        self.label_mcrit_server_info = self.cc.QLabel()
+        self.label_mcrit_server_info.setTextFormat(self.cc.QtCore.Qt.RichText)
+        self.label_mcrit_server_info.linkActivated.connect(self._onChangeServerClicked)
+        # the Change link is there before the first connection check answers
+        self._setServerInfo((parent.config.MCRIT_SERVER, "checking...", None))
         self.label_remote_sample_info = self.cc.QLabel("Remote sample: <unknown>")
         for label in (
             self.label_mcrit_activity_info,
@@ -170,5 +175,9 @@ class LocalInfoWidget(QMainWindow):
             else "No statistics"
         )
         self.label_mcrit_server_info.setText(
-            "Remote server: %s  -- %s -- %s." % (mcrit_server, version_text, status_text)
+            'Remote server: %s  -- %s -- %s. <a href="settings">Change...</a>'
+            % (html.escape(str(mcrit_server)), html.escape(str(version_text)), status_text)
         )
+
+    def _onChangeServerClicked(self, _link):
+        self.parent.main_widget._onSettingsButtonClicked()
