@@ -119,6 +119,8 @@ def main() -> int:
         environment.update(
             {
                 "IDAUSR": str(idausr),
+                # idapro from IDA 9.0 and 9.1 cannot find libidalib under an isolated IDAUSR without it
+                "IDADIR": str(_find_activation_script(ida_dir).parents[2]),
                 "MCRIT_IDA_PLUGIN_ROOT": str(plugin_root),
                 "MCRIT_IDA_INTEGRATION_LIVE": "0" if args.offline else "1",
                 "MCRIT_IDA_INTEGRATION_TIMEOUT": str(args.timeout),
