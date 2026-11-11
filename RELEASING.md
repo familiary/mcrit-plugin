@@ -213,7 +213,7 @@ a tag scheme (e.g. `ghidra-vX.Y.Z`) and whether a release guard like the IDA one
 
 ## Failed publication and reruns
 
-A failure before publication leaves either no release or an unpublished draft. `gh release create`
-refuses a tag that already has a release, so delete the failed draft before re-running. A draft
-creates no tag; the Binary Ninja version tag only exists once its release is published. A
-published immutable release cannot be corrected: cut a new version instead.
+A failure before publication leaves either no release or an unpublished draft. Delete the failed
+draft before re-running, so the tag does not end up with two. A draft creates no tag; the Binary
+Ninja version tag only exists once its release is published. A published immutable release cannot
+be corrected: cut a new version instead.

@@ -51,7 +51,7 @@ python scripts/binja/verify_metadata_sync.py --repo .
 
 | Workflow | Name in Actions | Runs on | What |
 |---|---|---|---|
-| `pytest.yml` | pytest | push, PR | pytest, headless integration against MCRIT |
+| `pytest.yml` | pytest | push, PR, dispatch | pytest, headless integration against MCRIT |
 | `ruff.yml` | Validate | push, PR, dispatch | ruff, settings sync, actionlint |
 | `changelog.yml` | Changelog | PR | changelog entry for changes shipped in either plugin |
 | `ida-package.yml` | IDA package | push, PR touching that plugin | metadata sync and package validation |
