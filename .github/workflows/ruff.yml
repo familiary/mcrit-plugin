@@ -2,13 +2,22 @@ name: Validate
 
 on:
   push:
+    branches: ["**"]
   pull_request:
+
+  workflow_dispatch:
 
 permissions:
   contents: read
 
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   validate:
+    name: Validate code and workflows
+    timeout-minutes: 10
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
@@ -25,3 +34,13 @@ jobs:
         run: python scripts/common/verify_settings_sync.py --repo .
       - name: Run quality checks
         run: python scripts/common/run_quality_checks.py --repo .
+      - name: Install workflow validation tooling
+        shell: bash
+        run: |
+          curl --fail --silent --show-error --location \
+            https://github.com/rhysd/actionlint/releases/download/v1.7.12/actionlint_1.7.12_linux_amd64.tar.gz \
+            --output "$RUNNER_TEMP/actionlint.tar.gz"
+          echo "8aca8db96f1b94770f1b0d72b6dddcb1ebb8123cb3712530b08cc387b349a3d8  $RUNNER_TEMP/actionlint.tar.gz" | sha256sum --check
+          tar -xzf "$RUNNER_TEMP/actionlint.tar.gz" -C "$RUNNER_TEMP" actionlint
+      - name: Validate workflows
+        run: '"$RUNNER_TEMP/actionlint" -color'

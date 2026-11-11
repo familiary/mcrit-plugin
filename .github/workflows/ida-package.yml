@@ -2,6 +2,7 @@ name: IDA package
 
 on:
   push:
+    branches: ["**"]
     paths:
       - "mcrit_plugin/ida/**"
       - "scripts/ida/**"
@@ -46,6 +47,8 @@ on:
       - "pyproject.toml"
       - ".gitattributes"
 
+  workflow_dispatch:
+
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
@@ -55,7 +58,8 @@ permissions:
 
 jobs:
   package:
-    name: IDA plugin package
+    name: Validate package
+    timeout-minutes: 15
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
