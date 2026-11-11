@@ -4,7 +4,7 @@ on:
   push:
     branches:
       - main
-    paths:
+    paths: &paths
       - "mcrit_plugin/ida/**"
       - "scripts/ida/**"
       - "tests/ida/**"
@@ -26,27 +26,7 @@ on:
       - "pyproject.toml"
       - ".gitattributes"
   pull_request:
-    paths:
-      - "mcrit_plugin/ida/**"
-      - "scripts/ida/**"
-      - "tests/ida/**"
-      - "CHANGELOG.md"
-      - "docs/config_override.json.template"
-      - ".github/workflows/ida-*.yml"
-      - ".github/workflows/scripts/ida/**"
-      - "mcrit_plugin/core/**"
-      - "mcrit_plugin/__init__.py"
-      - "mcrit_plugin/ui_qt/**"
-      - "icons/**"
-      - "scripts/common/**"
-      - "tests/core/**"
-      - "tests/ui_qt/**"
-      - "tests/conftest.py"
-      - "tests/fixtures/**"
-      - "README.md"
-      - "LICENSE"
-      - "pyproject.toml"
-      - ".gitattributes"
+    paths: *paths
   workflow_dispatch:
 
 permissions:
@@ -77,7 +57,6 @@ jobs:
     steps:
       - name: Check configuration
         id: decide
-        shell: bash
         env:
           FORK_PR: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository }}
           HAS_SECRETS: ${{ secrets.IDA_LICENSE_ID != '' && secrets.HCLI_API_KEY != '' }}
@@ -136,7 +115,6 @@ jobs:
         run: python scripts/ida/package_plugin.py --repo . --output dist/mcrit-ida.zip
 
       - name: Install GUI runtime dependencies
-        shell: bash
         run: |
           sudo apt-get update
           sudo apt-get install --yes --no-install-recommends \
@@ -148,7 +126,6 @@ jobs:
 
       - name: Install disassembler
         id: ida
-        shell: bash
         env:
           HCLI_API_KEY: ${{ secrets.HCLI_API_KEY }}
           IDA_LICENSE_ID: ${{ secrets.IDA_LICENSE_ID }}
@@ -159,7 +136,6 @@ jobs:
             -d "ida-pro:${IDA_VERSION}:x64linux" \
             -l "$IDA_LICENSE_ID" \
             -i "$IDA_DIR"
-          test -d "$IDA_DIR"
           test -x "$IDA_DIR/ida"
           echo "ida-dir=$IDA_DIR" >> "$GITHUB_OUTPUT"
           # hcli --accept-eula records EULA acceptance only in the *default* IDAUSR; the isolated
@@ -179,13 +155,11 @@ jobs:
           fi
 
       - name: Install MCRIT service
-        shell: bash
         run: |
           uv venv --python 3.12 "$RUNNER_TEMP/mcrit-venv"
           uv pip install --python "$RUNNER_TEMP/mcrit-venv/bin/python" "mcrit==${MCRIT_VERSION}"
 
       - name: Install IDALib test runtime
-        shell: bash
         run: |
           # --seed: install_idalib_runtime.py installs IDA's bundled bindings with pip
           uv venv --seed --python 3.12 "$RUNNER_TEMP/idalib-venv"
@@ -197,7 +171,6 @@ jobs:
             "smda==${SMDA_VERSION}" "ida-settings==3.5.1" "requests"
 
       - name: Install plugin dependencies
-        shell: bash
         env:
           IDA_VERSION: ${{ matrix.version }}
         run: |
@@ -225,7 +198,6 @@ jobs:
             --variant 2
 
       - name: Start MCRIT server and worker
-        shell: bash
         run: |
           # setsid, not nohup alone: the runner SIGTERMs the step's process group when this step's
           # shell exits, which would kill the services before the "Wait for MCRIT API" step
@@ -235,7 +207,6 @@ jobs:
             > "$RUNNER_TEMP/mcrit-worker.log" 2>&1 < /dev/null &
 
       - name: Wait for MCRIT API
-        shell: bash
         run: |
           "$RUNNER_TEMP/mcrit-venv/bin/python" - <<'PY'
           import time
@@ -257,7 +228,6 @@ jobs:
           PY
 
       - name: Seed MCRIT reference sample
-        shell: bash
         env:
           PYTHONPATH: ${{ github.workspace }}
         run: |
@@ -268,11 +238,9 @@ jobs:
 
       - name: Record reference SHA-256
         id: reference
-        shell: bash
         run: echo "sha256=$(sha256sum '${{ runner.temp }}/mcrit-reference.exe' | cut -d' ' -f1)" >> "$GITHUB_OUTPUT"
 
       - name: Run headless integration tests
-        shell: bash
         run: |
           "$IDALIB_PYTHON" scripts/ida/run_idalib_integration.py \
             --ida-dir "${{ steps.ida.outputs.ida-dir }}" \
@@ -287,7 +255,6 @@ jobs:
             --require-hcli
 
       - name: Seed GUI profile from licensed IDALib profile
-        shell: bash
         run: |
           SOURCE_REG="$RUNNER_TEMP/idausr-idalib/ida.reg"
           GUI_REG="$RUNNER_TEMP/idausr-gui/ida.reg"
@@ -296,7 +263,6 @@ jobs:
           strings "$GUI_REG" | grep -q '^Licenses$'
 
       - name: Pre-accept IDAPython PyQt5 shim for GUI profile
-        shell: bash
         run: |
           # IDA 9.2+ shows a modal "enable the PyQt5 shim?" dialog on the first PyQt5 import; it ignores
           # -A / batch mode and blocks startup forever. IDAPYTHON_USE_PYQT5_SHIM=0 silences it.
@@ -308,7 +274,6 @@ jobs:
           CFG
 
       - name: Configure IDAPython for GUI integration test
-        shell: bash
         env:
           IDAUSR: ${{ runner.temp }}/idausr-gui
         run: |
@@ -343,7 +308,6 @@ jobs:
           "$IDAPYSWITCH" --force-path "$PYTHON_LIBRARY"
 
       - name: Run GUI integration tests
-        shell: bash
         env:
           PYTHONPATH: ${{ runner.temp }}/ida-py-deps
           IDALOG: ${{ runner.temp }}/ida-gui-startup.log
@@ -396,7 +360,6 @@ jobs:
     steps:
       # Missing secrets are reported explicitly; real matrix failures must fail this check.
       - name: Report integration result
-        shell: bash
         env:
           RESULT: ${{ needs.licensed-linux.result }}
           REASON: ${{ needs.preflight.outputs.reason }}
