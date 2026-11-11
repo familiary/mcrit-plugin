@@ -119,8 +119,8 @@ python scripts/common/run_headless_integration.py --input /tmp/mcrit-query --ref
 `.github/workflows/ida-tests.yml` runs the live suite on Linux for every minor version from 9.0
 through 9.5, on pushes to `main`, on pull requests from a branch of this repository, and on manual
 dispatch, using the `IDA_LICENSE_ID` and `HCLI_API_KEY` secrets. Qt 5 is installed for 9.0 and 9.1;
-later versions use the installer's PySide6. Dispatch with `run_matrix` to also check offline IDALib
-on IDA 9.5 for Windows and macOS ARM, without GUI coverage. Pull requests from a fork, and
+later versions use the installer's PySide6. Pushes to `main` and manual runs also check IDALib on
+IDA 9.5 for Windows and macOS ARM, without an MCRIT server or the GUI. Pull requests from a fork, and
 repositories without those secrets, cannot run the licensed jobs. They are then skipped, and the
 "Integration result" check passes with a warning that names the reason, so a skipped licensed job
 never reads as a tested one; a failure in any job that did run fails it. Logs are kept for 14
