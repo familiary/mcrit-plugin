@@ -110,6 +110,16 @@ class McritToolController:
         )
         self._provider_listener = _ProviderListener(self)
         self.provider.setListener(self._provider_listener)
+        from docking.action.builder import ActionBuilder
+
+        # in the window's own menu, like Binary Ninja's MCRIT > Clear Match Coloring
+        self._clear_coloring_action = (
+            ActionBuilder("Clear Match Coloring", WINDOW_NAME)
+            .menuPath("Clear Match Coloring")
+            .description("Remove the tint MCRIT put on matched blocks in the listing.")
+            .onAction(swing.Consumer(lambda _context: self._clear_coloring()))
+            .buildAndInstallLocal(self.provider)
+        )
         self._event_listener = _EventListener(self)
         tool.addListenerForAllPluginEvents(self._event_listener)
         self._settle_timer = Timer(
@@ -183,6 +193,11 @@ class McritToolController:
         if session.config.AUTO_ANALYZE_SMDA_ON_STARTUP:
             session.main_widget._onConvertSmdaButtonClicked()
         return _SessionEntry(program, backend, session)
+
+    def _clear_coloring(self):
+        entry = self.entries.get(self.active_key)
+        if entry is not None:
+            entry.backend.clear_local_match_coloring()
 
     def session_for(self, program):
         entry = self.entries.get(self._program_key(program))

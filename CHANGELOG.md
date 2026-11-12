@@ -17,7 +17,9 @@ Ninja or Ghidra applies to that plugin only.
   CFGs open in Ghidra's graph view, and the settings are under Tool Options > MCRIT. It runs from
   this repository's `ghidra_scripts` folder; see the README for setup. Its toolbar and tabs use
   the same icons, at 24 px in the toolbar and in the theme's text colour from when the window
-  opens. Not released yet; versioned on its own from 0.1.0.
+  opens. Converting, uploading and exporting wait for auto-analysis to finish, and Clear Match
+  Coloring in the MCRIT window's menu removes the tint. Not released yet; versioned on its own
+  from 0.1.0.
 - IDA and Binary Ninja: a Settings button on the toolbar, a "Change..." link on the remote server
   line, and a Settings entry in the menus (IDA: Edit → Plugins → MCRIT4IDA Settings...; Binary
   Ninja: Plugins → MCRIT → Settings). In IDA they open the Plugin Settings Manager on mcrit-ida when
@@ -34,6 +36,12 @@ Ninja or Ghidra applies to that plugin only.
   saved, and if saving fails partway, the settings saved before the failure are used.
 - A failed connection check while the server is still the default `http://127.0.0.1:8000/` points
   at the Settings button (Ghidra: Edit > Tool Options > MCRIT).
+- IDA: opening a matched function's graph, or a block match's function, tints the matched basic
+  blocks of the local function in IDA's disassembly and graph views, as Binary Ninja and Ghidra do.
+  The tint is drawn, not stored in the database. Edit → Plugins → MCRIT4IDA Clear Match Coloring
+  removes it, and closing MCRIT does too.
+- IDA: on a dark theme the score colors in the tables are tints over the table background, as in
+  Binary Ninja and Ghidra, instead of the light theme's colors.
 
 ### Changed
 
@@ -49,6 +57,10 @@ Ninja or Ghidra applies to that plugin only.
   example, branch targets kept their exact bytes. The escaping now follows the report's
   architecture; one without an SMDA escaper keeps its raw bytes. Copy Escaped Bytes falls back to
   raw bytes like the rule text when escaping fails, instead of copying nothing.
+- IDA: importing labels counted names IDA refused as imported; they count as skipped now, and
+  applying a single label says whether it was accepted.
+- IDA and Binary Ninja: when re-exporting the report failed, Export and Upload raised an error and
+  dropped the converted report; they keep the report and say that the export failed.
 - IDA and Binary Ninja: the toolbar and tab icons take the theme's text color, also after a theme
   change, so they are visible on dark themes; disabled toolbar icons show dimmed instead of almost
   black.

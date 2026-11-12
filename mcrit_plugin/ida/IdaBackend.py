@@ -1,3 +1,4 @@
+import bisect
 import functools
 import os
 import queue
@@ -16,6 +17,7 @@ import ida_undo
 import idc
 
 from mcrit_plugin.core.Backend import Backend
+from mcrit_plugin.core.ScoreColorProvider import ThemeRole, tint_over
 
 try:
     import ida_hexrays
@@ -139,6 +141,44 @@ SETTINGS_EDITOR_IDC_FUNC = "ida_settings_show_plugin_settings"
 SETTINGS_EDITOR_CAPTION = "Plugin Settings Manager"
 
 
+HIGHLIGHT_ALPHA = 0x80
+
+
+def _direct_color(rgb):
+    """A line-rendering bgcolor_t for 0xRRGGBB at half opacity, as Binary Ninja draws its tint, so
+    colors the analyst set stay visible underneath. IDA reads 0xAABBGGRR with a non-zero alpha as a
+    color and anything without one as a theme color key (CK_*)."""
+    return (HIGHLIGHT_ALPHA << 24) | ((rgb & 0xFF) << 16) | (rgb & 0xFF00) | (rgb >> 16)
+
+
+class _MatchColoring(ida_kernwin.UI_Hooks):
+    """Tints the lines of matched local blocks while IDA draws them, in the disassembly listing and
+    graph; nothing is written to the database, so the tint goes with the session."""
+
+    def __init__(self):
+        super().__init__()
+        self.set_ranges([])
+
+    def set_ranges(self, ranges):
+        """(start, end, bgcolor) per block; blocks of one function do not overlap."""
+        self.ranges = sorted(ranges)
+        self._starts = [start for start, _end, _color in self.ranges]
+
+    def get_lines_rendering_info(self, out, widget, info):
+        if not self.ranges:
+            return
+        for section_lines in info.sections_lines:
+            for line in section_lines:
+                address = line.at.toea()
+                index = bisect.bisect_right(self._starts, address) - 1
+                if index >= 0 and address < self.ranges[index][1]:
+                    out.entries.push_back(
+                        ida_kernwin.line_rendering_output_entry_t(
+                            line, ida_kernwin.LROEF_FULL_LINE, self.ranges[index][2]
+                        )
+                    )
+
+
 class IdaBackend(Backend):
     name = "IDA"
     plugin_name = "MCRIT4IDA"
@@ -158,6 +198,7 @@ class IdaBackend(Backend):
         self._pending = 0
         self._waker = None
         self._delivering = False
+        self._coloring = None
 
     @_on_main_thread
     def get_input_md5(self):
@@ -360,11 +401,15 @@ class IdaBackend(Backend):
             self._delivering = False
 
     def close(self):
-        """Drop the results still to come; called when the MCRIT form closes."""
+        """Drop the results still to come and the match tint; called when the MCRIT form closes."""
         self.closed = True
         for _worker in self._workers:
             self._requests.put(None)
         self._workers = []
+        if self._coloring is not None:
+            self._coloring.unhook()
+            self._coloring = None
+            ida_kernwin.refresh_idaview_anyway()
 
     def run_on_ui_thread(self, func):
         result = []
@@ -402,6 +447,45 @@ class IdaBackend(Backend):
 
         for key, value in values.items():
             set_setting(key, value)
+
+    def theme_color(self, role, default):
+        from mcrit_plugin.ui_qt.QtShim import get_QApplication, get_QPalette
+
+        # the roles are named without ColorRole, which PyQt5 (IDA up to 9.1) does not have
+        QPalette = get_QPalette()
+        palette = get_QApplication().palette()
+        # IDA's themes are style sheets over the Qt palette, which carries their colors
+        base = palette.color(QPalette.Base)
+        dark = base.lightness() < 128
+        if role == ThemeRole.TEXT_ON_TINT:
+            return None if dark else default
+        if not dark:
+            return default
+        background = (base.red(), base.green(), base.blue())
+        if role == ThemeRole.NEUTRAL:
+            return background
+        if role == ThemeRole.CURRENT:
+            selection = palette.color(QPalette.Highlight)
+            return (selection.red(), selection.green(), selection.blue())
+        return tint_over(default, background)
+
+    def show_local_match_coloring(self, smda_function, coloring):
+        ranges = []
+        for block in smda_function.getBlocks():
+            if block.offset in coloring:
+                last = list(block.getInstructions())[-1]
+                end = last.offset + len(last.bytes) // 2
+                ranges.append((block.offset, end, _direct_color(coloring[block.offset])))
+        if self._coloring is None:
+            self._coloring = _MatchColoring()
+            self._coloring.hook()
+        self._coloring.set_ranges(ranges)
+        ida_kernwin.refresh_idaview_anyway()
+
+    def clear_local_match_coloring(self):
+        if self._coloring is not None and self._coloring.ranges:
+            self._coloring.set_ranges([])
+            ida_kernwin.refresh_idaview_anyway()
 
     def show_function_graph(self, parent, sample_entry, function_entry, smda_function, coloring):
         from mcrit_plugin.ida.SmdaGraphViewer import SmdaGraphViewer

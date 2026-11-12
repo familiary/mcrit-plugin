@@ -76,7 +76,7 @@ class Backend(ABC):
 
     @abstractmethod
     def set_function_name(self, address, name):
-        """Rename the function starting at address."""
+        """Rename the function starting at address; True when the disassembler took the name."""
 
     @abstractmethod
     def has_default_function_name(self, address):

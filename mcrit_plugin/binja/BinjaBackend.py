@@ -17,7 +17,7 @@ from binaryninja.enums import (
 
 from mcrit_plugin.binja.MatchRenderLayer import HIGHLIGHT_ALPHA, MatchRenderLayer
 from mcrit_plugin.core.Backend import Backend
-from mcrit_plugin.core.ScoreColorProvider import ThemeRole
+from mcrit_plugin.core.ScoreColorProvider import ThemeRole, tint_over
 
 TITLE = "MCRIT"
 logger = Logger(0, TITLE)
@@ -31,8 +31,6 @@ THEME_HIGHLIGHT_ROLES = {
     ThemeRole.RED: ThemeColor.RedStandardHighlightColor,
     ThemeRole.MAGENTA: ThemeColor.MagentaStandardHighlightColor,
 }
-# the standard highlight colors are meant as tints; at full strength they overpower any theme
-TINT_STRENGTH = 0.4
 
 
 class BinjaBackend(Backend):
@@ -289,13 +287,8 @@ class BinjaBackend(Backend):
         if role not in THEME_HIGHLIGHT_ROLES:
             return default
         tint = getThemeColor(THEME_HIGHLIGHT_ROLES[role])
-        return tuple(
-            int(b + TINT_STRENGTH * (t - b))
-            for t, b in (
-                (tint.red(), base.red()),
-                (tint.green(), base.green()),
-                (tint.blue(), base.blue()),
-            )
+        return tint_over(
+            (tint.red(), tint.green(), tint.blue()), (base.red(), base.green(), base.blue())
         )
 
     def _refresh_views(self):
