@@ -1,3 +1,5 @@
+import traceback
+
 import mcrit_plugin.core.McritTableColumn as McritTableColumn
 import mcrit_plugin.ui_qt.QtShim as QtShim
 from mcrit_plugin.core.minimcrit.matchers.FunctionCfgMatcher import FunctionCfgMatcher
@@ -10,6 +12,10 @@ QMainWindow = QtShim.get_QMainWindow()
 QColor = QtShim.get_QColor()
 
 
+# what a function query answers when the server gave no answer, in place of True
+QUERY_FAILED = "failed"
+
+
 class FunctionMatchWidget(QMainWindow):
     def __init__(self, parent):
         self.cc = parent.cc
@@ -18,8 +24,10 @@ class FunctionMatchWidget(QMainWindow):
         self.parent = parent
         self.scp = ScoreColorProvider(self.cc.backend)
         self.last_viewed = None
+        # function offset -> [client its request runs on, asked for again meanwhile]
+        self._querying = {}
         self.name = "Function Scope"
-        self.icon = self.cc.QIcon(self.parent.config.ICON_FILE_PATH + "flag-triangle.png")
+        self.icon = self.cc.QIcon(self.parent.config.ICON_FILE_PATH + "compare.png")
         self.central_widget = self.cc.QWidget()
         self.setCentralWidget(self.central_widget)
         self.current_function_offset = None
@@ -91,10 +99,9 @@ class FunctionMatchWidget(QMainWindow):
         self.central_widget.setLayout(sample_info_layout)
 
     def _onCbFilterLibraryClicked(self, mi):
-        """
-        If the filter is altered, we refresh the table.
-        """
-        self.hook_refresh(None, use_current_function=True)
+        # not through hook_refresh: with live queries off it clears a query asked for by button
+        if self.parent.local_smda_report is not None and self.last_viewed is not None:
+            self.updateViewWithCurrentFunction()
 
     def _onCbLiveClicked(self, mi):
         if self.cb_activate_live_tracking.isChecked():
@@ -102,7 +109,8 @@ class FunctionMatchWidget(QMainWindow):
             self.updateViewWithCurrentFunction()
 
     def handleSpinThresholdChange(self):
-        self.updateViewWithCurrentFunction()
+        if self.parent.local_smda_report is not None:
+            self.updateViewWithCurrentFunction()
 
     def enable(self):
         self.cb_filter_library.setEnabled(True)
@@ -151,7 +159,7 @@ class FunctionMatchWidget(QMainWindow):
 
     def queryCurrentFunction(self):
         self.parent.main_widget.hideLocalWidget()
-        self.updateViewWithCurrentFunction()
+        self.updateViewWithCurrentFunction(force=True)
 
     def hook_refresh(self, view, use_current_function=False):
         # follows the cursor before Convert too, so a query afterwards uses the function it is in
@@ -165,6 +173,7 @@ class FunctionMatchWidget(QMainWindow):
             return
         if not self.cb_activate_live_tracking.isChecked():
             self.clearTable()
+            self.last_viewed = None
             self.label_current_function_matches.setText("Live Function Queries are deactivated.")
             return
         self.updateViewWithCurrentFunction()
@@ -183,7 +192,7 @@ class FunctionMatchWidget(QMainWindow):
         ]
         self.table_function_names.table_model.reset(self.function_names_header_labels, [])
 
-    def updateViewWithCurrentFunction(self):
+    def updateViewWithCurrentFunction(self, force=False):
         self.last_viewed = self.parent.current_function
         smda_function = self.parent.local_smda_report.getFunction(self.parent.current_function)
         # MCRIT's default MINHASH_FN_MIN_INS, compared with >; a server can set another value
@@ -203,6 +212,9 @@ class FunctionMatchWidget(QMainWindow):
                 "Querying matches for function 0x%x..." % function_offset
             )
 
+        client = getattr(self.parent.mcrit_interface, "mcrit_client", None)
+        running = self._querying.get(function_offset)
+
         def request():
             # the cursor left while this waited behind other requests: None skips it
             if self.parent.current_function != function_offset:
@@ -211,6 +223,9 @@ class FunctionMatchWidget(QMainWindow):
                 return False
             if outline is not None:
                 self.parent.mcrit_interface.querySmdaFunctionMatches(outline)
+                # an answer, also one without matches, is cached
+                if function_offset not in self.parent.function_matches:
+                    return QUERY_FAILED
             missing_ids = self._missingMatchedFunctionIds(function_offset, score_threshold)
             if missing_ids:
                 self.parent.mcrit_interface.queryFunctionEntriesById(missing_ids)
@@ -219,6 +234,17 @@ class FunctionMatchWidget(QMainWindow):
         def show(remote_cache_ready):
             # a live query answered after the cursor moved on; its result stays cached
             if remote_cache_ready is None or self.parent.current_function != function_offset:
+                return
+            if remote_cache_ready == QUERY_FAILED:
+                # with live queries on, the next cursor move in this function asks again; the
+                # query button always does
+                if self.cb_activate_live_tracking.isChecked():
+                    self.last_viewed = None
+                self.clearTable()
+                self.label_current_function_matches.setText(
+                    "Querying matches for function 0x%x failed; see the activity line."
+                    % function_offset
+                )
                 return
             if not remote_cache_ready:
                 self.last_viewed = None
@@ -234,9 +260,33 @@ class FunctionMatchWidget(QMainWindow):
             and not self._missingMatchedFunctionIds(function_offset, score_threshold)
         ):
             show(True)
+        elif not force and running is not None and running[0] is client:
+            # one request per function at a time; asked again meanwhile, e.g. with another
+            # threshold, the view is brought up to date when that request answers
+            running[1] = True
         else:
+            # the query button and new connection settings do not wait for a request that may
+            # never answer
+            running = self._querying[function_offset] = [client, False]
+
+            def guarded():
+                try:
+                    return request()
+                except Exception:
+                    # raised into the backend, the request would never answer
+                    traceback.print_exc()
+                    return QUERY_FAILED
+
+            def finished(result):
+                if self._querying.get(function_offset) is running:
+                    del self._querying[function_offset]
+                if running[1] and self.parent.current_function == function_offset:
+                    self.updateViewWithCurrentFunction()
+                else:
+                    show(result)
+
             self.cc.backend.run_request(
-                "MCRIT: querying matches for function 0x%x" % function_offset, request, show
+                "MCRIT: querying matches for function 0x%x" % function_offset, guarded, finished
             )
 
     def _missingMatchedFunctionIds(self, function_offset, score_threshold):
@@ -500,7 +550,13 @@ class FunctionMatchWidget(QMainWindow):
             function_name = self.table_function_names.table_model.entryAt(mi.row()).function_label
             with self.cc.backend.mutation("Apply MCRIT label"):
                 # last_viewed moves on when a query starts, before the tables show its answer
-                self.cc.backend.set_function_name(self.current_function_offset, function_name)
+                named = self.cc.backend.set_function_name(
+                    self.current_function_offset, function_name
+                )
+            self.parent.local_widget.updateActivityInfo(
+                ("Named function 0x%x %s." if named else "The name for 0x%x was refused: %s.")
+                % (self.current_function_offset, function_name)
+            )
 
     def _showMatchGraph(self, smda_report_a, smda_function_a, remote_function_id):
         """Fetch the remote function off the UI thread, then match it and show its graph."""

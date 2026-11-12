@@ -213,15 +213,29 @@ def grid(pairs):
 
 
 def load_icon(path, size=20):
-    """An ImageIcon scaled to size pixels, or None when the file cannot be read."""
+    """An ImageIcon scaled to size pixels, or None when the file cannot be read. The icons are
+    one-colour glyphs, drawn here in the theme's label colour so they show on dark themes too."""
     try:
-        from java.awt import Image
-        from javax.swing import ImageIcon
+        from java.awt import AlphaComposite, Image
+        from java.awt.image import BufferedImage
+        from javax.swing import ImageIcon, UIManager
 
         icon = ImageIcon(str(path))
         if icon.getIconWidth() <= 0:
             return None
-        return ImageIcon(icon.getImage().getScaledInstance(size, size, Image.SCALE_SMOOTH))
+        image = icon.getImage()
+        color = UIManager.getColor("Label.foreground")
+        if color is not None:
+            width, height = icon.getIconWidth(), icon.getIconHeight()
+            tinted = BufferedImage(width, height, BufferedImage.TYPE_INT_ARGB)
+            graphics = tinted.createGraphics()
+            graphics.drawImage(image, 0, 0, None)
+            graphics.setComposite(AlphaComposite.SrcIn)
+            graphics.setColor(color)
+            graphics.fillRect(0, 0, width, height)
+            graphics.dispose()
+            image = tinted
+        return ImageIcon(image.getScaledInstance(size, size, Image.SCALE_SMOOTH))
     except Exception:
         return None
 

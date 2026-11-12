@@ -2,10 +2,17 @@ name: pytest
 
 on:
   push:
+    branches: ["**"]
   pull_request:
+
+  workflow_dispatch:
 
 permissions:
   contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
 
 env:
   MCRIT_VERSION: "1.12.0"
@@ -13,6 +20,8 @@ env:
 
 jobs:
   pytest:
+    name: Unit tests
+    timeout-minutes: 15
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
@@ -21,7 +30,7 @@ jobs:
           persist-credentials: false
 
       - name: Set up Python
-        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
         with:
           python-version: "3.12"
 
@@ -41,6 +50,7 @@ jobs:
 
   headless-integration:
     name: Headless backend / live MCRIT
+    timeout-minutes: 20
     runs-on: ubuntu-latest
     services:
       mongo:
@@ -54,7 +64,7 @@ jobs:
           persist-credentials: false
 
       - name: Set up Python
-        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
         with:
           python-version: "3.12"
 

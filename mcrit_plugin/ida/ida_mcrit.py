@@ -6,6 +6,7 @@ code inspired by and based on IDAscope
 
 import time
 import traceback
+import weakref
 
 import ida_idaapi
 import ida_kernwin
@@ -17,10 +18,14 @@ from mcrit_plugin.ui_qt.McritSession import McritSession
 IdaBackend = None
 
 
+def _has_gui():
+    is_idaq = getattr(ida_kernwin, "is_idaq", None)
+    return callable(is_idaq) and bool(is_idaq())
+
+
 def _require_gui():
     """Fail clearly when a GUI-only plugin action is invoked through IDALib."""
-    is_idaq = getattr(ida_kernwin, "is_idaq", None)
-    if not callable(is_idaq) or not is_idaq():
+    if not _has_gui():
         raise RuntimeError("MCRIT4IDA's Qt interface requires the IDA GUI")
 
 
@@ -207,12 +212,77 @@ def show_mcrit_form():
     return form
 
 
+SETTINGS_ACTION = "mcrit4ida:settings"
+CLEAR_COLORING_ACTION = "mcrit4ida:clear_coloring"
+# the open database's plugmod; weak, so a database that closes takes its plugmod and form along
+_current_plugmod = None
+
+
+def _open_settings(plugmod):
+    plugmod.run(0)
+    if plugmod.form is not None:
+        plugmod.form.main_widget._onSettingsButtonClicked()
+
+
+def _clear_coloring(plugmod):
+    if plugmod.form is not None:
+        plugmod.form.cc.backend.clear_local_match_coloring()
+
+
+# (action name, menu label, tooltip, what it does with the current database's plugmod)
+MENU_ACTIONS = [
+    (
+        SETTINGS_ACTION,
+        "MCRIT4IDA Settings...",
+        "Set the MCRIT server, API token and other plugin settings.",
+        _open_settings,
+    ),
+    (
+        CLEAR_COLORING_ACTION,
+        "MCRIT4IDA Clear Match Coloring",
+        "Remove the tint MCRIT put on matched blocks in the disassembly.",
+        _clear_coloring,
+    ),
+]
+
+
+def _register_menu_actions():
+    """The Edit > Plugins entries beside the plugin's own one. Registered once per IDA process
+    and never removed: a plugmod's __del__ may run late, after the next database's plugmod
+    exists, so tying them to a plugmod could remove the next database's entries."""
+
+    class Handler(ida_kernwin.action_handler_t):
+        def __init__(self, act):
+            super().__init__()
+            self.act = act
+
+        def activate(self, ctx):
+            current = _current_plugmod() if _current_plugmod is not None else None
+            if current is not None:
+                self.act(current)
+            return 1
+
+        def update(self, ctx):
+            return ida_kernwin.AST_ENABLE_ALWAYS
+
+    for name, label, tooltip, act in MENU_ACTIONS:
+        # registering fails once the action exists, e.g. for the second database
+        if ida_kernwin.register_action(
+            ida_kernwin.action_desc_t(name, label, Handler(act), None, tooltip, -1)
+        ):
+            ida_kernwin.attach_action_to_menu("Edit/Plugins/", name, ida_kernwin.SETMENU_APP)
+
+
 class Mcrit4IdaPlugmod(ida_idaapi.plugmod_t):
     """Per-database plugin instance (PLUGIN_MULTI); owns the form it opened."""
 
     def __init__(self):
+        global _current_plugmod
         super().__init__()
         self.form = None
+        if _has_gui():
+            _current_plugmod = weakref.ref(self)
+            _register_menu_actions()
 
     def run(self, arg):
         # a closed form still holds the previous session's reports, so reopening needs a new form

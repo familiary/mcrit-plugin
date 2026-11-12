@@ -12,6 +12,8 @@ from mcrit_plugin.ui_qt.widgets.MatchTable import MatchRow, MatchTableView
 QMainWindow = QtShim.get_QMainWindow()
 QColor = QtShim.get_QColor()
 BLOCK_QUERY_WORKERS = 8
+# what a block query answers when some lookups failed, in place of True
+INCOMPLETE = "incomplete"
 
 
 def packRgb(rgb):
@@ -35,7 +37,7 @@ class BlockMatchWidget(QMainWindow):
         self._shown_function = None
         self._shown_block = None
         self.name = "Block Scope"
-        self.icon = self.cc.QIcon(self.parent.config.ICON_FILE_PATH + "puzzle.png")
+        self.icon = self.cc.QIcon(self.parent.config.ICON_FILE_PATH + "blocks.png")
         self.central_widget = self.cc.QWidget()
         self.setCentralWidget(self.central_widget)
         self.label_current_function_matches = self.cc.QLabel("Block Matches for: <function_offset>")
@@ -109,10 +111,9 @@ class BlockMatchWidget(QMainWindow):
             self.queryCurrentBlock()
 
     def _onCbFilterLibraryClicked(self, mi):
-        """
-        If the filter is altered, we refresh the table.
-        """
-        self.hook_refresh(None, use_current_block=True)
+        # not through hook_refresh: with live queries off it clears a query asked for by button
+        if self.parent.local_smda_report is not None and self.last_viewed_function is not None:
+            self.updateViewWithCurrentBlock()
 
     def enable(self):
         self.cb_filter_library.setEnabled(True)
@@ -169,7 +170,8 @@ class BlockMatchWidget(QMainWindow):
         return function_start
 
     def handleSpinThresholdChange(self):
-        self.updateViewWithCurrentBlock()
+        if self.parent.local_smda_report is not None:
+            self.updateViewWithCurrentBlock()
 
     def queryCurrentBlock(self):
         self.parent.main_widget.hideLocalWidget()
@@ -191,9 +193,18 @@ class BlockMatchWidget(QMainWindow):
         if self.updateCurrentBlock(view) is None and not use_current_block:
             return
         if self.parent.current_function == self.last_viewed_function and not use_current_block:
+            # the function's tables stand; the lower one follows the cursor to another block
+            if (
+                self.cb_activate_live_tracking.isChecked()
+                and self._last_block_matches is not None
+                and self._shown_function == self.parent.current_function
+                and self._shown_block != self.parent.current_block
+            ):
+                self.populateBlockMatchTable(self._last_block_matches, self.parent.current_block)
             return
         if not self.cb_activate_live_tracking.isChecked():
             self.clearTable()
+            self.last_viewed_function = None
             self.label_current_function_matches.setText("Live Block Queries are deactivated.")
             return
         self.updateViewWithCurrentBlock()
@@ -242,8 +253,8 @@ class BlockMatchWidget(QMainWindow):
                 return None
             if not self._fetch_remote_cache():
                 return False
-            self._lookupBlockHashes([entry["hash"] for entry in pbh], stop=superseded)
-            return True
+            hashes = [entry["hash"] for entry in pbh]
+            return self._lookupBlockHashes(hashes, stop=superseded) is not False or INCOMPLETE
 
         def show(remote_cache_ready):
             # the cursor moved on or a newer view was asked for; the results stay cached
@@ -259,6 +270,15 @@ class BlockMatchWidget(QMainWindow):
                     "No Block Matches for: 0x%x" % self.parent.current_block
                 )
             self._showBlockMatches(pbh)
+            if remote_cache_ready == INCOMPLETE:
+                # the blocks that got no answer would read as blocks without matches; with live
+                # queries on, the next cursor move in this function asks for them again
+                if self.cb_activate_live_tracking.isChecked():
+                    self.last_viewed_function = None
+                self.label_current_function_matches.setText(
+                    "Block queries failed for function 0x%x; the tables are incomplete."
+                    % function_offset
+                )
 
         # with every block cached, e.g. after a filter change, no request delays the table
         if (
@@ -268,6 +288,9 @@ class BlockMatchWidget(QMainWindow):
         ):
             show(True)
         else:
+            self.label_current_function_matches.setText(
+                "Querying block matches for function 0x%x..." % function_offset
+            )
             self.cc.backend.run_request(
                 "MCRIT: querying block matches for function 0x%x" % function_offset, request, show
             )
@@ -279,28 +302,32 @@ class BlockMatchWidget(QMainWindow):
         missing = [h for h in dict.fromkeys(hashes) if h not in self.parent.blockhash_matches]
         if not missing:
             return
+        interface = self.parent.mcrit_interface
+        # one connection for every lookup and the cache write, so a server switch drops them all
+        connection = interface._pinConnection()
         failed = threading.Event()
 
         def lookup(block_hash):
             # after a failure the remaining lookups would each wait out the same timeout
             if failed.is_set() or (stop is not None and stop()):
                 return None
-            matches = self.parent.mcrit_interface.getMatchesForPicBlockHash(block_hash)
+            matches = interface.getMatchesForPicBlockHash(block_hash, connection)
             if matches is None:
                 failed.set()
             return matches
 
         start = time.time()
         with ThreadPoolExecutor(BLOCK_QUERY_WORKERS) as pool:
-            for block_hash, matches in zip(missing, pool.map(lookup, missing)):
-                # a failed query stays uncached so the next visit retries it
-                if matches is not None:
-                    self.parent.blockhash_matches[block_hash] = matches
+            # a failed query stays uncached so the next visit retries it
+            found = {h: m for h, m in zip(missing, pool.map(lookup, missing)) if m is not None}
+        interface.storeBlockMatches(found, connection, shown=hashes)
+        complete = not failed.is_set()
         duration = time.time() - start
         print(
             f"Querying {len(missing)} blocks took {duration:5.3f} seconds, "
             f"or {duration / len(missing):5.3f} seconds per block."
         )
+        return complete
 
     def _showBlockMatches(self, pbh):
         for entry in pbh:

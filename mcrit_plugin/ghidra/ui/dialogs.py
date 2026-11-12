@@ -24,44 +24,31 @@ from mcrit_plugin.ghidra.ui.table import MatchRow, MatchTableView
 MAX_FAMILY_SUGGESTIONS = 15
 
 
-def _window(panel):
-    from javax.swing import SwingUtilities
-
-    return SwingUtilities.getWindowAncestor(panel.component)
-
-
 class _Dialog:
+    """A Ghidra dialog (DialogComponentProvider, through the bridge's McritDialog): Ghidra's own
+    dialog frame and button row, placed over the tool, closed by Escape."""
+
     def __init__(self, main_panel, title, width=None, height=None):
-        from java.awt import BorderLayout
-        from javax.swing import JDialog
+        from jpype import JClass
 
         self.main_panel = main_panel
-        self.dialog = JDialog(_window(main_panel), title)
-        self.dialog.setModal(True)
-        self.dialog.getContentPane().setLayout(BorderLayout())
+        self.dialog = JClass("mcrit.ghidra.McritDialog")(title)
         self._size = (width, height)
 
     def _layout(self, body, buttons):
-        from java.awt import BorderLayout
-        from javax.swing import BorderFactory
-
-        body.setBorder(BorderFactory.createEmptyBorder(8, 8, 4, 8))
-        self.dialog.getContentPane().add(body, BorderLayout.CENTER)
-        footer = row(*buttons, glue=False)
-        footer.setBorder(BorderFactory.createEmptyBorder(4, 8, 8, 8))
-        self.dialog.getContentPane().add(footer, BorderLayout.SOUTH)
-        self.dialog.pack()
+        self.dialog.setBody(body)
+        for dialog_button in buttons:
+            self.dialog.addDialogButton(dialog_button)
         width, height = self._size
         if width and height:
-            self.dialog.setSize(width, height)
-        self.dialog.setLocationRelativeTo(self.dialog.getOwner())
+            self.dialog.setPreferredSize(width, height)
 
     def close(self):
-        self.dialog.setVisible(False)
-        self.dialog.dispose()
+        self.dialog.close()
 
     def exec_(self):
-        self.dialog.setVisible(True)
+        # over the MCRIT window; Ghidra picks the active window once that is hidden
+        self.dialog.showOver(self.main_panel.component)
 
 
 class SmdaInfoDialog(_Dialog):
@@ -100,7 +87,7 @@ class SmdaInfoDialog(_Dialog):
             self.cb_is_library,
         )
         ok = button("OK", self.accept)
-        self.dialog.getRootPane().setDefaultButton(ok)
+        self.dialog.setDefaultButton(ok)
         self._layout(body, [ok, button("Cancel", self.close)])
 
     def _createSuggestions(self):

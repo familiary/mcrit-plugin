@@ -15,7 +15,7 @@ class McritSession:
         from mcrit_plugin.ui_qt.ClassCollection import ClassCollection
 
         self._initSharedState(ClassCollection(QtShim, backend), config)
-        self.icon = self.cc.QIcon(config.ICON_FILE_PATH + "relationship.png")
+        self.icon = self.cc.QIcon(config.ICON_FILE_PATH + "mcrit.png")
         self.mcrit_interface = McritInterface(self, backend)
 
     def _initSharedState(self, cc, config):
@@ -88,10 +88,12 @@ class McritSession:
         from mcrit_plugin.ui_qt.widgets.FunctionOverviewWidget import FunctionOverviewWidget
         from mcrit_plugin.ui_qt.widgets.LocalInfoWidget import LocalInfoWidget
         from mcrit_plugin.ui_qt.widgets.MainWidget import MainWidget
+        from mcrit_plugin.ui_qt.widgets.NativeLook import set_monospace_font_provider
         from mcrit_plugin.ui_qt.widgets.SampleInfoWidget import SampleInfoWidget
 
         time_before = time.time()
         print("[/] setting up widgets...")
+        set_monospace_font_provider(self.cc.backend.monospace_font)
         self.local_widget = LocalInfoWidget(self)
         self.block_match_widget = BlockMatchWidget(self)
         self.function_match_widget = FunctionMatchWidget(self)
@@ -114,24 +116,31 @@ class McritSession:
         if self.local_smda_report is None:
             return []
         current_names = self.cc.backend.get_function_symbols()
-        report_names = {
-            func.offset: func.function_name
-            for func in self.local_smda_report.getFunctions()
-            if func.function_name
+        report_functions = {
+            func.offset: func.function_name for func in self.local_smda_report.getFunctions()
         }
+        report_names = {offset: name for offset, name in report_functions.items() if name}
         unsynced = []
         for offset, current_name in current_names.items():
             report_name = report_names.get(offset, None)
             if report_name is not None and report_name != current_name:
                 unsynced.append((offset, report_name, current_name))
-            if offset not in report_names:
+            # a function the report lacks, an import stub for one, cannot take a name
+            if offset not in report_names and offset in report_functions:
                 unsynced.append((offset, None, current_name))
         return unsynced
 
     def uploadUpdatedReport(self):
-        """Patch the current function names into the local report and upload it, without re-exporting."""
-        functions = {func.offset: func for func in self.local_smda_report.getFunctions()}
+        """Patch the current function names into the local report and upload it, without
+        re-exporting. Called while a file closes: the upload waits behind the frontend's own
+        dialog, where Cancel stops the wait for a server that does not answer. False when
+        cancelled."""
+        report = self.local_smda_report
+        functions = {func.offset: func for func in report.getFunctions()}
         for offset, _report_name, current_name in self.findUnsyncedFunctionNames():
             if offset in functions:
                 functions[offset].function_name = current_name
-        self.mcrit_interface.uploadReport(self.local_smda_report)
+        return self.cc.backend.run_blocking(
+            "MCRIT: uploading the updated report",
+            lambda: self.mcrit_interface.uploadReport(report),
+        )

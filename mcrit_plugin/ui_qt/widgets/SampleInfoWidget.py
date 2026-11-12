@@ -14,7 +14,7 @@ class SampleInfoWidget(QMainWindow):
         self.name = "Sample Match Summary"
         self.last_family_selected = None
         self._matching_data = None
-        self.icon = self.cc.QIcon(self.parent.config.ICON_FILE_PATH + "puzzle.png")
+        self.icon = self.cc.QIcon(self.parent.config.ICON_FILE_PATH + "chart.png")
         self.central_widget = self.cc.QWidget()
         self.setCentralWidget(self.central_widget)
         self.cb_filter_library = self.cc.QCheckBox("Filter out Library Matches")
@@ -188,10 +188,7 @@ class SampleInfoWidget(QMainWindow):
 
     def _fill(self, table, headers, rows, alignment=None):
         table.table_model.reset(headers, rows, alignment=alignment)
-        # every column stretches, so nothing is sized to its contents
-        header = table.horizontalHeader()
-        for header_id in range(len(headers)):
-            header.setSectionResizeMode(header_id, self._QtShim.get_QHeaderView().Stretch)
+        table.resizeColumnsToContents()
 
     ################################################################################
     # Buttons and Actions

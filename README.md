@@ -60,14 +60,16 @@ For offline machines, each release has a wheelhouse bundle: unpack it and run `p
 Settings are handled by [ida-settings](https://github.com/williballenthin/ida-settings):
 
 - HCLI: `hcli plugin config mcrit-ida set mcrit_server https://mcrit.example.com/api/` (`list`, `get`, `export` and `import` also work)
-- GUI: install `ida-settings-editor` and use Edit → Plugins → Plugin Settings Manager
-- File: put a `config_override.json` next to `ida_mcrit.py`. Its keys take precedence over the other two, so keep only the ones you want to force; `docs/config_override.json.template` shows the format, and the plugin prints the keys it forces when it loads.
+- GUI: the Settings button on the MCRIT toolbar (also Edit → Plugins → MCRIT4IDA Settings...). With `ida-settings-editor` installed it opens the Plugin Settings Manager on mcrit-ida; without it, a small form for the server, API token, username and timeout.
+- File: put a `config_override.json` next to `ida_mcrit.py`. Its keys take precedence over the other two, so keep only the ones you want to force; `config_override.json.template` (in `docs/` of this repository, next to `ida_mcrit.py` in the release ZIP) shows the format, and the plugin prints the keys it forces when it loads.
 
 ### Use
 
 1. Open a binary and start MCRIT4IDA from Edit → Plugins, or press Ctrl-F4.
 2. Use the toolbar to convert the database to an SMDA report, upload it, and fetch a matching result.
 3. Browse the results in the Block Scope, Function Scope, Function Overview and Sample Match Summary tabs.
+   Opening a match's graph tints the matched blocks of the local function in IDA's disassembly;
+   Edit → Plugins → MCRIT4IDA Clear Match Coloring removes the tint.
 
 ## Binary Ninja
 
@@ -79,32 +81,40 @@ Install MCRIT from the Extension Manager, or clone this repository into your Bin
 
 ### Configure
 
-Settings are under Settings → MCRIT, with the same keys as the IDA plugin. Where a system keychain is available, an API token entered there is moved into it and the field is cleared; otherwise the token stays in the Settings entry. Plugins → MCRIT → Clear Stored API Token removes it. The sidebar reads the connection settings (server, token, username, timeout) when it opens for a file, so reopen the file after changing them. A `config_override.json` in the plugin's folder, next to `plugin.json`, takes precedence as it does in IDA.
+Settings are under Settings → MCRIT, with the same keys as the IDA plugin; the Settings button on the sidebar toolbar and Plugins → MCRIT → Settings open them there. Where a system keychain is available, an API token entered there is moved into it and the field is cleared; otherwise the token stays in the Settings entry. Plugins → MCRIT → Clear Stored API Token removes it. The sidebar reads the connection settings (server, token, username, timeout) when it opens for a file, and again when you close the Settings tab its button opened (a different server only until the sidebar holds results from the current one); after changing them any other way, reopen the file. A `config_override.json` in the plugin's folder, next to `plugin.json`, takes precedence as it does in IDA.
 
 ### Use
 
-Open the MCRIT sidebar, or run any MCRIT action from the command palette or Plugins → MCRIT. It has the same toolbar and tabs as the IDA plugin. Reports are exported from Binary Ninja's own analysis, and remote CFGs open as graph reports.
+Open the MCRIT sidebar, or run any MCRIT action from the command palette or Plugins → MCRIT. It has the same toolbar and tabs as the IDA plugin. Reports are exported from Binary Ninja's own analysis, and remote CFGs open as graph reports. Opening a match's graph tints the matched blocks of the local function through the "MCRIT Matches" render layer; Plugins → MCRIT → Clear Match Coloring removes the tint.
 
 ## Ghidra
 
-Requires Ghidra 12.0 or newer, started in PyGhidra mode, on a JDK 21 (Ghidra's own requirement).
-The Ghidra plugin is new and has not been released yet; its version is `0.1.0`.
+Requires Ghidra 12.0 or newer, started in PyGhidra mode, on the JDK that Ghidra version asks for
+(21 up to 12.1, 25 from 12.2). The Ghidra plugin is new and has not been released yet; its version
+is `0.1.0`.
 
 ### Install
 
-1. Get this repository: clone it, or download and unpack a source archive. Ghidra runs the plugin
-   from there.
+1. Get the extension ZIP. Until the first release, build it from a clone of this repository:
+   `python scripts/ghidra/package_extension.py --repo . --output mcrit-ghidra.zip --ghidra-version <your Ghidra version>`.
+   Runs of the Ghidra CI workflow also keep one as the `mcrit-ghidra-extension` artifact, built for
+   the Ghidra version CI tests with.
 2. Start Ghidra in PyGhidra mode: `support/pyghidraRun` (Linux, macOS) or
    `support\pyghidraRun.bat` (Windows). The first start offers to set up PyGhidra in a virtual
    environment in Ghidra's settings folder.
-3. Install the dependencies into that environment, e.g. on Linux
+3. In the project window, choose File → Install Extensions, click +, pick the ZIP and restart
+   Ghidra. If the ZIP was built for another Ghidra version, Ghidra warns about it and lets you
+   install it anyway; the plugin does not depend on the exact version.
+4. Install the dependencies into PyGhidra's environment, e.g. on Linux
    `~/.config/ghidra/ghidra_<version>/venv/bin/python -m pip install "smda>=4.9.0" requests`.
    When they are missing, MCRIT shows the exact command for your installation.
-4. In the CodeBrowser, open Window → Script Manager, choose Manage Script Directories and add
-   `ghidra_scripts` from this repository.
-5. In the Script Manager, find `MCRIT.py` in the MCRIT category and tick its "In Tool" box. This
-   adds Tools → MCRIT and the key binding Ctrl+Shift+M; Ghidra creates script menu entries only
-   for scripts marked this way.
+5. In the CodeBrowser, open Window → Script Manager, find `MCRIT.py` in the MCRIT category and
+   tick its "In Tool" box. This adds Tools → MCRIT and the key binding Ctrl+Shift+M; Ghidra
+   creates script menu entries only for scripts marked this way.
+
+To run the plugin straight from a clone instead, skip steps 1 and 3 and add
+`mcrit_plugin/ghidra/ghidra_scripts` from the clone under Script Manager → Manage Script
+Directories.
 
 The first start compiles a small Java class that hosts the MCRIT window, with the JDK Ghidra runs
 on, into Ghidra's settings folder. It is rebuilt automatically for a new plugin or Ghidra version.
@@ -113,9 +123,16 @@ on, into Ghidra's settings folder. It is rebuilt automatically for a new plugin 
 
 Settings are under Edit → Tool Options → MCRIT: the same settings as in the other plugins, listed by
 their display names. The API token field is masked, but Ghidra stores it with the tool's options in
-plain text. A `config_override.json` in the repository root takes precedence as it does in IDA.
-Settings are read whenever they are used, except the connection settings (server, token, username,
-timeout), which are read when MCRIT opens for a program; reopen the program after changing those.
+plain text. A `config_override.json` in the extension's folder (`Extensions/MCRIT` in Ghidra's
+settings folder), or in the clone's root, takes precedence as it does in IDA. Reinstalling the
+extension replaces that folder, so keep a copy of the file.
+The Settings button on the MCRIT toolbar opens them there. The table columns are read whenever a
+table is filled. The connection settings (server, token, username, timeout) are read when MCRIT
+opens for a program, and again when the options dialog its Settings button opened closes (a
+different server only until MCRIT holds results from the current one); after changing them any
+other way, reopen the program. The starting values of the checkboxes and thresholds are read when
+MCRIT opens for a program. The other settings are read when
+they are used.
 
 ### Use
 
@@ -123,7 +140,8 @@ Run Tools → MCRIT, or the script from the Script Manager. The window docks int
 with the same toolbar and tabs as the other plugins, one session per open program; it follows the
 active program and offers to open MCRIT for a program that has no session yet. Reports are exported
 from Ghidra's own analysis, matched local blocks are tinted in the listing (a marker, not saved with
-the program), and remote CFGs open in Ghidra's graph view.
+the program; Clear Match Coloring in the MCRIT window's menu removes it), and remote CFGs open
+in Ghidra's graph view.
 
 ## Settings
 
@@ -147,7 +165,8 @@ See [CHANGELOG.md](CHANGELOG.md) for the full release history.
 
 ## License
 
-GPL-3.0, see [LICENSE](LICENSE).
+GPL-3.0, see [LICENSE](LICENSE). The third-party icons and their licences are listed in
+[icons/NOTICE.md](icons/NOTICE.md).
 
 ## Authors
 

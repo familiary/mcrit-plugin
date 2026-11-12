@@ -40,7 +40,7 @@ def _main_widget(remote_sample_entry):
         _enableMatchWidgets=MagicMock(),
         _askSmdaInfo=MagicMock(),
     )
-    for name in ("_applyConvertedReport", "_downloadListsForChooser"):
+    for name in ("_applyConvertedReport", "_downloadListsForChooser", "_keepMetadata"):
         setattr(widget, name, types.MethodType(getattr(MainWidget, name), widget))
     return widget, downloads
 
@@ -89,3 +89,24 @@ def test_a_failed_list_request_lets_the_next_convert_try_again():
     with pytest.raises(RuntimeError):
         work()
     assert not widget._building
+
+
+def test_a_second_convert_swaps_in_the_new_report_and_keeps_its_metadata():
+    entry = SimpleNamespace(family="fam", version="1", is_library=False)
+    widget, _downloads = _main_widget(remote_sample_entry=entry)
+    widget._applyConvertedReport(SimpleNamespace(family="", version="", is_library=False))
+    renamed = SimpleNamespace(family="", version="", is_library=False)
+
+    widget._applyConvertedReport(renamed)
+
+    assert widget.parent.local_smda_report is renamed
+    assert renamed.family == "fam"
+
+
+def test_a_failed_convert_downloads_no_lists():
+    widget, downloads = _main_widget(remote_sample_entry=None)
+
+    widget._applyConvertedReport(None)
+    _answer_all(widget.cc.backend)
+
+    assert downloads == []

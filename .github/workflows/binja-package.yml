@@ -2,6 +2,7 @@ name: Binary Ninja package
 
 on:
   push:
+    branches: ["**"]
     paths:
       - "mcrit_plugin/binja/**"
       - "plugin.json"
@@ -48,6 +49,8 @@ on:
       - "pyproject.toml"
       - ".gitattributes"
 
+  workflow_dispatch:
+
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
@@ -57,7 +60,8 @@ permissions:
 
 jobs:
   package:
-    name: Binary Ninja plugin package
+    name: Validate package
+    timeout-minutes: 15
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
@@ -67,7 +71,7 @@ jobs:
           fetch-depth: 0
           persist-credentials: false
       - name: Set up Python
-        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
         with:
           python-version: "3.12"
       - name: Verify metadata sync

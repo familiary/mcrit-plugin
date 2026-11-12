@@ -5,6 +5,7 @@ from mcrit_plugin.core.presentation import (
     format_data_bytes,
     format_hex_lines,
 )
+from mcrit_plugin.ui_qt.widgets.NativeLook import button_box, monospace_font
 
 QDialog = QtShim.get_QDialog()
 
@@ -107,7 +108,7 @@ class YaraStringBuilderDialog(QDialog):
         # YARA rule text area
         self.label_yara = self.cc.QLabel("Generated YARA Rule:")
         self.text_yara = self.cc.QTextEdit()
-        self.text_yara.setFont(self.cc.QFont("Courier", 9))
+        self.text_yara.setFont(monospace_font(self))
         self.text_yara.setReadOnly(True)
 
         # Layout
@@ -136,10 +137,13 @@ class YaraStringBuilderDialog(QDialog):
         self.ok_button.clicked.connect(self.accept)
 
         # Layout
-        self.button_layout.addWidget(self.copy_escaped_button)
-        self.button_layout.addWidget(self.copy_yara_button)
-        self.button_layout.addStretch(1)
-        self.button_layout.addWidget(self.ok_button)
+        self.button_layout.addWidget(
+            button_box(
+                accept=[self.ok_button],
+                actions=[self.copy_escaped_button, self.copy_yara_button],
+                default=self.ok_button,
+            )
+        )
 
     def _onScopeChanged(self):
         """Handle scope radio button changes"""

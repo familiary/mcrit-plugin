@@ -17,7 +17,12 @@ def _session(report_names, current_names):
     ]
     session = _Session(
         local_smda_report=SimpleNamespace(getFunctions=lambda: iter(functions)),
-        cc=SimpleNamespace(backend=SimpleNamespace(get_function_symbols=lambda: current_names)),
+        cc=SimpleNamespace(
+            backend=SimpleNamespace(
+                get_function_symbols=lambda: current_names,
+                run_blocking=lambda title, work: work() is None,
+            )
+        ),
         mcrit_interface=MagicMock(),
     )
     return session, functions
@@ -33,6 +38,13 @@ def test_renamed_and_new_names_are_unsynced():
         (0x10, "old", "new"),
         (0x40, None, "added"),
     ]
+
+
+def test_a_named_function_the_report_lacks_is_not_unsynced():
+    """Binary Ninja lists import stubs with their names; the report has no function to rename."""
+    session, _ = _session([(0x10, "kept")], {0x10: "kept", 0x9000: "printf"})
+
+    assert session.findUnsyncedFunctionNames() == []
 
 
 def test_the_upload_patches_renamed_functions_into_the_report():

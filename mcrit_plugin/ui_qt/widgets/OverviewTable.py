@@ -8,6 +8,7 @@ it."""
 import mcrit_plugin.ui_qt.QtShim as QtShim
 from mcrit_plugin.core.presentation import row_cells
 from mcrit_plugin.core.ScoreColorProvider import ScoreColorProvider, ThemeRole
+from mcrit_plugin.ui_qt.widgets.NativeLook import address_font, apply_table_look, is_address
 
 QtCore = QtShim.get_QtCore()
 Qt = QtShim.get_Qt()
@@ -34,6 +35,10 @@ CRITICALITY_ROLES = {
     4: (ThemeRole.YELLOW, (255, 255, 100)),
     5: (ThemeRole.RED, (255, 100, 100)),
 }
+
+
+# a drop-down needs more room than a line of text
+LABEL_ROW_HEIGHT = 26
 
 
 class OverviewRow:
@@ -96,6 +101,7 @@ class OverviewTableModel(QAbstractTableModel):
     def __init__(self, backend=None, parent=None):
         super().__init__(parent)
         self.backend = backend
+        self.address_font = None
         self.headers = []
         self.column_types = []
         self.label_column = None
@@ -184,6 +190,10 @@ class OverviewTableModel(QAbstractTableModel):
             return row.selected_text if is_label else row.texts[column]
         if role == Qt.TextAlignmentRole:
             return ALIGN_CENTER
+        if role == Qt.FontRole:
+            if self.address_font is not None and not is_label and is_address(row.texts[column]):
+                return self.address_font
+            return None
         if role == SORT_ROLE:
             return row.selected_text if is_label else row.sort_keys[column]
         if role == SELECTED_ROLE and is_label:
@@ -302,6 +312,8 @@ class OverviewTableView(QTableView):
         self.setSortingEnabled(True)
         self.setContextMenuPolicy(Qt.CustomContextMenu)
         self.label_delegate = LabelDelegate(self, self)
+        apply_table_look(self, row_height=LABEL_ROW_HEIGHT)
+        self.table_model.address_font = address_font(self)
 
     def setLabelColumn(self, column):
         for old_column in range(self.table_model.columnCount()):

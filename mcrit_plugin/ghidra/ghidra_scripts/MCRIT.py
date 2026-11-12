@@ -21,20 +21,39 @@ from java.lang import System
 # system property is true; it is set for this script only and restored shortly after it ended.
 KEEP_MODULES = "pyghidra.sys.modules.restore.disable"
 RESTORE_DELAY = 5.0
-_previous_keep_modules = System.getProperty(KEEP_MODULES)
+# [runs not yet restored, the property's value before the first of them]; on sys, as a run started
+# before the previous one restored would otherwise take that run's "true" for the user's value
+_keep_modules = sys.__dict__.setdefault("_mcrit_keep_modules", [0, None])
+if _keep_modules[0] == 0:
+    _keep_modules[1] = System.getProperty(KEEP_MODULES)
+_keep_modules[0] += 1
 System.setProperty(KEEP_MODULES, "true")
 
 
 def _restore_keep_modules():
     time.sleep(RESTORE_DELAY)
-    if _previous_keep_modules is None:
+    _keep_modules[0] -= 1
+    if _keep_modules[0] > 0:
+        return
+    if _keep_modules[1] is None:
         System.clearProperty(KEEP_MODULES)
     else:
-        System.setProperty(KEEP_MODULES, _previous_keep_modules)
+        System.setProperty(KEEP_MODULES, _keep_modules[1])
 
 
-# this script sits in <plugin>/ghidra_scripts; the mcrit_plugin package is next to that folder
-PLUGIN_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+def _plugin_root():
+    """The folder holding the mcrit_plugin package: this script sits in mcrit_plugin/ghidra/
+    ghidra_scripts in a clone, and in ghidra_scripts next to mcrit_plugin in the extension."""
+    folder = os.path.dirname(os.path.abspath(__file__))
+    while not os.path.isfile(os.path.join(folder, "mcrit_plugin", "__init__.py")):
+        parent = os.path.dirname(folder)
+        if parent == folder:
+            raise ImportError("MCRIT.py found no mcrit_plugin package above its own folder")
+        folder = parent
+    return folder
+
+
+PLUGIN_ROOT = _plugin_root()
 if PLUGIN_ROOT not in sys.path:
     sys.path.insert(0, PLUGIN_ROOT)
 
@@ -73,7 +92,13 @@ def main():
         Msg.showWarn(None, None, "MCRIT", "Open a program first.")
         return
     location = currentLocation  # noqa: F821
-    cursor = int(location.getAddress().getOffset()) if location is not None else None
+    address = location.getAddress() if location is not None else None
+    # an overlay or external address has an offset that names another place in the default space
+    if address is not None and (
+        address.getAddressSpace() != program.getAddressFactory().getDefaultAddressSpace()
+    ):
+        address = None
+    cursor = int(address.getOffset()) if address is not None else None
 
     from mcrit_plugin.ghidra import bridge, modules, swing
     from mcrit_plugin.ghidra.controller import controller_for

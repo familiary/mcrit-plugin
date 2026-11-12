@@ -1,5 +1,6 @@
 import mcrit_plugin.ui_qt.QtShim as QtShim
 from mcrit_plugin.core.ScoreColorProvider import ScoreColorProvider, ThemeRole
+from mcrit_plugin.ui_qt.widgets.NativeLook import apply_table_look, button_box
 from mcrit_plugin.ui_qt.widgets.NumberQTableWidgetItem import NumberQTableWidgetItem
 
 QDialog = QtShim.get_QDialog()
@@ -67,6 +68,7 @@ class ResultChooserDialog(QDialog):
         input_layout = self.cc.QVBoxLayout()
         if self.job_infos:
             self.table_jobs = self.cc.QTableWidget()
+            apply_table_look(self.table_jobs)
             self.table_jobs.doubleClicked.connect(self._onTableJobRowDoubleClicked)
             self.populateJobsTable()
             # arrange in layout
@@ -137,17 +139,24 @@ class ResultChooserDialog(QDialog):
 
     def _createButtons(self):
         self.button_layout = self.cc.QHBoxLayout()
-        self.button_layout.addStretch(1)
+        accept = []
         if self.job_infos:
             self.select_button = self.cc.QPushButton(self.tr("Select Result"))
             self.select_button.clicked.connect(self.accept_select)
-            self.button_layout.addWidget(self.select_button)
+            accept.append(self.select_button)
         self.create_button = self.cc.QPushButton(self.tr("Create New Matching Job"))
         self.create_button.clicked.connect(self.accept_create)
-        self.button_layout.addWidget(self.create_button)
         self.cancel_button = self.cc.QPushButton(self.tr("Cancel"))
         self.cancel_button.clicked.connect(self.reject)
-        self.button_layout.addWidget(self.cancel_button)
+        self.button_layout.addWidget(
+            button_box(
+                accept=accept,
+                reject=[self.cancel_button],
+                actions=[self.create_button],
+                # Return picks the selected result; without results there is nothing to pick
+                default=accept[0] if accept else None,
+            )
+        )
 
     def jobInfoAt(self, row):
         """The job shown in a table row, which after sorting is not job_infos[row]."""

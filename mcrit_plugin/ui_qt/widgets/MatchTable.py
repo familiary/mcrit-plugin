@@ -7,6 +7,7 @@ only for the cells in view."""
 
 import mcrit_plugin.core.McritTableColumn as McritTableColumn
 import mcrit_plugin.ui_qt.QtShim as QtShim
+from mcrit_plugin.ui_qt.widgets.NativeLook import address_font, apply_table_look, is_address
 
 QtCore = QtShim.get_QtCore()
 Qt = QtShim.get_Qt()
@@ -17,6 +18,13 @@ QItemSelectionModel = QtCore.QItemSelectionModel
 # PySide6 scopes the selection flags in an enum class; PyQt5 keeps them on the class
 SelectionFlag = getattr(QItemSelectionModel, "SelectionFlag", QItemSelectionModel)
 QTableView = QtWidgets.QTableView
+
+
+# room between a column's widest text and the next column
+CELL_PADDING = 12
+# a fitted column is no wider than this, e.g. one holding a SHA256; the user can drag it wider
+MAX_FITTED_WIDTH = 280
+LEFT_ALIGNED = int(Qt.AlignLeft | Qt.AlignVCenter)
 
 
 class MatchRow:
@@ -41,6 +49,8 @@ class MatchTableModel(QAbstractTableModel):
         self.rows = []
         self.foreground = None
         self.alignment = None
+        # for the cells shown as 0x..., where the host shows addresses in its code font
+        self.address_font = None
         # rows stay in the order they were filled in until a header is clicked
         self._sort = None
 
@@ -86,6 +96,9 @@ class MatchTableModel(QAbstractTableModel):
     def headerData(self, section, orientation, role=Qt.DisplayRole):
         if role == Qt.DisplayRole and orientation == Qt.Horizontal:
             return self.headers[section] if section < len(self.headers) else None
+        if role == Qt.TextAlignmentRole and orientation == Qt.Horizontal:
+            # over its column's texts, as in the hosts' own lists
+            return self.alignment if self.alignment is not None else LEFT_ALIGNED
         return super().headerData(section, orientation, role)
 
     def data(self, index, role=Qt.DisplayRole):
@@ -96,6 +109,10 @@ class MatchTableModel(QAbstractTableModel):
             return row.texts[index.column()]
         if role == Qt.TextAlignmentRole:
             return self.alignment
+        if role == Qt.FontRole:
+            if self.address_font is not None and is_address(row.texts[index.column()]):
+                return self.address_font
+            return None
         if role == Qt.BackgroundRole:
             return row.background
         if role == Qt.ForegroundRole and row.background is not None:
@@ -127,9 +144,36 @@ class MatchTableView(QTableView):
         # rows come in a meaningful order; no arrow claims a column sort until one is clicked
         self.horizontalHeader().setSortIndicator(-1, Qt.DescendingOrder)
         self.setContextMenuPolicy(Qt.CustomContextMenu)
+        apply_table_look(self)
+        self.table_model.address_font = address_font(self)
+
+    def resizeColumnsToContents(self):
+        """Fit the columns to the texts of the first rows, measured here: Qt asks the model for
+        every role of every cell it measures, which was most of the time a function with many
+        blocks took to show."""
+        model = self.table_model
+        header = self.horizontalHeader()
+        metrics = self.fontMetrics()
+        address_metrics = (
+            metrics
+            if model.address_font is None
+            else QtShim.get_QtGui().QFontMetrics(model.address_font)
+        )
+        style = self.style()
+        margin = 2 * (style.pixelMetric(QtWidgets.QStyle.PM_FocusFrameHMargin, None, self) + 1)
+        rows = model.rows[: McritTableColumn.FIT_COLUMNS_TO_ROWS]
+        # the last column takes the room that is left
+        for column in range(len(model.headers) - 1):
+            width = 0
+            for row in rows:
+                text = row.texts[column]
+                measure = address_metrics if is_address(text) else metrics
+                width = max(width, measure.horizontalAdvance(str(text)))
+            width = min(width + margin + CELL_PADDING, MAX_FITTED_WIDTH)
+            self.setColumnWidth(column, max(width, header.sectionSizeHint(column)))
 
     def selectEntireRow(self, row):
-        """Highlight a whole row; selectRow does nothing while clicks select single cells."""
+        """Highlight a whole row and make its first cell the current one."""
         model = self.table_model
         selection_model = self.selectionModel()
         selection_model.setCurrentIndex(model.index(row, 0), SelectionFlag.NoUpdate)

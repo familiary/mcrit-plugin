@@ -22,6 +22,8 @@ from mcrit_plugin.ghidra.ui.FunctionMatchPanel import entry_field
 from mcrit_plugin.ghidra.ui.table import MatchRow, MatchTableView
 
 BLOCK_QUERY_WORKERS = 8
+# what a block query answers when some lookups failed, in place of True
+INCOMPLETE = "incomplete"
 
 
 def packRgb(rgb):
@@ -41,14 +43,14 @@ class BlockMatchPanel:
         self._shown_function = None
         self._shown_block = None
         self.name = "Block Scope"
-        self.icon_file = "puzzle.png"
+        self.icon_file = "blocks.png"
         config = parent.config
         self.label_current_function_matches = Label("Block Matches for: <function_offset>")
         self.cb_filter_library = checkbox(
             "Filter out Library Matches",
             config.BLOCKS_FILTER_LIBRARY_FUNCTIONS,
             enabled=False,
-            on_click=lambda: self.hook_refresh(None, use_current_block=True),
+            on_click=self._onCbFilterLibraryClicked,
         )
         self.cb_activate_live_tracking = checkbox(
             "Live Block Queries",
@@ -91,6 +93,10 @@ class BlockMatchPanel:
     def _onCbLiveClicked(self):
         if self.cb_activate_live_tracking.isSelected():
             self.queryCurrentBlock()
+
+    def _onCbFilterLibraryClicked(self):
+        if self.last_viewed_function is not None:
+            self.updateViewWithCurrentBlock()
 
     def enable(self):
         for widget in (self.cb_filter_library, self.cb_activate_live_tracking, self.b_query_single):
@@ -151,9 +157,18 @@ class BlockMatchPanel:
         if self.updateCurrentBlock(view) is None and not use_current_block:
             return
         if self.parent.current_function == self.last_viewed_function and not use_current_block:
+            # the function's tables stand; the lower one follows the cursor to another block
+            if (
+                self.cb_activate_live_tracking.isSelected()
+                and self._last_block_matches is not None
+                and self._shown_function == self.parent.current_function
+                and self._shown_block != self.parent.current_block
+            ):
+                self.populateBlockMatchTable(self._last_block_matches, self.parent.current_block)
             return
         if not self.cb_activate_live_tracking.isSelected():
             self.clearTable()
+            self.last_viewed_function = None
             self.label_current_function_matches.setText("Live Block Queries are deactivated.")
             return
         self.updateViewWithCurrentBlock()
@@ -191,8 +206,8 @@ class BlockMatchPanel:
                 return None
             if not self.parent.mcrit_interface.ensureRemoteInformation():
                 return False
-            self._lookupBlockHashes([entry["hash"] for entry in pbh], stop=superseded)
-            return True
+            hashes = [entry["hash"] for entry in pbh]
+            return self._lookupBlockHashes(hashes, stop=superseded) is not False or INCOMPLETE
 
         def show(remote_cache_ready):
             if remote_cache_ready is None or superseded():
@@ -209,6 +224,15 @@ class BlockMatchPanel:
                     "No Block Matches for: 0x%x" % self.parent.current_block
                 )
             self._showBlockMatches(pbh)
+            if remote_cache_ready == INCOMPLETE:
+                # the blocks that got no answer would read as blocks without matches; with live
+                # queries on, the next cursor move in this function asks for them again
+                if self.cb_activate_live_tracking.isSelected():
+                    self.last_viewed_function = None
+                self.label_current_function_matches.setText(
+                    "Block queries failed for function 0x%x; the tables are incomplete."
+                    % function_offset
+                )
 
         if (
             self.parent.family_infos is not None
@@ -228,23 +252,26 @@ class BlockMatchPanel:
         missing = [h for h in dict.fromkeys(hashes) if h not in self.parent.blockhash_matches]
         if not missing:
             return
+        interface = self.parent.mcrit_interface
+        connection = interface._pinConnection()
         failed = threading.Event()
 
         def lookup(block_hash):
             if failed.is_set() or (stop is not None and stop()):
                 return None
-            matches = self.parent.mcrit_interface.getMatchesForPicBlockHash(block_hash)
+            matches = interface.getMatchesForPicBlockHash(block_hash, connection)
             if matches is None:
                 failed.set()
             return matches
 
         start = time.time()
         with ThreadPoolExecutor(BLOCK_QUERY_WORKERS) as pool:
-            for block_hash, matches in zip(missing, pool.map(lookup, missing)):
-                if matches is not None:
-                    self.parent.blockhash_matches[block_hash] = matches
+            found = {h: m for h, m in zip(missing, pool.map(lookup, missing)) if m is not None}
+        interface.storeBlockMatches(found, connection, shown=hashes)
+        complete = not failed.is_set()
         duration = time.time() - start
         print(f"[MCRIT] querying {len(missing)} blocks took {duration:5.3f} seconds.")
+        return complete
 
     def _showBlockMatches(self, pbh):
         for entry in pbh:

@@ -6,6 +6,7 @@ the dialogs they open are in dialogs.py.
 
 import json
 
+from mcrit_plugin.core.config import same_server
 from mcrit_plugin.ghidra.ui.components import button, load_icon, scrolling_tabs
 from mcrit_plugin.ghidra.ui.dialogs import (
     ResultChooserDialog,
@@ -35,7 +36,11 @@ class MainPanel:
 
         def tool(icon, tooltip, handler, enabled):
             widget = button(
-                "", handler, enabled=enabled, icon=load_icon(icons + icon), tooltip=tooltip
+                "",
+                handler,
+                enabled=enabled,
+                icon=load_icon(icons + icon, 24),
+                tooltip=tooltip,
             )
             self.toolbar.add(widget)
             return widget
@@ -69,6 +74,12 @@ class MainPanel:
             "Build a YARA string from the current selection.",
             self._onBuildYaraStringButtonClicked,
             False,
+        )
+        self.settingsAction = tool(
+            "settings.png",
+            "Set the MCRIT server, API token and other plugin settings.",
+            self._onSettingsButtonClicked,
+            True,
         )
         self.tabs = scrolling_tabs()
         for widget in self.tabbed_widgets:
@@ -176,8 +187,13 @@ class MainPanel:
         first_conversion = self.parent.local_smda_report is None
         if first_conversion:
             self.parent.local_smda_report = local_smda_report
-        if first_conversion and (
-            self.parent.local_smda_report is None or self.parent.remote_sample_entry is not None
+        else:
+            # a later Convert brings the report up to date with the database
+            self._keepMetadata(local_smda_report)
+        if (
+            first_conversion
+            and self.parent.local_smda_report is not None
+            and self.parent.remote_sample_entry is not None
         ):
             self.cc.backend.run_request(
                 "MCRIT: downloading family and sample lists",
@@ -216,9 +232,11 @@ class MainPanel:
             raise
 
     def _askSmdaInfo(self):
-        dialog = SmdaInfoDialog(self)
-        dialog.exec_()
-        self._building = False
+        try:
+            dialog = SmdaInfoDialog(self)
+            dialog.exec_()
+        finally:
+            self._building = False
         smda_info = dialog.getSmdaInfo()
         report = self.parent.local_smda_report
         report.family = smda_info["family"]
@@ -227,6 +245,35 @@ class MainPanel:
         self._enableMatchWidgets()
         self.parent.local_widget.update()
 
+    def _onSettingsButtonClicked(self):
+        backend = self.cc.backend
+        if not backend.open_settings(self.parent.config):
+            self.parent.local_widget.updateActivityInfo(
+                "The settings are under Edit > Tool Options > MCRIT."
+            )
+            return
+        # Tool Options closed: take over the connection settings, as IDA and Binary Ninja do
+        interface = self.parent.mcrit_interface
+        server = interface.server
+        waiting_server = interface.reloadSettings()
+        report = self.parent.local_smda_report
+        if report is not None and not same_server(interface.server, server):
+            # the sample the old server did not know may be on the new one
+            backend.run_request(
+                "MCRIT: looking up the converted sample",
+                lambda: interface.querySampleSha256(report.sha256),
+                lambda _result: self._onSampleLookedUpAgain(report),
+            )
+        if waiting_server is not None:
+            backend.show_warning(
+                "The new settings are saved. MCRIT keeps using %s for the results it already has; "
+                "%s to switch to %s." % (interface.server, backend.reopen_hint, waiting_server)
+            )
+
+    def _onSampleLookedUpAgain(self, report):
+        if self.parent.remote_sample_entry is not None:
+            self._applyConvertedReport(report)
+
     def _enableMatchWidgets(self):
         self.parent.block_match_widget.enable()
         self.parent.function_match_widget.enable()
@@ -234,16 +281,16 @@ class MainPanel:
     # export and upload
 
     def _keepMetadata(self, updated_report):
-        """Swap in a re-exported report, keeping the family, version and library flag."""
+        """Swap in a re-exported report, keeping the family, version and library flag; after a
+        failed re-export (None) the session keeps the report it has."""
+        if updated_report is None:
+            return None
         current = self.parent.local_smda_report
-        family = current.family if current else ""
-        version = current.version if current else ""
-        is_library = current.is_library if current else False
+        if current is not None:
+            updated_report.family = current.family
+            updated_report.version = current.version
+            updated_report.is_library = current.is_library
         self.parent.local_smda_report = updated_report
-        if updated_report is not None:
-            updated_report.family = family
-            updated_report.version = version
-            updated_report.is_library = is_library
         return updated_report
 
     def _onExportSmdaButtonClicked(self):
@@ -253,13 +300,17 @@ class MainPanel:
         report = self._keepMetadata(updated_report)
         if not report:
             self.parent.local_widget.updateActivityInfo(
-                "Program is not converted to SMDA report yet, can't export."
+                "Exporting the SMDA report failed, nothing to export."
             )
             return
         filepath = self.cc.backend.ask_save_file(report.filename + ".smda", "Export SMDA report")
         if filepath:
-            with open(filepath, "w") as fout:
-                json.dump(report.toDict(), fout, indent=1, sort_keys=True)
+            try:
+                with open(filepath, "w") as fout:
+                    json.dump(report.toDict(), fout, indent=1, sort_keys=True)
+            except OSError as exc:
+                self.parent.local_widget.updateActivityInfo("Export failed: %s." % exc)
+                return
             self.parent.local_widget.updateActivityInfo('SMDA report exported to: "%s".' % filepath)
         else:
             self.parent.local_widget.updateActivityInfo("Export aborted.")
@@ -271,7 +322,7 @@ class MainPanel:
         report = self._keepMetadata(updated_report)
         if not report:
             self.parent.local_widget.updateActivityInfo(
-                "Program is not converted to SMDA report yet, can't upload."
+                "Exporting the SMDA report failed, nothing to upload."
             )
             return
         self.uploadSmdaAction.setEnabled(False)
@@ -307,8 +358,12 @@ class MainPanel:
         if jobs is None:
             self.getMatchResultAction.setEnabled(True)
             return
-        dialog = ResultChooserDialog(self, job_infos=jobs)
-        dialog.exec_()
+        try:
+            dialog = ResultChooserDialog(self, job_infos=jobs)
+            dialog.exec_()
+        except Exception:
+            self.getMatchResultAction.setEnabled(True)
+            raise
         result = dialog.getResultChosen()
         selected_job_id = result["selected_job_id"]
         if result["is_requesting_matching_job"]:
