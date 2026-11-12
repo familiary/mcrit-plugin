@@ -24,10 +24,12 @@ class ConnectionSettingsDialog(QDialog):
         self.edit_username = self.cc.QLineEdit(config.MCRITWEB_USERNAME or "")
         self.edit_username.setPlaceholderText("optional, the token implies it")
         self.spin_timeout = self.cc.QSpinBox()
-        self.spin_timeout.setRange(0, 3600)
+        # a QSpinBox holds a 32-bit int
+        timeout = min(config.MCRIT_REQUEST_TIMEOUT, 2**31 - 1)
+        self.spin_timeout.setRange(0, max(3600, timeout))
         self.spin_timeout.setSuffix(" s")
         self.spin_timeout.setSpecialValueText("no limit")
-        self.spin_timeout.setValue(config.MCRIT_REQUEST_TIMEOUT)
+        self.spin_timeout.setValue(timeout)
         token_row = self.cc.QHBoxLayout()
         token_row.addWidget(self.edit_token)
         token_row.addWidget(self.cb_show_token)
@@ -54,10 +56,10 @@ class ConnectionSettingsDialog(QDialog):
             "mcritweb_username": self.edit_username,
             "mcrit_request_timeout": self.spin_timeout,
         }
-        forced = sorted(key for key in fields if key in config.overriddenSettings())
-        for key in forced:
+        self._forced = sorted(key for key in fields if key in config.overriddenSettings())
+        for key in self._forced:
             fields[key].setEnabled(False)
-        if forced:
+        if self._forced:
             notes.append("Greyed out: set by config_override.json, so only that file changes them.")
         if self.cc.backend.settings_hint:
             notes.append(self.cc.backend.settings_hint)
@@ -99,6 +101,9 @@ class ConnectionSettingsDialog(QDialog):
         }
 
     def accept(self):
+        if "mcrit_server" in self._forced:
+            self.cc.QDialog.accept(self)
+            return
         try:
             url = urlparse(self.edit_server.text().strip())
             # urllib raises here for a port that is not a number from 0 to 65535

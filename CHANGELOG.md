@@ -27,7 +27,10 @@ Ninja or Ghidra applies to that plugin only.
   changed token, username or timeout without reopening the plugin. A changed server is picked up
   the same way until the plugin holds results from the current one; after that, it says so, keeps
   the current server with its token and username, and reopening the plugin switches. An answer
-  that arrives from the previous server after a switch is dropped.
+  that arrives from the previous server after a switch is dropped, and a converted sample is
+  looked up on the new server. Server URLs that differ only by a trailing slash are the same
+  server. A server forced by `config_override.json` is not checked when the other fields are
+  saved, and if saving fails partway, the settings saved before the failure are used.
 - A failed connection check while the server is still the default `http://127.0.0.1:8000/` points
   at the Settings button (Ghidra: Edit > Tool Options > MCRIT).
 

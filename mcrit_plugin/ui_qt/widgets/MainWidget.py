@@ -1,6 +1,7 @@
 import json
 
 import mcrit_plugin.ui_qt.QtShim as QtShim
+from mcrit_plugin.core.config import same_server
 from mcrit_plugin.ui_qt.widgets.ConnectionSettingsDialog import ConnectionSettingsDialog
 from mcrit_plugin.ui_qt.widgets.ResultChooserDialog import ResultChooserDialog
 from mcrit_plugin.ui_qt.widgets.SmdaInfoDialog import SmdaInfoDialog
@@ -186,10 +187,10 @@ class MainWidget(QMainWindow):
                     self.cc.backend.save_settings(dialog.changedValues())
                 except Exception as exc:
                     self.cc.backend.show_warning("Saving the MCRIT settings failed: %s" % exc)
+                    # the keys written before the failure are in the store all the same
+                    self._reloadSettings(recheck=True)
                     return
-                self._reportWaitingServer(
-                    self.parent.mcrit_interface.reloadSettings(recheck=True), always=True
-                )
+                self._reportWaitingServer(self._reloadSettings(recheck=True), always=True)
             return
         if widget is True:
             self.parent.local_widget.updateActivityInfo(
@@ -202,9 +203,27 @@ class MainWidget(QMainWindow):
 
     def _onSettingsClosed(self):
         self._watchedSettingsWidget = None
-        waiting_server = self.parent.mcrit_interface.reloadSettings()
+        waiting_server = self._reloadSettings()
         # not modal from inside the destroyed signal of the closing settings window
         self.cc.QtCore.QTimer.singleShot(0, lambda: self._reportWaitingServer(waiting_server))
+
+    def _reloadSettings(self, recheck=False):
+        interface = self.parent.mcrit_interface
+        server = interface.server
+        waiting_server = interface.reloadSettings(recheck=recheck)
+        report = self.parent.local_smda_report
+        if report is not None and not same_server(interface.server, server):
+            # the sample the old server did not know may be on the new one
+            self.cc.backend.run_request(
+                "MCRIT: looking up the converted sample",
+                lambda: interface.querySampleSha256(report.sha256),
+                lambda _result: self._onSampleLookedUpAgain(report),
+            )
+        return waiting_server
+
+    def _onSampleLookedUpAgain(self, report):
+        if self.parent.remote_sample_entry is not None:
+            self._applyConvertedReport(report)
 
     def _reportWaitingServer(self, waiting_server, always=False):
         """Warn once per waiting server when a settings window closes, every time after the form."""
@@ -358,9 +377,14 @@ class MainWidget(QMainWindow):
         # IDA reads the database for the export behind a wait box on its main thread, so the
         # request must not be part of the export
         self._building = True
+        server = self.parent.mcrit_interface.server
 
         def done(_result):
             self._building = False
+            if not same_server(server, self.parent.mcrit_interface.server):
+                # the server changed while the lookup ran, which dropped its answer: ask the new one
+                self._lookUpConvertedSample(local_smda_report)
+                return
             self._applyConvertedReport(local_smda_report)
 
         self.cc.backend.run_request(

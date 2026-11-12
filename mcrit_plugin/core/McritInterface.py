@@ -4,6 +4,7 @@ from contextlib import contextmanager
 
 import requests
 
+from mcrit_plugin.core.config import same_server
 from mcrit_plugin.core.minimcrit.client.McritClient import McritClient
 from mcrit_plugin.core.minimcrit.storage.MatchingResult import MatchingResult
 
@@ -83,9 +84,9 @@ class McritInterface(object):
         # requests already running keep the client they started with; set before the generation
         # moves, as _pinConnection reads the two without the lock
         self.mcrit_client = client
-        if server != self._mcrit_server:
-            self._mcrit_server = server
+        if not same_server(server, self._mcrit_server):
             self._server_generation += 1
+        self._mcrit_server = server
 
     def _pinConnection(self):
         """The client a request works with and the server generation that tells whether its answer
@@ -133,7 +134,10 @@ class McritInterface(object):
         connection_settings = self._readConnectionSettings()
         waiting_server = None
         with self._switch_lock:
-            if connection_settings[0] != self._mcrit_server and self._holdsServerData():
+            if (
+                not same_server(connection_settings[0], self._mcrit_server)
+                and self._holdsServerData()
+            ):
                 waiting_server = connection_settings[0]
                 server, _timeout, api_token, username = self._connection_settings
                 connection_settings = (server, connection_settings[1], api_token, username)
