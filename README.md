@@ -61,7 +61,7 @@ Settings are handled by [ida-settings](https://github.com/williballenthin/ida-se
 
 - HCLI: `hcli plugin config mcrit-ida set mcrit_server https://mcrit.example.com/api/` (`list`, `get`, `export` and `import` also work)
 - GUI: the Settings button on the MCRIT toolbar (also Edit → Plugins → MCRIT4IDA Settings...). With `ida-settings-editor` installed it opens the Plugin Settings Manager on mcrit-ida; without it, a small form for the server, API token, username and timeout.
-- File: put a `config_override.json` next to `ida_mcrit.py`. Its keys take precedence over the other two, so keep only the ones you want to force; `docs/config_override.json.template` shows the format, and the plugin prints the keys it forces when it loads.
+- File: put a `config_override.json` next to `ida_mcrit.py`. Its keys take precedence over the other two, so keep only the ones you want to force; `config_override.json.template` (in `docs/` of this repository, next to `ida_mcrit.py` in the release ZIP) shows the format, and the plugin prints the keys it forces when it loads.
 
 ### Use
 
@@ -85,7 +85,7 @@ Settings are under Settings → MCRIT, with the same keys as the IDA plugin; the
 
 ### Use
 
-Open the MCRIT sidebar, or run any MCRIT action from the command palette or Plugins → MCRIT. It has the same toolbar and tabs as the IDA plugin. Reports are exported from Binary Ninja's own analysis, and remote CFGs open as graph reports.
+Open the MCRIT sidebar, or run any MCRIT action from the command palette or Plugins → MCRIT. It has the same toolbar and tabs as the IDA plugin. Reports are exported from Binary Ninja's own analysis, and remote CFGs open as graph reports. Opening a match's graph tints the matched blocks of the local function through the "MCRIT Matches" render layer; Plugins → MCRIT → Clear Match Coloring removes the tint.
 
 ## Ghidra
 
@@ -126,8 +126,10 @@ their display names. The API token field is masked, but Ghidra stores it with th
 plain text. A `config_override.json` in the extension's folder (`Extensions/MCRIT` in Ghidra's
 settings folder), or in the clone's root, takes precedence as it does in IDA. Reinstalling the
 extension replaces that folder, so keep a copy of the file.
-Settings are read whenever they are used, except the connection settings (server, token, username,
-timeout), which are read when MCRIT opens for a program; reopen the program after changing those.
+The table columns are read whenever a table is filled. The connection settings (server, token,
+username, timeout) and the starting values of the checkboxes and thresholds are read when MCRIT
+opens for a program; reopen the program after changing those. The other settings are read when
+they are used.
 
 ### Use
 

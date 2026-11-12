@@ -169,6 +169,9 @@ public class McritTableModel extends AbstractTableModel {
 			return;
 		}
 		String text = value.toString();
+		if (!java.util.Arrays.asList(getChoices(row)).contains(text)) {
+			return;
+		}
 		rows[row][column] = new Cell(text, labelKey(text));
 		fireTableCellUpdated(row, column);
 	}

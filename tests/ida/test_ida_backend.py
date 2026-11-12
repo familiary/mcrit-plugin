@@ -580,3 +580,46 @@ def test_the_tint_follows_each_block_given_out_of_order_and_leaves_the_gaps(back
         (0x2020, 0x800000FF),
         (0x2027, 0x800000FF),
     ]
+
+
+def test_the_export_does_not_wait_behind_requests_to_a_server_that_does_not_answer(backend):
+    instance, kernwin = backend
+    release = threading.Event()
+    for _ in range(8):
+        instance.run_request("Live query", release.wait, MagicMock())
+    exported = threading.Event()
+
+    instance.run_background("Export", exported.set, MagicMock())
+
+    try:
+        assert exported.wait(5), "the export waited for a request worker"
+    finally:
+        release.set()
+        _finish_work(instance)
+
+
+def test_a_result_for_the_ui_thread_is_dropped_once_the_form_closed(backend):
+    instance, kernwin = backend
+    kernwin.execute_sync = lambda call, flags: call()
+    kernwin.MFF_FAST = 0
+    update = MagicMock()
+    instance.close()
+
+    instance.run_on_ui_thread(update)
+
+    update.assert_not_called()
+
+
+def test_the_upload_before_closing_waits_behind_a_wait_box_that_can_be_cancelled(backend):
+    instance, kernwin = backend
+    kernwin.is_idaq = lambda: True
+    kernwin.user_cancelled = lambda: True
+    server_never_answers = threading.Event()
+
+    try:
+        assert instance.run_blocking("MCRIT: uploading", server_never_answers.wait) is False
+    finally:
+        server_never_answers.set()
+
+    kernwin.show_wait_box.assert_called_once_with("MCRIT: uploading")
+    kernwin.hide_wait_box.assert_called_once()

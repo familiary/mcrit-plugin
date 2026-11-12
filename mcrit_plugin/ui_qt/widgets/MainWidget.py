@@ -399,8 +399,13 @@ class MainWidget(QMainWindow):
         first_conversion = self.parent.local_smda_report is None
         if first_conversion:
             self.parent.local_smda_report = local_smda_report
-        if first_conversion and (
-            self.parent.local_smda_report is None or self.parent.remote_sample_entry is not None
+        else:
+            # a later Convert brings the report up to date with the database
+            self._keepMetadata(local_smda_report)
+        if (
+            first_conversion
+            and self.parent.local_smda_report is not None
+            and self.parent.remote_sample_entry is not None
         ):
             # the lists are needed once matches show up, so convert does not wait for them; for
             # an unknown sample the family chooser below downloads them instead
@@ -482,10 +487,14 @@ class MainWidget(QMainWindow):
                 self.parent.local_smda_report.filename + ".smda", "Export SMDA report to file..."
             )
             if filepath:
-                with open(filepath, "w") as fout:
-                    json.dump(
-                        self.parent.local_smda_report.toDict(), fout, indent=1, sort_keys=True
-                    )
+                try:
+                    with open(filepath, "w") as fout:
+                        json.dump(
+                            self.parent.local_smda_report.toDict(), fout, indent=1, sort_keys=True
+                        )
+                except OSError as exc:
+                    self.parent.local_widget.updateActivityInfo("Export failed: %s." % exc)
+                    return
                 self.parent.local_widget.updateActivityInfo(
                     'SMDA report exported to: "%s".' % filepath
                 )

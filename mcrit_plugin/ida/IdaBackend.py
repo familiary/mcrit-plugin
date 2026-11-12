@@ -16,7 +16,7 @@ import ida_nalt
 import ida_undo
 import idc
 
-from mcrit_plugin.core.Backend import Backend
+from mcrit_plugin.core.Backend import Backend, run_until_cancelled
 from mcrit_plugin.core.ScoreColorProvider import ThemeRole, tint_over
 
 try:
@@ -221,7 +221,13 @@ class IdaBackend(Backend):
     def export_smda_report(self):
         # only reading the database needs IDA's main thread; disassembling and hashing, most of
         # the export, then run on the calling thread
-        disassembler, snapshot = self._read_export_snapshot()
+        from mcrit_plugin.ida.SmdaInterfaceSnapshot import ExportCancelled
+
+        try:
+            disassembler, snapshot = self._read_export_snapshot()
+        except ExportCancelled:
+            print("[MCRIT] Reading the database was cancelled.")
+            return None
         return disassembler.disassembleBuffer(snapshot.getBinary(), 0)
 
     @_on_main_thread
@@ -232,13 +238,15 @@ class IdaBackend(Backend):
 
         show_wait_box = ida_kernwin.is_idaq()
         if show_wait_box:
-            ida_kernwin.show_wait_box("HIDECANCEL\nMCRIT: reading the database")
+            ida_kernwin.show_wait_box("NODELAY\nMCRIT: reading the database")
         try:
             # first, so smda's IDA facade holds this interface rather than its own choice
             interface = _smda_ida_interface()
             # IdaExporter reads the bitness and architecture from IDA when it is created
             disassembler = Disassembler(backend="IDA")
-            snapshot = SmdaInterfaceSnapshot(interface)
+            snapshot = SmdaInterfaceSnapshot(
+                interface, cancelled=ida_kernwin.user_cancelled if show_wait_box else None
+            )
         finally:
             if show_wait_box:
                 ida_kernwin.hide_wait_box()
@@ -342,9 +350,16 @@ class IdaBackend(Backend):
             self._mutation_depth -= 1
 
     def run_background(self, title, work, on_done):
-        """work runs on a worker thread like a request; the methods it calls that read the
+        """work runs on a thread of its own, not behind the requests: the export needs no server
+        and must not wait for one that does not answer. The methods it calls that read the
         database run on the main thread."""
-        self.run_request(title, work, on_done)
+        if self.closed:
+            return
+        self._ensure_waker()
+        self._pending += 1
+        threading.Thread(
+            target=self._run, args=(title, work, on_done), name="mcrit-background", daemon=True
+        ).start()
 
     def run_request(self, title, work, on_done):
         """IDA's API is main-thread only: work, the requests, runs on a worker thread and must not
@@ -352,9 +367,7 @@ class IdaBackend(Backend):
         main thread, also from inside an IDA timer callback."""
         if self.closed:
             return
-        if self._waker is None:
-            # created on the main thread, so its queued signal is delivered there
-            self._waker = _main_thread_waker(self._deliver)
+        self._ensure_waker()
         if not self._workers:
             # daemon threads: the interpreter joins a ThreadPoolExecutor's threads at exit, so
             # quitting IDA during a slow request would wait for it
@@ -367,6 +380,11 @@ class IdaBackend(Backend):
         self._pending += 1
         self._requests.put((title, work, on_done))
 
+    def _ensure_waker(self):
+        if self._waker is None:
+            # created on the main thread, so its queued signal is delivered there
+            self._waker = _main_thread_waker(self._deliver)
+
     def _work(self):
         while True:
             request = self._requests.get()
@@ -374,13 +392,15 @@ class IdaBackend(Backend):
                 return
             if self.closed:
                 continue
-            title, work, on_done = request
-            try:
-                self._deliveries.put((on_done, work()))
-            except Exception:
-                traceback.print_exc()
-                self._deliveries.put((None, title))
-            self._waker.wake()
+            self._run(*request)
+
+    def _run(self, title, work, on_done):
+        try:
+            self._deliveries.put((on_done, work()))
+        except Exception:
+            traceback.print_exc()
+            self._deliveries.put((None, title))
+        self._waker.wake()
 
     def _deliver(self):
         # a dialog opened by on_done runs a nested event loop in which further wakes arrive; their
@@ -397,7 +417,7 @@ class IdaBackend(Backend):
                 self._pending -= 1
                 try:
                     if on_done is None:
-                        self.show_warning("%s failed, see the Output window for details." % result)
+                        self.show_failure("%s failed, see the Output window for details." % result)
                     else:
                         on_done(result)
                 except Exception:
@@ -416,12 +436,25 @@ class IdaBackend(Backend):
             self._coloring = None
             ida_kernwin.refresh_idaview_anyway()
 
+    def run_blocking(self, title, work):
+        if not ida_kernwin.is_idaq():
+            work()
+            return True
+        # IDA's wait box, shown after its usual delay, with Cancel; user_cancelled keeps it alive
+        ida_kernwin.show_wait_box(title)
+        try:
+            return run_until_cancelled(work, ida_kernwin.user_cancelled)
+        finally:
+            ida_kernwin.hide_wait_box()
+
     def run_on_ui_thread(self, func):
         result = []
 
         def wrapper():
+            # the widgets func would update are gone once the form closed
+            if not self.closed:
+                result.append(func())
             # execute_sync requires an int return value
-            result.append(func())
             return 1
 
         ida_kernwin.execute_sync(wrapper, ida_kernwin.MFF_FAST)

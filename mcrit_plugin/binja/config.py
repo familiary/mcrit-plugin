@@ -79,15 +79,17 @@ def set_setting(key, value):
         if provider is not None and provider.has_data(full_key):
             provider.delete_data(full_key)
         settings.reset(full_key)
-        if value:
-            # moved into the keychain by the next read, as for a value typed into Settings
-            settings.set_string(full_key, value)
+        # moved into the keychain by the next read, as for a value typed into Settings
+        stored = not value or settings.set_string(full_key, value)
     elif key in NUMBER_SETTINGS:
-        settings.set_integer(full_key, int(value))
+        stored = settings.set_integer(full_key, int(value))
     elif isinstance(value, bool):
-        settings.set_bool(full_key, value)
+        stored = settings.set_bool(full_key, value)
     else:
-        settings.set_string(full_key, value)
+        stored = settings.set_string(full_key, value)
+    if not stored:
+        # Settings refuses a value outside the declared range without raising
+        raise ValueError("Binary Ninja did not accept the value for %s" % key)
 
 
 def clear_stored_secrets():

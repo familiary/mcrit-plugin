@@ -49,7 +49,7 @@ def test_block_scope_shows_only_the_latest_block_size(cc, monkeypatch):
         mcrit_interface=SimpleNamespace(
             _pinConnection=lambda: (None, 0),
             getMatchesForPicBlockHash=lambda block_hash, connection: [],
-            storeBlockMatches=lambda found, connection: None,
+            storeBlockMatches=lambda found, connection, shown=(): None,
         ),
     )
     widget = BlockMatchWidgetModule.BlockMatchWidget(session)
@@ -89,7 +89,7 @@ def test_block_lookups_stop_once_the_form_closed(cc, monkeypatch):
         mcrit_interface=SimpleNamespace(
             _pinConnection=lambda: (None, 0),
             getMatchesForPicBlockHash=lambda block_hash, connection: queried.append(block_hash),
-            storeBlockMatches=lambda found, connection: None,
+            storeBlockMatches=lambda found, connection, shown=(): None,
         ),
     )
     widget = BlockMatchWidgetModule.BlockMatchWidget(session)

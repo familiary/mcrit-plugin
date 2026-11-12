@@ -11,7 +11,7 @@ FRONTENDS = {
     "Ghidra": ROOT / "ghidra" / "GhidraBackend.py",
 }
 # optional hooks whose default does the job everywhere
-WORKING_DEFAULTS = {"mutation", "run_background", "run_request"}
+WORKING_DEFAULTS = {"mutation", "run_background", "run_request", "show_failure"}
 # optional hooks whose default leaves a visible feature out
 VISIBLE_HOOKS = {
     "show_local_match_coloring",
@@ -19,6 +19,8 @@ VISIBLE_HOOKS = {
     "theme_color",
     "open_settings",
     "save_settings",
+    # without it the upload before a file closes cannot be cancelled
+    "run_blocking",
 }
 NOT_SUPPORTED = {
     ("Ghidra", "open_settings"): "no Settings button yet; settings are in Edit > Tool Options",
@@ -66,3 +68,36 @@ def test_every_frontend_implements_the_visible_hooks_or_says_why_not():
 
     assert sorted(missing - NOT_SUPPORTED.keys()) == []
     assert sorted(NOT_SUPPORTED.keys() - missing) == []
+
+
+def test_a_blocking_run_ends_with_the_work_or_when_cancelled():
+    import threading
+
+    from mcrit_plugin.core.Backend import run_until_cancelled
+
+    ran = []
+    assert run_until_cancelled(lambda: ran.append(1), lambda: False, interval=0.01) is True
+    assert ran == [1]
+    server_never_answers = threading.Event()
+    try:
+        assert run_until_cancelled(server_never_answers.wait, lambda: True, interval=0.01) is False
+    finally:
+        server_never_answers.set()
+
+
+def test_failures_of_one_kind_of_job_in_a_row_open_one_warning_dialog():
+    from mcrit_plugin.headless.HeadlessBackend import HeadlessBackend
+
+    backend = HeadlessBackend.__new__(HeadlessBackend)
+    dialogs = []
+    backend.show_warning = dialogs.append
+
+    backend.show_failure("MCRIT: querying matches for function 0x401000 failed")
+    backend.show_failure("MCRIT: querying matches for function 0x402000 failed")
+    # another job's only report must not be swallowed with them
+    backend.show_failure("MCRIT: exporting SMDA report failed")
+
+    assert dialogs == [
+        "MCRIT: querying matches for function 0x401000 failed",
+        "MCRIT: exporting SMDA report failed",
+    ]

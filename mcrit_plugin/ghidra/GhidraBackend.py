@@ -2,7 +2,7 @@
 
 All Ghidra access goes through JPype. Swing is single threaded: widgets are touched on the event
 dispatch thread only, requests to the MCRIT server run on Python threads, and the export runs as a
-Ghidra background task so the status bar shows it.
+Ghidra background task with a progress dialog that does not block the tool.
 """
 
 import hashlib
@@ -12,7 +12,7 @@ import time
 import traceback
 from contextlib import contextmanager
 
-from mcrit_plugin.core.Backend import Backend
+from mcrit_plugin.core.Backend import Backend, run_until_cancelled
 from mcrit_plugin.core.ScoreColorProvider import ThemeRole, tint_over
 from mcrit_plugin.ghidra import swing
 from mcrit_plugin.ghidra.GhidraSmdaInterface import (
@@ -243,11 +243,22 @@ class GhidraBackend(Backend):
     def _report_failure(self, title):
         print(f"[MCRIT] {title} failed:\n{traceback.format_exc()}")
         self._on_ui_thread(
-            lambda: self.show_warning(f"{title} failed, see the console for details.")
+            lambda: self.show_failure(f"{title} failed, see the console for details.")
         )
 
     def _on_ui_thread(self, func):
         swing.invoke_later(lambda: None if self.closed else func())
+
+    def run_blocking(self, title, work):
+        if self.tool is None:
+            work()
+            return True
+        finished = []
+        # a modal Ghidra task dialog with Cancel; work stays off Swing's thread
+        swing.launch_modal_task(
+            title, lambda monitor: finished.append(run_until_cancelled(work, monitor.isCancelled))
+        )
+        return bool(finished and finished[0])
 
     def run_background(self, title, work, on_done):
         if self.tool is None:
@@ -407,8 +418,11 @@ class GhidraBackend(Backend):
 
         def display(monitor):
             # a new window per graph, owned by Ghidra's graph service like any other graph
-            graph_display = broker.getDefaultGraphDisplay(False, monitor)
-            graph_display.setGraph(graph, options, title, False, monitor)
+            try:
+                graph_display = broker.getDefaultGraphDisplay(False, monitor)
+                graph_display.setGraph(graph, options, title, False, monitor)
+            except Exception:
+                self._report_failure("Drawing the remote CFG")
 
         swing.launch_background_task("MCRIT: drawing the remote CFG", display)
 

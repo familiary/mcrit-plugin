@@ -16,8 +16,16 @@ class _Settings:
     def get_string(self, key):
         return self.store.get(key, "")
 
+    refused = set()
+
     def set_string(self, key, value):
+        # like Binary Ninja's Settings: a refused value is reported, not raised
+        if key in self.refused:
+            return False
         self.store[key] = value
+        return True
+
+    set_integer = set_string
 
     def reset(self, key):
         self.store.pop(key, None)
@@ -113,3 +121,11 @@ def test_saving_an_empty_token_clears_it_everywhere(binja_config):
 
     assert keychain.data == {}
     assert "mcrit.mcritweb_api_token" not in _Settings.store
+
+
+def test_a_value_binary_ninja_refuses_is_reported_instead_of_dropped(binja_config, monkeypatch):
+    module, _keychain = binja_config
+    monkeypatch.setattr(_Settings, "refused", {"mcrit.mcrit_request_timeout"})
+
+    with pytest.raises(ValueError):
+        module.set_setting("mcrit_request_timeout", 99999)

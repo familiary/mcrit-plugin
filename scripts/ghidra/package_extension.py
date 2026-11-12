@@ -33,6 +33,10 @@ EXCLUDE_RELATIVE_PATHS = {
     "mcrit_plugin/headless",
     "mcrit_plugin/ida",
     "mcrit_plugin/ghidra/ghidra_scripts",
+    # the Qt widgets of the other two; GhidraSession needs ui_qt/McritSession.py only
+    "mcrit_plugin/ui_qt/widgets",
+    "mcrit_plugin/ui_qt/QtShim.py",
+    "mcrit_plugin/ui_qt/ClassCollection.py",
 }
 
 

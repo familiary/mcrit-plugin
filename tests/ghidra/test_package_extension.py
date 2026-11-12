@@ -43,7 +43,8 @@ def test_the_extension_zip_has_the_layout_ghidra_installs(tmp_path):
     # Ghidra unpacks the extension into a folder named after the ZIP's top folder
     assert "name=MCRIT" in properties.splitlines()
     assert "version=12.2" in properties.splitlines()
-    for left_out in ("ida", "binja", "headless", "ghidra/ghidra_scripts"):
+    assert "MCRIT/mcrit_plugin/ui_qt/McritSession.py" in names
+    for left_out in ("ida", "binja", "headless", "ghidra/ghidra_scripts", "ui_qt/widgets"):
         assert not any(name.startswith(f"MCRIT/mcrit_plugin/{left_out}/") for name in names)
 
 

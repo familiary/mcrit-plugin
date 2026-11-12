@@ -330,7 +330,7 @@ class FunctionOverviewWidget(QMainWindow):
                         f"Error: Could not parse label '{label_via_table}' for function at 0x{offset:x}."
                     )
                     continue
-                label_via_table = label_via_table.split("|")[1]
+                label_via_table = label_via_table.split("|", 1)[1]
                 if self.cc.backend.has_default_function_name(offset):
                     # the disassembler may refuse a name, e.g. one IDA cannot represent
                     if self.cc.backend.set_function_name(offset, label_via_table):

@@ -335,7 +335,8 @@ class TestReloadSettings:
         interface.reloadSettings()
 
         assert interface.mcrit_client is not old_client
-        assert interface.mcrit_client.mcrit_server == "https://mcrit.example.com/"
+        # the client appends "/<endpoint>" itself
+        assert interface.mcrit_client.mcrit_server == "https://mcrit.example.com"
         assert interface.mcrit_client.headers["apitoken"] == "token"
         assert interface.server == "https://mcrit.example.com/"
         interface.checkConnection.assert_called_once_with(async_=True)
@@ -689,3 +690,68 @@ def test_a_failed_check_points_at_settings_only_while_no_server_is_set(server_is
     message = interface.parent.local_widget.updateActivityInfo.call_args_list[-1].args[0]
     assert message.startswith("Connection check failed (server unreachable).")
     assert ("use Edit > Tool Options > MCRIT to change it" in message) == hinted
+
+
+def test_job_messages_name_the_sample_asked_for_not_the_sessions():
+    interface = _make_interface()
+    interface.parent.remote_sample_id = None
+    interface.mcrit_client.getQueueData.return_value = []
+
+    interface.queryJobs(sample_id=7)
+    interface.requestMatchingJob(7)
+
+    messages = [
+        call.args[0] for call in interface.parent.local_widget.updateActivityInfo.call_args_list
+    ]
+    assert "Querying jobs for sample with id: 7" in messages
+    assert "Tasking matching job for sample with id: 7" in messages
+
+
+@pytest.mark.parametrize(
+    "error, expected",
+    [
+        (requests.exceptions.SSLError("certificate verify failed"), "TLS error"),
+        (requests.exceptions.ProxyError("tunnel refused"), "proxy error"),
+        (requests.exceptions.ConnectionError("refused"), "server unreachable"),
+    ],
+)
+def test_a_tls_or_proxy_failure_is_not_reported_as_an_unreachable_server(error, expected):
+    assert McritInterface._describeError(error).startswith(expected)
+
+
+def test_the_block_match_cache_drops_its_oldest_answers_beyond_its_size(monkeypatch):
+    import mcrit_plugin.core.McritInterface as module
+
+    monkeypatch.setattr(module, "BLOCK_MATCH_CACHE_SIZE", 3)
+    interface = _make_interface()
+    interface.parent.blockhash_matches = {1: [], 2: []}
+
+    interface.storeBlockMatches({3: [], 4: [], 5: []}, (None, 0))
+
+    assert list(interface.parent.blockhash_matches) == [3, 4, 5]
+
+
+def test_the_cache_limit_does_not_drop_blocks_of_the_function_about_to_be_shown(monkeypatch):
+    import mcrit_plugin.core.McritInterface as module
+
+    monkeypatch.setattr(module, "BLOCK_MATCH_CACHE_SIZE", 3)
+    interface = _make_interface()
+    # 10 was cached on an earlier visit of the function that also has 11 and 12
+    interface.parent.blockhash_matches = {10: ["old"], 1: [], 2: []}
+
+    interface.storeBlockMatches({11: [], 12: []}, (None, 0), shown=[10, 11, 12])
+
+    assert sorted(interface.parent.blockhash_matches) == [10, 11, 12]
+
+
+def test_a_function_query_the_server_rejects_says_so_in_the_activity_line():
+    interface = _make_interface()
+    interface.mcrit_client.getMatchesForSmdaFunction.return_value = None
+    report = SimpleNamespace(getFunctions=lambda: [SimpleNamespace(offset=0x10)])
+
+    interface.querySmdaFunctionMatches(report)
+
+    messages = [
+        call.args[0] for call in interface.parent.local_widget.updateActivityInfo.call_args_list
+    ]
+    assert any("rejected" in message for message in messages)

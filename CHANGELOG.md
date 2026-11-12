@@ -67,6 +67,71 @@ Ninja or Ghidra applies to that plugin only.
   black.
 - IDA 9.0: importing labels, and every other change the plugin makes to the database, failed with
   a `TypeError`, because IDA 9.0 takes its undo points in another form than later versions do.
+- An API token, username or server saved with a leading space or a trailing newline made every
+  request fail, and the error in the activity line quoted the value, the token included. The
+  three are used without that whitespace now.
+- With live queries off, changing Filter out Library Matches cleared a query made with the query
+  button and showed "Live ... Queries are deactivated"; it refreshes the shown query instead.
+- IDA and Binary Ninja: changing Min. Score or Min. Size before Convert raised an error.
+- Block Scope: when block queries failed, e.g. on a timeout, the blocks without an answer showed
+  as blocks without matches. The headline says that the tables are incomplete; with Live Block
+  Queries on, the next cursor move in the function asks again. While a query runs, the headline
+  says so, as Function Scope does.
+- IDA and Binary Ninja: importing a label that contains `|` cut it off at that character.
+- The question whether to upload changed function names on close also came up for named functions
+  the report does not hold, such as Binary Ninja's import stubs, which no upload can add.
+- A TLS or proxy error was reported as "server unreachable"; the activity line names it now.
+- The activity line for a job query and for a new matching job named the session's sample instead
+  of the one asked for, and failed when the session had none.
+- A server URL ending in `/` sent requests to `//<endpoint>`. A negative request timeout meant no
+  limit; it falls back to the default of 10 seconds, and 0 still means no limit.
+- Exporting the SMDA report to a path that cannot be written raised an error; the activity line
+  says that the export failed.
+- IDA: Convert and Export ran on the same four workers as the server requests, so with requests
+  stuck on a server that does not answer they waited too. They run on a thread of their own.
+- IDA: a connection check that answered after MCRIT was closed updated the closed window.
+- Block Scope: with Live Block Queries on, moving the cursor to another block of the same function
+  left the lower table on the block of the last query; it follows the cursor now.
+- After a failed Convert the family and sample lists were still downloaded, which also made a later
+  server change wait for the plugin to be reopened.
+- The matches kept for functions and blocks already visited grew for as long as the session ran;
+  the oldest are dropped beyond 256 functions and 16384 blocks and asked for again on a revisit.
+- Binary Ninja: Clear Stored API Token left open sidebars sending the cleared token (a sidebar
+  waiting to switch servers still keeps its current server's token until it is reopened); closing one
+  tab of a file removed the match tint from its other tabs; the cursor of another tab of the same
+  file could drive a sidebar; a setting Binary Ninja refused was dropped without a message.
+- Binary Ninja: the "MCRIT Matches" render layer walked every graph and linear view line of every
+  file even with no tint set.
+- Uploading changed function names when a file closes blocked the tool until the server answered,
+  for good with a request timeout of 0. The upload now waits behind the tool's own dialog with a
+  Cancel button: IDA's wait box, Binary Ninja's progress dialog, a Ghidra task dialog.
+- IDA: the wait box shown while the database is read for Convert, Upload and Export has a Cancel
+  button.
+- Function Scope: a query the server did not answer left "Querying matches..." in place and was not
+  asked again while the cursor stayed in the function. It says that the query failed; the query
+  button asks again, and with Live Function Queries on so does the next cursor move in the
+  function. Asking for a function again while its request runs, e.g. by changing Min. Score, no
+  longer starts a second request; the query button and changed connection settings still do.
+- A second Convert exported the database again and threw the result away; it replaces the report
+  now, keeping the family, version and library flag, so later queries see renamed functions.
+- A background job that keeps failing, such as one live query per cursor move, opened a warning
+  dialog each time; within 30 seconds of one dialog, further failures of the same kind of job go
+  to the console.
+- A number setting that is not a whole number fell back to its default without a word; the console
+  names the setting once.
+- Ghidra: the sessions and reports of a CodeBrowser stayed in memory after it was closed, until
+  Ghidra exited.
+- Ghidra: the extension ZIP carried the Qt widgets of the IDA and Binary Ninja plugins.
+- Ghidra: a remote CFG that could not be drawn was only reported in the console.
+- Ghidra: a thunk showing its import's name, e.g. `CloseClipboard`, counted as unnamed, so
+  importing labels for unnamed functions renamed it and the export left its name out.
+- Ghidra: a label chosen in the Function Overview while more labels arrived could be written into
+  another row; the open choice is dropped when the table refills.
+- Ghidra: closing the MCRIT window while the family chooser or the job list was about to open left
+  Convert, Upload and Export answering that a report was still being built.
+- Ghidra: running `MCRIT.py` again within five seconds left PyGhidra keeping every later script's
+  modules loaded; opening MCRIT with the cursor in an overlay or external address took that
+  offset for a function in the program's own address space.
 
 ## [2.1.1] - 2026-10-15
 

@@ -21,16 +21,24 @@ from java.lang import System
 # system property is true; it is set for this script only and restored shortly after it ended.
 KEEP_MODULES = "pyghidra.sys.modules.restore.disable"
 RESTORE_DELAY = 5.0
-_previous_keep_modules = System.getProperty(KEEP_MODULES)
+# [runs not yet restored, the property's value before the first of them]; on sys, as a run started
+# before the previous one restored would otherwise take that run's "true" for the user's value
+_keep_modules = sys.__dict__.setdefault("_mcrit_keep_modules", [0, None])
+if _keep_modules[0] == 0:
+    _keep_modules[1] = System.getProperty(KEEP_MODULES)
+_keep_modules[0] += 1
 System.setProperty(KEEP_MODULES, "true")
 
 
 def _restore_keep_modules():
     time.sleep(RESTORE_DELAY)
-    if _previous_keep_modules is None:
+    _keep_modules[0] -= 1
+    if _keep_modules[0] > 0:
+        return
+    if _keep_modules[1] is None:
         System.clearProperty(KEEP_MODULES)
     else:
-        System.setProperty(KEEP_MODULES, _previous_keep_modules)
+        System.setProperty(KEEP_MODULES, _keep_modules[1])
 
 
 def _plugin_root():
@@ -84,7 +92,13 @@ def main():
         Msg.showWarn(None, None, "MCRIT", "Open a program first.")
         return
     location = currentLocation  # noqa: F821
-    cursor = int(location.getAddress().getOffset()) if location is not None else None
+    address = location.getAddress() if location is not None else None
+    # an overlay or external address has an offset that names another place in the default space
+    if address is not None and (
+        address.getAddressSpace() != program.getAddressFactory().getDefaultAddressSpace()
+    ):
+        address = None
+    cursor = int(address.getOffset()) if address is not None else None
 
     from mcrit_plugin.ghidra import bridge, modules, swing
     from mcrit_plugin.ghidra.controller import controller_for

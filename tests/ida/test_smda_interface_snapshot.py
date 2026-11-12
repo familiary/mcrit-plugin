@@ -2,6 +2,8 @@
 
 from collections import Counter
 
+import pytest
+
 from mcrit_plugin.ida.SmdaInterfaceSnapshot import SmdaInterfaceSnapshot
 
 
@@ -81,3 +83,10 @@ def test_shared_code_is_read_once_and_external_functions_not_at_all():
     assert interface.calls["getBlocks"] == 2, "the external function's blocks are not read"
     assert interface.calls["getInstructionBytes"] == 4, "0x30 belongs to both functions"
     assert interface.calls["getCodeInRefs"] == interface.calls["getCodeOutRefs"] == 4
+
+
+def test_cancelling_the_wait_box_stops_the_snapshot():
+    from mcrit_plugin.ida.SmdaInterfaceSnapshot import ExportCancelled
+
+    with pytest.raises(ExportCancelled):
+        SmdaInterfaceSnapshot(_Interface(), cancelled=lambda: True)

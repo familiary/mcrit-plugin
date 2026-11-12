@@ -88,6 +88,7 @@ class McritConfig:
     def __init__(self, version, get_setting=None):
         self.VERSION = version
         self._get_setting = get_setting
+        self._reported_settings = set()
         self._defaults = {
             "mcritweb_username": "",
             "mcrit_server": "http://127.0.0.1:8000/",
@@ -160,22 +161,35 @@ class McritConfig:
             return value.strip().lower() in {"1", "true", "yes", "on"}
         return bool(value)
 
+    def _get_text(self, key):
+        """A text setting without the whitespace a pasted value brings along; requests refuses a
+        header value with it and names the value, here the token, in its error."""
+        value = self._get(key)
+        return value.strip() if isinstance(value, str) else value
+
     def _get_int(self, key, default):
         value = self._get(key)
         try:
             return int(value)
         except (ValueError, TypeError):
+            if key not in self._reported_settings:
+                # once per setting, as it is read on every use
+                self._reported_settings.add(key)
+                print(
+                    "[MCRIT] Setting %s is not a whole number (%r); using %d."
+                    % (key, value, default)
+                )
             return default
 
     @property
     def MCRITWEB_USERNAME(self):
         """MCRITWeb username for authentication."""
-        return self._get("mcritweb_username")
+        return self._get_text("mcritweb_username")
 
     @property
     def MCRIT_SERVER(self):
         """URL of the MCRIT server."""
-        return self._get("mcrit_server")
+        return self._get_text("mcrit_server")
 
     def isDefaultServer(self, server):
         """True for the shipped localhost default of mcrit_server."""
@@ -188,12 +202,13 @@ class McritConfig:
     @property
     def MCRITWEB_API_TOKEN(self):
         """API token for MCRITWeb authentication."""
-        return self._get("mcritweb_api_token")
+        return self._get_text("mcritweb_api_token")
 
     @property
     def MCRIT_REQUEST_TIMEOUT(self):
         """Timeout in seconds for MCRIT API requests."""
-        return self._get_int("mcrit_request_timeout", 10)
+        timeout = self._get_int("mcrit_request_timeout", 10)
+        return timeout if timeout >= 0 else 10
 
     @property
     def AUTO_ANALYZE_SMDA_ON_STARTUP(self):

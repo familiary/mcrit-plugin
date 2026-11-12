@@ -250,3 +250,36 @@ def test_the_default_server_is_recognized_with_or_without_the_trailing_slash(
     fresh_config, server, is_default
 ):
     assert fresh_config.McritConfig("0.0.0").isDefaultServer(server) == is_default
+
+
+@pytest.mark.parametrize(
+    "property_name, key",
+    [
+        ("MCRITWEB_API_TOKEN", "mcritweb_api_token"),
+        ("MCRITWEB_USERNAME", "mcritweb_username"),
+        ("MCRIT_SERVER", "mcrit_server"),
+    ],
+)
+def test_pasted_whitespace_is_stripped_from_the_connection_settings(
+    fresh_config, property_name, key
+):
+    """requests refuses a header value with leading whitespace or a newline and quotes it in the
+    error, which would show the token in the activity line."""
+    config = fresh_config.McritConfig("0.0.0", get_setting=lambda asked: " value\n")
+
+    assert getattr(config, property_name) == "value"
+
+
+def test_a_negative_request_timeout_falls_back_to_the_default(fresh_config):
+    config = fresh_config.McritConfig("0.0.0", get_setting=lambda key: -1)
+
+    assert config.MCRIT_REQUEST_TIMEOUT == 10
+
+
+def test_a_number_setting_that_is_no_number_is_named_once(fresh_config, capsys):
+    config = fresh_config.McritConfig("0.0.0", get_setting=lambda key: "ten")
+
+    assert config.BLOCKS_MIN_SIZE == 4
+    assert config.BLOCKS_MIN_SIZE == 4
+
+    assert capsys.readouterr().out.count("blocks_min_size") == 1

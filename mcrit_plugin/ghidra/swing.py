@@ -112,6 +112,45 @@ class DocumentListener:
         self._call(event)
 
 
+@JImplements("java.awt.event.WindowListener", deferred=True)
+class WindowClosedListener:
+    """Calls func once the window was disposed of."""
+
+    def __init__(self, func):
+        self._func = func
+
+    @JOverride
+    def windowClosed(self, event):
+        try:
+            self._func()
+        except Exception:
+            traceback.print_exc()
+
+    @JOverride
+    def windowOpened(self, event):
+        pass
+
+    @JOverride
+    def windowClosing(self, event):
+        pass
+
+    @JOverride
+    def windowIconified(self, event):
+        pass
+
+    @JOverride
+    def windowDeiconified(self, event):
+        pass
+
+    @JOverride
+    def windowActivated(self, event):
+        pass
+
+    @JOverride
+    def windowDeactivated(self, event):
+        pass
+
+
 @JImplements("java.awt.event.MouseListener", deferred=True)
 class MouseListener:
     """Calls on_click(event) for every click; event.getClickCount() tells double clicks apart.
@@ -212,6 +251,14 @@ def launch_background_task(title, func):
         .setHasProgress(False)
         .launchNonModal()
     )
+
+
+def launch_modal_task(title, func):
+    """Run func(monitor) as a Ghidra task behind a modal dialog with Cancel; returns when the task
+    ended. Call on the Swing thread."""
+    from ghidra.util.task import TaskLauncher
+
+    TaskLauncher.launchModal(title, PyMonitoredRunnable(func))
 
 
 def _rgb(color):

@@ -180,8 +180,13 @@ class MainPanel:
         first_conversion = self.parent.local_smda_report is None
         if first_conversion:
             self.parent.local_smda_report = local_smda_report
-        if first_conversion and (
-            self.parent.local_smda_report is None or self.parent.remote_sample_entry is not None
+        else:
+            # a later Convert brings the report up to date with the database
+            self._keepMetadata(local_smda_report)
+        if (
+            first_conversion
+            and self.parent.local_smda_report is not None
+            and self.parent.remote_sample_entry is not None
         ):
             self.cc.backend.run_request(
                 "MCRIT: downloading family and sample lists",
@@ -220,9 +225,11 @@ class MainPanel:
             raise
 
     def _askSmdaInfo(self):
-        dialog = SmdaInfoDialog(self)
-        dialog.exec_()
-        self._building = False
+        try:
+            dialog = SmdaInfoDialog(self)
+            dialog.exec_()
+        finally:
+            self._building = False
         smda_info = dialog.getSmdaInfo()
         report = self.parent.local_smda_report
         report.family = smda_info["family"]
@@ -262,8 +269,12 @@ class MainPanel:
             return
         filepath = self.cc.backend.ask_save_file(report.filename + ".smda", "Export SMDA report")
         if filepath:
-            with open(filepath, "w") as fout:
-                json.dump(report.toDict(), fout, indent=1, sort_keys=True)
+            try:
+                with open(filepath, "w") as fout:
+                    json.dump(report.toDict(), fout, indent=1, sort_keys=True)
+            except OSError as exc:
+                self.parent.local_widget.updateActivityInfo("Export failed: %s." % exc)
+                return
             self.parent.local_widget.updateActivityInfo('SMDA report exported to: "%s".' % filepath)
         else:
             self.parent.local_widget.updateActivityInfo("Export aborted.")
@@ -311,8 +322,12 @@ class MainPanel:
         if jobs is None:
             self.getMatchResultAction.setEnabled(True)
             return
-        dialog = ResultChooserDialog(self, job_infos=jobs)
-        dialog.exec_()
+        try:
+            dialog = ResultChooserDialog(self, job_infos=jobs)
+            dialog.exec_()
+        except Exception:
+            self.getMatchResultAction.setEnabled(True)
+            raise
         result = dialog.getResultChosen()
         selected_job_id = result["selected_job_id"]
         if result["is_requesting_matching_job"]:

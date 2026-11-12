@@ -1,6 +1,8 @@
 """Function Scope tab: matches of the function under the cursor and the labels of the matched
 functions. Ports the Qt FunctionMatchWidget; the request and caching logic is the same."""
 
+import traceback
+
 import mcrit_plugin.core.McritTableColumn as McritTableColumn
 from mcrit_plugin.core.minimcrit.matchers.FunctionCfgMatcher import FunctionCfgMatcher
 from mcrit_plugin.core.minimcrit.storage.MatchingResult import MatchingResult
@@ -32,12 +34,18 @@ def block_coloring(node_colors):
     return {int(k[6:], 16): int(v[1:], 16) for k, v in node_colors.items()}
 
 
+# what a function query answers when the server gave no answer, in place of True
+QUERY_FAILED = "failed"
+
+
 class FunctionMatchPanel:
     def __init__(self, parent):
         self.parent = parent
         self.cc = parent.cc
         self.scp = ScoreColorProvider(self.cc.backend)
         self.last_viewed = None
+        # function offset -> [client its request runs on, asked for again meanwhile]
+        self._querying = {}
         self.name = "Function Scope"
         self.icon_file = "compare.png"
         self.current_function_offset = None
@@ -48,7 +56,7 @@ class FunctionMatchPanel:
             "Filter out Library Matches",
             config.FUNCTION_FILTER_LIBRARY_FUNCTIONS,
             enabled=False,
-            on_click=lambda: self.hook_refresh(None, use_current_function=True),
+            on_click=self._onCbFilterLibraryClicked,
         )
         self.cb_activate_live_tracking = checkbox(
             "Live Function Queries",
@@ -90,6 +98,10 @@ class FunctionMatchPanel:
 
     # state
 
+    def _onCbFilterLibraryClicked(self):
+        if self.last_viewed is not None:
+            self.updateViewWithCurrentFunction()
+
     def _onCbLiveClicked(self):
         if self.cb_activate_live_tracking.isSelected():
             self.parent.main_widget.hideLocalWidget()
@@ -123,7 +135,7 @@ class FunctionMatchPanel:
         if self.parent.current_function is None:
             self.label_current_function_matches.setText("Place the cursor in a function first.")
             return
-        self.updateViewWithCurrentFunction()
+        self.updateViewWithCurrentFunction(force=True)
 
     def hook_refresh(self, view, use_current_function=False):
         cursor_function = self.updateCurrentFunction(view)
@@ -136,6 +148,7 @@ class FunctionMatchPanel:
             return
         if not self.cb_activate_live_tracking.isSelected():
             self.clearTable()
+            self.last_viewed = None
             self.label_current_function_matches.setText("Live Function Queries are deactivated.")
             return
         self.updateViewWithCurrentFunction()
@@ -150,7 +163,7 @@ class FunctionMatchPanel:
 
     # queries
 
-    def updateViewWithCurrentFunction(self):
+    def updateViewWithCurrentFunction(self, force=False):
         if self.parent.local_smda_report is None or self.parent.current_function is None:
             return
         self.last_viewed = self.parent.current_function
@@ -172,6 +185,9 @@ class FunctionMatchPanel:
                 "Querying matches for function 0x%x..." % function_offset
             )
 
+        client = getattr(self.parent.mcrit_interface, "mcrit_client", None)
+        running = self._querying.get(function_offset)
+
         def request():
             if self.parent.current_function != function_offset:
                 return None
@@ -179,6 +195,9 @@ class FunctionMatchPanel:
                 return False
             if outline is not None:
                 self.parent.mcrit_interface.querySmdaFunctionMatches(outline)
+                # an answer, also one without matches, is cached
+                if function_offset not in self.parent.function_matches:
+                    return QUERY_FAILED
             missing_ids = self._missingMatchedFunctionIds(function_offset, score_threshold)
             if missing_ids:
                 self.parent.mcrit_interface.queryFunctionEntriesById(missing_ids)
@@ -186,6 +205,17 @@ class FunctionMatchPanel:
 
         def show(remote_cache_ready):
             if remote_cache_ready is None or self.parent.current_function != function_offset:
+                return
+            if remote_cache_ready == QUERY_FAILED:
+                # with live queries on, the next cursor move in this function asks again; the
+                # query button always does
+                if self.cb_activate_live_tracking.isSelected():
+                    self.last_viewed = None
+                self.clearTable()
+                self.label_current_function_matches.setText(
+                    "Querying matches for function 0x%x failed; see the activity line."
+                    % function_offset
+                )
                 return
             if not remote_cache_ready:
                 self.last_viewed = None
@@ -203,9 +233,33 @@ class FunctionMatchPanel:
             and not self._missingMatchedFunctionIds(function_offset, score_threshold)
         ):
             show(True)
+        elif not force and running is not None and running[0] is client:
+            # one request per function at a time; asked again meanwhile, e.g. with another
+            # threshold, the view is brought up to date when that request answers
+            running[1] = True
         else:
+            # the query button and new connection settings do not wait for a request that may
+            # never answer
+            running = self._querying[function_offset] = [client, False]
+
+            def guarded():
+                try:
+                    return request()
+                except Exception:
+                    # raised into the backend, the request would never answer
+                    traceback.print_exc()
+                    return QUERY_FAILED
+
+            def finished(result):
+                if self._querying.get(function_offset) is running:
+                    del self._querying[function_offset]
+                if running[1] and self.parent.current_function == function_offset:
+                    self.updateViewWithCurrentFunction()
+                else:
+                    show(result)
+
             self.cc.backend.run_request(
-                "MCRIT: querying matches for function 0x%x" % function_offset, request, show
+                "MCRIT: querying matches for function 0x%x" % function_offset, guarded, finished
             )
 
     def _missingMatchedFunctionIds(self, function_offset, score_threshold):

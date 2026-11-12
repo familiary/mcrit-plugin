@@ -42,6 +42,20 @@ def _matchesSample(job, sample_id):
     return False
 
 
+# a session's live queries keep each answer for a revisit; without a limit a long session only grows
+FUNCTION_MATCH_CACHE_SIZE = 256
+BLOCK_MATCH_CACHE_SIZE = 16384
+
+
+def _evictOldest(cache, size, keep=()):
+    """Drop the entries stored longest ago beyond size; the keys in keep count as just stored."""
+    for key in keep:
+        if key in cache:
+            cache[key] = cache.pop(key)
+    while len(cache) > max(size, len(keep)):
+        del cache[next(iter(cache))]
+
+
 class McritInterface(object):
     def __init__(self, parent, backend):
         if Disassembler is None:
@@ -71,7 +85,8 @@ class McritInterface(object):
 
     def _buildClient(self, connection_settings):
         server, timeout, api_token, username = connection_settings
-        client = McritClient(server)
+        # the client appends "/<endpoint>", which a trailing slash would turn into "//<endpoint>"
+        client = McritClient(server.rstrip("/") if isinstance(server, str) else server)
         # setTimeout maps 0 to no limit; skipping it would keep the client's 10 s connect timeout
         client.setTimeout(timeout)
         if api_token:
@@ -160,6 +175,11 @@ class McritInterface(object):
         """McritClient answers None for HTTP 4xx/5xx, so anything raised here is transport or payload."""
         if isinstance(exc, requests.exceptions.Timeout):
             return "request timed out"
+        # both are ConnectionErrors, but the server is there
+        if isinstance(exc, requests.exceptions.SSLError):
+            return "TLS error: %s" % exc
+        if isinstance(exc, requests.exceptions.ProxyError):
+            return "proxy error: %s" % exc
         if isinstance(exc, requests.exceptions.ConnectionError):
             return "server unreachable"
         if isinstance(exc, requests.exceptions.RequestException):
@@ -191,7 +211,11 @@ class McritInterface(object):
     def convertToSmda(self):
         self.parent.local_widget.updateActivityInfo("Converting to SMDA report...")
         report = self.backend.export_smda_report()
-        self.parent.local_widget.updateActivityInfo("Conversion to SMDA finished.")
+        self.parent.local_widget.updateActivityInfo(
+            "Conversion to SMDA finished."
+            if report is not None
+            else "Conversion to SMDA was cancelled."
+        )
         return report
 
     def convertToSmdaUsingSmda(self):
@@ -323,7 +347,7 @@ class McritInterface(object):
         """Fetch all jobs regarding Matches, optionally filter to a sample_id"""
         if sample_id is not None:
             self.parent.local_widget.updateActivityInfo(
-                "Querying jobs for sample with id: %d" % self.parent.remote_sample_id
+                "Querying jobs for sample with id: %d" % sample_id
             )
         else:
             self.parent.local_widget.updateActivityInfo("Querying jobs.")
@@ -350,7 +374,7 @@ class McritInterface(object):
 
     def requestMatchingJob(self, sample_id, force_update=False):
         self.parent.local_widget.updateActivityInfo(
-            "Tasking matching job for sample with id: %d" % self.parent.remote_sample_id
+            "Tasking matching job for sample with id: %d" % sample_id
         )
         try:
             job_id = self.mcrit_client.requestMatchesForSample(
@@ -435,6 +459,10 @@ class McritInterface(object):
                 match_report_dict = client.getMatchesForSmdaFunction(
                     smda_report, exclude_self_matches=False
                 )
+                if match_report_dict is None:
+                    self.parent.local_widget.updateActivityInfo(
+                        "Function query failed: the server rejected the request."
+                    )
                 with self._storing(generation) as current:
                     if not current:
                         return None
@@ -442,6 +470,7 @@ class McritInterface(object):
                         self.parent.function_matches.update(
                             {smda_function.offset: match_report_dict}
                         )
+                        _evictOldest(self.parent.function_matches, FUNCTION_MATCH_CACHE_SIZE)
                 if match_report_dict:
                     match_report = MatchingResult.fromDict(match_report_dict)
                     matched_function_ids = [
@@ -553,8 +582,11 @@ class McritInterface(object):
         except Exception as exc:
             self._reportFailure("getMatchesForPicBlockHash", exc)
 
-    def storeBlockMatches(self, found, connection):
-        """Caches block matches looked up through connection, unless the server changed since."""
+    def storeBlockMatches(self, found, connection, shown=()):
+        """Caches block matches looked up through connection, unless the server changed since.
+        shown holds the hashes of the function about to be shown, which the cache's limit must
+        not drop: a block without a cache entry reads as one without matches."""
         with self._storing(connection[1]) as current:
             if current:
                 self.parent.blockhash_matches.update(found)
+                _evictOldest(self.parent.blockhash_matches, BLOCK_MATCH_CACHE_SIZE, keep=shown)
