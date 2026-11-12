@@ -14,14 +14,14 @@ mcrit-plugin/
 │   ├── ui_qt/               # Qt widgets shared by IDA and Binary Ninja
 │   ├── ida/                 # ida-plugin.json, ida_mcrit.py, IDA backend, graph viewer
 │   ├── binja/               # Binary Ninja backend, settings, sidebar (SMDA export via smda.binja)
-│   ├── ghidra/              # Ghidra backend, SMDA export, Swing UI (ui/), Java bridge (java/)
+│   ├── ghidra/              # Ghidra backend, SMDA export, Swing UI (ui/), Java bridge (java/),
+│   │                        # entry script (ghidra_scripts/MCRIT.py)
 │   └── headless/            # backend without a disassembler: SMDA disassembles the file itself
-├── ghidra_scripts/          # MCRIT.py, the PyGhidra script that opens the Ghidra window
 ├── scripts/
 │   ├── common/              # shared checks, fixtures, headless integration runner
 │   ├── ida/                 # IDA packaging, metadata sync, integration runners
 │   ├── binja/               # Binary Ninja metadata sync, integration runner
-│   └── ghidra/              # PyGhidra headless and GUI integration runners
+│   └── ghidra/              # Ghidra extension packaging, PyGhidra headless and GUI runners
 ├── tests/
 │   ├── core/                # pytest: core and headless backend
 │   ├── ui_qt/               # pytest: McritSession; sorted tables with PySide6
@@ -46,6 +46,8 @@ python scripts/ida/package_plugin.py --repo . --output dist/mcrit-ida.zip
 hcli plugin lint dist/mcrit-ida.zip
 
 python scripts/binja/verify_metadata_sync.py --repo .
+
+python scripts/ghidra/package_extension.py --repo . --output dist/mcrit-ghidra.zip
 ```
 
 | Workflow | Name in Actions | Runs on | What |
@@ -68,7 +70,7 @@ python scripts/binja/verify_metadata_sync.py --repo .
 - Binary Ninja: `mcrit_plugin/binja/`, `plugin.json`, `__init__.py`, `requirements.txt`,
   `scripts/binja/`, `tests/binja/`, `.github/workflows/binja-*.yml`, and `**/ida-plugin.json`,
   because the archive check has to prove that file is still `export-ignore`d
-- Ghidra: `mcrit_plugin/ghidra/`, `ghidra_scripts/`, `scripts/ghidra/`, `tests/ghidra/`,
+- Ghidra: `mcrit_plugin/ghidra/`, `scripts/ghidra/`, `tests/ghidra/`,
   `.github/workflows/ghidra-*.yml`, plus the shared core, `McritSession.py`, `icons/`,
   `scripts/common/` and `tests/fixtures/`
 - both: `mcrit_plugin/__init__.py`, `mcrit_plugin/core/`, `mcrit_plugin/ui_qt/`, `icons/`,
@@ -180,8 +182,9 @@ and SMDA use 0, so compare a Ghidra export of such a file through
 ### Ghidra
 
 No licence is needed, so `ghidra-tests.yml` runs both tests on every change to the Ghidra plugin.
-Use Ghidra 12.0 or newer on a JDK 21, and a Python with PyGhidra from that Ghidra, `smda>=4.9.0` and
-`requests`; `GHIDRA_INSTALL_DIR` points at the installation.
+Use Ghidra 12.0 or newer on the JDK it asks for (21 up to 12.1, 25 from 12.2), and a Python with
+PyGhidra from that Ghidra, `smda>=4.9.0` and `requests`; `GHIDRA_INSTALL_DIR` points at the
+installation.
 
 ```bash
 python -m pip install --no-index -f "$GHIDRA_INSTALL_DIR/Ghidra/Features/PyGhidra/pypkg/dist" pyghidra
@@ -197,8 +200,8 @@ python scripts/ghidra/run_pyghidra_integration.py --input /tmp/mcrit-query --ref
 ```
 
 The GUI run starts Ghidra in PyGhidra mode with a throwaway profile and project, opens MCRIT through
-`ghidra_scripts/MCRIT.py` and works through every tab and dialog, the remote CFG, export, switching
-programs and the upload prompt on close. The input must be new to the server. It needs a display;
+`mcrit_plugin/ghidra/ghidra_scripts/MCRIT.py` and works through every tab and dialog, the remote
+CFG, export, switching programs and the upload prompt on close. The input must be new to the server. It needs a display;
 `--screenshots DIR` keeps one per step.
 
 ```bash

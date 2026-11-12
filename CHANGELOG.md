@@ -14,8 +14,9 @@ Ninja or Ghidra applies to that plugin only.
   the IDA and Binary Ninja plugins in a window docked into the CodeBrowser, one session per open
   program. Reports are exported from Ghidra's own analysis through SMDA (4.9.0 or newer), matched
   local blocks are tinted in the listing with markers that are not saved with the program, remote
-  CFGs open in Ghidra's graph view, and the settings are under Tool Options > MCRIT. It runs from
-  this repository's `ghidra_scripts` folder; see the README for setup. Its toolbar and tabs use
+  CFGs open in Ghidra's graph view, and the settings are under Tool Options > MCRIT. It installs as a
+  Ghidra extension ZIP, built by `scripts/ghidra/package_extension.py`, or runs from a clone; see
+  the README for setup. Its toolbar and tabs use
   the same icons, at 24 px in the toolbar and in the theme's text colour from when the window
   opens. Converting, uploading and exporting wait for auto-analysis to finish, and Clear Match
   Coloring in the MCRIT window's menu removes the tint. Not released yet; versioned on its own
