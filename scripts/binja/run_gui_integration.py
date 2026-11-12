@@ -59,7 +59,12 @@ def _sha256(path: Path) -> str:
 
 
 def _prepare_user_dir(
-    user_dir: Path, repo_root: Path, license_path: Path, server: str, site_packages: str
+    user_dir: Path,
+    repo_root: Path,
+    license_path: Path,
+    server: str,
+    site_packages: str,
+    python_library: Path | None = None,
 ) -> Path:
     plugins_dir = user_dir / "plugins"
     plugins_dir.mkdir(parents=True, exist_ok=True)
@@ -73,6 +78,10 @@ def _prepare_user_dir(
         "network.enableUpdates": False,
         "ui.allowWelcome": False,
     }
+    if python_library is not None:
+        # The GUI must use the interpreter that installed native dependencies such as LIEF.
+        settings["python.interpreter"] = str(python_library.resolve())
+        settings["python.binaryOverride"] = sys.executable
     (user_dir / "settings.json").write_text(json.dumps(settings, indent=2), encoding="utf-8")
     shutil.copy2(repo_root / "tests" / "binja" / "gui_integration.py", user_dir / "startup.py")
     return user_dir / "gui-integration.log"
@@ -96,6 +105,7 @@ def main() -> int:
     parser.add_argument("--input", type=Path, required=True)
     parser.add_argument("--mcrit-server", default="http://127.0.0.1:8000/")
     parser.add_argument("--reference-sha256")
+    parser.add_argument("--python-library", type=Path, help="Shared Python library used by the GUI")
     parser.add_argument("--license", type=Path, default=_default_license())
     parser.add_argument(
         "--site-packages",
@@ -114,6 +124,8 @@ def main() -> int:
         raise FileNotFoundError(f"Input binary does not exist: {input_path}")
     if not args.license.is_file():
         raise FileNotFoundError(f"Binary Ninja license not found: {args.license}")
+    if args.python_library is not None and not args.python_library.is_file():
+        raise FileNotFoundError(f"Python shared library not found: {args.python_library}")
     binary = _find_binja_binary(args.install_dir)
 
     override_path = repo_root / "config_override.json"
@@ -123,7 +135,12 @@ def main() -> int:
     process = None
     try:
         result_log = _prepare_user_dir(
-            user_dir, repo_root, args.license, args.mcrit_server, args.site_packages
+            user_dir,
+            repo_root,
+            args.license,
+            args.mcrit_server,
+            args.site_packages,
+            args.python_library,
         )
         environment = os.environ.copy()
         environment.update(

@@ -42,6 +42,9 @@ def _make_interface(timeout=10):
     inst._mcrit_server = "http://127.0.0.1:8000"
     inst._cache_lock = threading.Lock()
     inst._remote_info_lock = threading.Lock()
+    inst._check_id = 0
+    inst._switch_lock = threading.Lock()
+    inst._server_generation = 0
     inst.mcrit_client = MagicMock()
     return inst
 
@@ -287,3 +290,402 @@ class TestQueryRemoteFunction:
         interface.parent.local_widget.updateActivityInfo.assert_called_once_with(
             "Fetching function 9 for the graph viewer failed (unexpected KeyError: 'xcfg')."
         )
+
+
+class TestReloadSettings:
+    @staticmethod
+    def _interface(server="http://127.0.0.1:8000/"):
+        config = SimpleNamespace(
+            MCRIT_SERVER=server,
+            MCRIT_REQUEST_TIMEOUT=10,
+            MCRITWEB_API_TOKEN="",
+            MCRITWEB_USERNAME="",
+        )
+        parent = SimpleNamespace(
+            config=config,
+            local_widget=MagicMock(),
+            remote_sample_id=None,
+            remote_sample_entry=None,
+            matching_report=None,
+            matched_function_entries=None,
+            function_matches={},
+            blockhash_matches={},
+            sample_infos=None,
+            family_infos=None,
+        )
+        interface = McritInterface(parent, backend=None)
+        interface.checkConnection = MagicMock()
+        return interface, config
+
+    def test_unchanged_settings_keep_the_client(self):
+        interface, _config = self._interface()
+        client = interface.mcrit_client
+
+        interface.reloadSettings()
+
+        assert interface.mcrit_client is client
+        interface.checkConnection.assert_not_called()
+
+    def test_a_changed_server_and_token_build_a_new_client_and_check_it(self):
+        interface, config = self._interface()
+        old_client = interface.mcrit_client
+        config.MCRIT_SERVER = "https://mcrit.example.com/"
+        config.MCRITWEB_API_TOKEN = "token"
+
+        interface.reloadSettings()
+
+        assert interface.mcrit_client is not old_client
+        assert interface.mcrit_client.mcrit_server == "https://mcrit.example.com/"
+        assert interface.mcrit_client.headers["apitoken"] == "token"
+        assert interface.server == "https://mcrit.example.com/"
+        interface.checkConnection.assert_called_once_with(async_=True)
+
+    def test_recheck_checks_unchanged_settings_again_on_the_same_client(self):
+        interface, _config = self._interface()
+        client = interface.mcrit_client
+
+        interface.reloadSettings(recheck=True)
+
+        assert interface.mcrit_client is client
+        interface.checkConnection.assert_called_once_with(async_=True)
+
+    @pytest.mark.parametrize(
+        "field, value",
+        [
+            ("remote_sample_id", 23),
+            ("remote_sample_entry", object()),
+            ("matching_report", object()),
+            ("matched_function_entries", {7: object()}),
+            ("function_matches", {0x401000: {}}),
+            ("blockhash_matches", {1: []}),
+            ("sample_infos", {}),
+            ("family_infos", {}),
+        ],
+    )
+    def test_a_new_server_waits_for_a_reopen_while_results_of_the_old_one_are_held(
+        self, field, value
+    ):
+        interface, config = self._interface()
+        client = interface.mcrit_client
+        setattr(interface.parent, field, value)
+        config.MCRIT_SERVER = "https://mcrit.example.com/"
+
+        assert interface.reloadSettings() == "https://mcrit.example.com/"
+
+        assert interface.mcrit_client is client
+        assert interface.server == "http://127.0.0.1:8000/"
+        interface.checkConnection.assert_not_called()
+
+    def test_the_old_connection_stays_whole_while_the_new_server_waits(self):
+        interface, config = self._interface()
+        interface.parent.remote_sample_id = 23
+        config.MCRIT_SERVER = "https://mcrit.example.com/"
+        config.MCRITWEB_API_TOKEN = "token for the new server"
+        config.MCRIT_REQUEST_TIMEOUT = 30
+
+        assert interface.reloadSettings() == "https://mcrit.example.com/"
+
+        assert interface.server == "http://127.0.0.1:8000/"
+        assert "apitoken" not in interface.mcrit_client.headers
+        assert interface.mcrit_client.timeout == 30
+
+    def test_a_trailing_slash_alone_does_not_change_the_server(self):
+        interface, config = self._interface()
+        interface.parent.remote_sample_id = 23
+        config.MCRIT_SERVER = "http://127.0.0.1:8000"
+
+        assert interface.reloadSettings() is None
+
+        assert interface._server_generation == 1
+
+
+def test_a_check_that_answers_after_the_settings_changed_is_dropped():
+    config = SimpleNamespace(
+        MCRIT_SERVER="http://old:8000/",
+        MCRIT_REQUEST_TIMEOUT=10,
+        MCRITWEB_API_TOKEN="",
+        MCRITWEB_USERNAME="",
+        isDefaultServer=lambda server: False,
+    )
+    local_widget = MagicMock()
+    interface = McritInterface(SimpleNamespace(config=config, local_widget=local_widget), None)
+    old_client = interface.mcrit_client
+    started = threading.Event()
+    release = threading.Event()
+    applied = threading.Event()
+
+    class _Backend:
+        @staticmethod
+        def run_on_ui_thread(func):
+            func()
+            applied.set()
+
+    interface.backend = _Backend()
+
+    def slow_version():
+        started.set()
+        release.wait(5)
+        return "1.0.0"
+
+    old_client.getVersion = slow_version
+    threads_before = set(threading.enumerate())
+    interface.checkConnection(async_=True)
+    assert started.wait(5)
+    interface._buildClient(("http://new:8000/", 10, "", ""))
+    release.set()
+    for thread in set(threading.enumerate()) - threads_before:
+        thread.join(5)
+
+    assert applied.is_set()
+    assert not any(
+        "successful" in call.args[0] for call in local_widget.updateActivityInfo.call_args_list
+    )
+
+
+def test_an_older_check_on_the_same_client_does_not_overwrite_a_newer_one():
+    interface = _make_interface()
+    interface.config.isDefaultServer = lambda server: False
+    pending = []
+    interface.backend = SimpleNamespace(run_on_ui_thread=lambda func: pending.append(func))
+    interface.mcrit_client.getVersion.side_effect = [
+        requests.exceptions.Timeout("slow"),
+        "1.15.0",
+    ]
+    threads_before = set(threading.enumerate())
+
+    interface.checkConnection(async_=True)
+    for thread in set(threading.enumerate()) - threads_before:
+        thread.join(5)
+    interface.checkConnection(async_=True)
+    for thread in set(threading.enumerate()) - threads_before:
+        thread.join(5)
+    for apply in reversed(pending):
+        apply()
+
+    messages = [
+        call.args[0] for call in interface.parent.local_widget.updateActivityInfo.call_args_list
+    ]
+    assert messages[-1] == "Connection check successful!"
+    assert not any("timed out" in message for message in messages)
+
+
+_SMDA_REPORT = SimpleNamespace(getFunctions=lambda: [SimpleNamespace(offset=0x401000)])
+
+
+def _answers_after(interface, request_name, answer, settings):
+    """Let the request answer only after the session switched to other connection settings."""
+
+    def answer_after_the_switch(*_args, **_kwargs):
+        interface._buildClient(settings)
+        return answer
+
+    getattr(interface.mcrit_client, request_name).side_effect = answer_after_the_switch
+
+
+_STORING_REQUESTS = [
+    (
+        "querySampleSha256",
+        ("abc",),
+        "getSampleBySha256",
+        SimpleNamespace(sample_id=5),
+        "remote_sample_id",
+    ),
+    (
+        "uploadReport",
+        (object(),),
+        "addReport",
+        (SimpleNamespace(sample_id=5), None),
+        "remote_sample_id",
+    ),
+    ("getMatchingJobById", ("job",), "getResultForJob", {"matches": {}}, "matching_job_id"),
+    ("queryAllFamilyEntries", (), "getFamilies", {1: "family"}, "family_infos"),
+    ("queryAllSampleEntries", (), "getSamples", {1: "sample"}, "sample_infos"),
+    (
+        "querySmdaFunctionMatches",
+        (_SMDA_REPORT,),
+        "getMatchesForSmdaFunction",
+        {"x": 1},
+        "function_matches",
+    ),
+    (
+        "queryFunctionEntriesById",
+        ([7],),
+        "getFunctionsByIds",
+        {7: "entry"},
+        "matched_function_entries",
+    ),
+]
+
+
+@pytest.fixture
+def decoded_results(monkeypatch):
+    """Any answer decodes, so the tests reach the store instead of a decoding error."""
+    import mcrit_plugin.core.McritInterface as module
+
+    monkeypatch.setattr(
+        module.MatchingResult,
+        "fromDict",
+        staticmethod(lambda entry: SimpleNamespace(function_matches=[])),
+    )
+
+
+def _empty_session(interface):
+    for field in (
+        "remote_sample_id",
+        "remote_sample_entry",
+        "matching_job_id",
+        "family_infos",
+        "sample_infos",
+        "matched_function_entries",
+    ):
+        setattr(interface.parent, field, None)
+    interface.parent.function_matches = {}
+
+
+@pytest.mark.parametrize("method, args, request_name, answer, field", _STORING_REQUESTS)
+def test_an_answer_from_the_previous_server_is_not_stored(
+    decoded_results, method, args, request_name, answer, field
+):
+    interface = _make_interface()
+    _empty_session(interface)
+    _answers_after(interface, request_name, answer, ("http://other:8000/", 10, "", ""))
+
+    getattr(interface, method)(*args)
+
+    assert not getattr(interface.parent, field)
+
+
+@pytest.mark.parametrize(
+    "method, args, request_name",
+    [
+        ("getMatchesForPicBlockHash", (0x1234,), "getMatchesForPicBlockHash"),
+        ("queryRemoteFunction", (7,), "getFunctionById"),
+    ],
+)
+def test_answers_handed_to_the_widgets_from_the_previous_server_count_as_failed(
+    method, args, request_name
+):
+    interface = _make_interface()
+    interface.parent.sample_infos = None
+    _answers_after(interface, request_name, MagicMock(), ("http://other/", 10, "", ""))
+
+    assert getattr(interface, method)(*args) is None
+
+
+class _LockCheckedSession(SimpleNamespace):
+    """A session whose fields may only change while the interface holds its switch lock."""
+
+    def __setattr__(self, name, value):
+        lock = self.__dict__.get("switch_lock")
+        assert lock is None or name.startswith("_") or lock.locked(), name
+        super().__setattr__(name, value)
+
+
+class _LockCheckedDict(dict):
+    def __init__(self, lock):
+        super().__init__()
+        self.lock = lock
+
+    def __setitem__(self, key, value):
+        assert self.lock.locked()
+        super().__setitem__(key, value)
+
+    def update(self, *args, **kwargs):
+        assert self.lock.locked()
+        super().update(*args, **kwargs)
+
+
+@pytest.mark.parametrize("method, args, request_name, answer, field", _STORING_REQUESTS)
+def test_answers_are_stored_under_the_switch_lock(
+    decoded_results, method, args, request_name, answer, field
+):
+    interface = _make_interface()
+    _empty_session(interface)
+    session = _LockCheckedSession(**vars(interface.parent))
+    session.function_matches = _LockCheckedDict(interface._switch_lock)
+    session.function_id_to_offset = _LockCheckedDict(interface._switch_lock)
+    session.switch_lock = interface._switch_lock
+    interface.parent = session
+    getattr(interface.mcrit_client, request_name).return_value = answer
+
+    getattr(interface, method)(*args)
+
+    assert getattr(session, field)
+
+
+def test_function_offsets_from_a_match_are_stored_under_the_switch_lock(monkeypatch):
+    import mcrit_plugin.core.McritInterface as module
+
+    match = SimpleNamespace(matched_function_id=7)
+    monkeypatch.setattr(
+        module.MatchingResult,
+        "fromDict",
+        staticmethod(lambda entry: SimpleNamespace(function_matches=[match])),
+    )
+    interface = _make_interface()
+    _empty_session(interface)
+    session = _LockCheckedSession(**vars(interface.parent))
+    session.function_matches = _LockCheckedDict(interface._switch_lock)
+    session.function_id_to_offset = _LockCheckedDict(interface._switch_lock)
+    session.switch_lock = interface._switch_lock
+    interface.parent = session
+    interface.mcrit_client.getMatchesForSmdaFunction.return_value = {"x": 1}
+    interface.mcrit_client.getFunctionsByIds.return_value = {7: SimpleNamespace(offset=0x10)}
+
+    interface.querySmdaFunctionMatches(_SMDA_REPORT)
+
+    assert session.function_id_to_offset == {7: 0x10}
+
+
+def test_the_switch_checks_for_held_data_and_swaps_the_client_under_the_lock():
+    interface = _make_interface()
+    _empty_session(interface)
+    interface.parent.blockhash_matches = {}
+    interface.parent.matching_report = None
+    interface._connection_settings = (interface.server, 10, "", "")
+    seen = []
+    holds = interface._holdsServerData
+    interface._holdsServerData = lambda: seen.append(interface._switch_lock.locked()) or holds()
+    build = interface._buildClient
+    interface._buildClient = lambda settings: (
+        seen.append(interface._switch_lock.locked()) or build(settings)
+    )
+    interface.config.MCRIT_SERVER = "http://other:8000/"
+    interface.config.MCRITWEB_API_TOKEN = interface.config.MCRITWEB_USERNAME = ""
+    interface.checkConnection = MagicMock()
+
+    interface.reloadSettings()
+
+    assert seen == [True, True]
+    assert interface.server == "http://other:8000/"
+
+
+@pytest.mark.parametrize("method, args, request_name, answer, field", _STORING_REQUESTS)
+def test_an_answer_from_the_same_server_is_kept_after_a_token_change(
+    decoded_results, method, args, request_name, answer, field
+):
+    interface = _make_interface()
+    _empty_session(interface)
+    _answers_after(interface, request_name, answer, (interface.server, 10, "new token", ""))
+
+    getattr(interface, method)(*args)
+
+    assert getattr(interface.parent, field)
+
+
+@pytest.mark.parametrize("server_is_default, hinted", [(True, True), (False, False)])
+def test_a_failed_check_points_at_settings_only_while_no_server_is_set(server_is_default, hinted):
+    interface = _make_interface()
+    # the session's server counts, not a new one waiting in the settings for a reopen
+    interface.config.isDefaultServer = lambda server: (
+        server_is_default and server == interface.server
+    )
+    interface.config.MCRIT_SERVER = "http://waiting:8000/"
+    interface.backend = SimpleNamespace(settings_location="Edit > Tool Options > MCRIT")
+    interface.mcrit_client.getVersion.side_effect = requests.exceptions.ConnectionError("refused")
+
+    interface.checkConnection()
+
+    message = interface.parent.local_widget.updateActivityInfo.call_args_list[-1].args[0]
+    assert message.startswith("Connection check failed (server unreachable).")
+    assert ("use Edit > Tool Options > MCRIT to change it" in message) == hinted

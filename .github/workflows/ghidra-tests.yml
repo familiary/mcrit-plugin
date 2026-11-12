@@ -1,13 +1,13 @@
-name: Ghidra integration
+name: Ghidra CI
 
 # Ghidra needs no licence, so its integration runs for every change that can affect the Ghidra
 # plugin: headless PyGhidra (export, comparison with SMDA, upload, matching, labels) and the GUI
 # under Xvfb (the MCRIT window, its dialogs, tabs and graph).
 on:
   push:
+    branches: ["**"]
     paths:
       - "mcrit_plugin/ghidra/**"
-      - "ghidra_scripts/**"
       - "scripts/ghidra/**"
       - "tests/ghidra/**"
       - ".github/workflows/ghidra-*.yml"
@@ -20,7 +20,6 @@ on:
   pull_request:
     paths:
       - "mcrit_plugin/ghidra/**"
-      - "ghidra_scripts/**"
       - "scripts/ghidra/**"
       - "tests/ghidra/**"
       - ".github/workflows/ghidra-*.yml"
@@ -35,16 +34,25 @@ on:
 permissions:
   contents: read
 
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+defaults:
+  run:
+    shell: bash
+
 env:
   MCRIT_VERSION: "1.12.0"
   MCRIT_SERVER: "http://127.0.0.1:8000"
   SMDA_VERSION: "4.10.0"
   GHIDRA_VERSION: "12.1.4"
   GHIDRA_ZIP: "ghidra_12.1.4_PUBLIC_20260921.zip"
+  GHIDRA_SHA256: "ddac49f903da9d5bac833e5cc79395098b9c33cfd3279be5f31bd00387d2d4db"
 
 jobs:
   ghidra:
-    name: PyGhidra headless and GUI / live MCRIT
+    name: Ghidra / Linux / headless and GUI
     runs-on: ubuntu-latest
     timeout-minutes: 45
     services:
@@ -59,13 +67,13 @@ jobs:
           persist-credentials: false
 
       - name: Set up Python
-        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
         with:
           python-version: "3.12"
 
       # Ghidra needs a full JDK: PyGhidra compiles the plugin's Java bridge with it
       - name: Set up JDK 21
-        uses: actions/setup-java@b843ebf9b913146b38da2eaa7aeddf76074ae1ad # v6.1.0
+        uses: actions/setup-java@77dd5b2ce225ea11469928ac317850245a74ae78 # v6.2.0
         with:
           distribution: temurin
           java-version: "21"
@@ -75,23 +83,32 @@ jobs:
         uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: ${{ runner.temp }}/ghidra
-          key: ghidra-${{ env.GHIDRA_VERSION }}
+          key: ghidra-${{ runner.os }}-${{ runner.arch }}-${{ env.GHIDRA_SHA256 }}
 
-      - name: Download Ghidra
+      - name: Install GUI runtime dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install --yes --no-install-recommends xvfb imagemagick
+
+      - name: Install disassembler
         if: steps.ghidra-cache.outputs.cache-hit != 'true'
         shell: bash
         run: |
           mkdir -p "$RUNNER_TEMP/ghidra"
           curl -fsSL -o "$RUNNER_TEMP/ghidra.zip" \
             "https://github.com/NationalSecurityAgency/ghidra/releases/download/Ghidra_${GHIDRA_VERSION}_build/${GHIDRA_ZIP}"
+          echo "$GHIDRA_SHA256  $RUNNER_TEMP/ghidra.zip" | sha256sum --check
           unzip -q "$RUNNER_TEMP/ghidra.zip" -d "$RUNNER_TEMP/ghidra"
 
-      - name: Install MCRIT service, PyGhidra and plugin dependencies
+      - name: Install MCRIT service
         shell: bash
         run: |
           python -m venv "$RUNNER_TEMP/mcrit-venv"
           "$RUNNER_TEMP/mcrit-venv/bin/python" -m pip install --upgrade pip
           "$RUNNER_TEMP/mcrit-venv/bin/python" -m pip install "mcrit==${MCRIT_VERSION}"
+
+      - name: Install plugin dependencies
+        run: |
           GHIDRA_INSTALL_DIR="$(ls -d "$RUNNER_TEMP"/ghidra/ghidra_*)"
           echo "GHIDRA_INSTALL_DIR=$GHIDRA_INSTALL_DIR" >> "$GITHUB_ENV"
           python -m pip install --upgrade pip
@@ -99,11 +116,6 @@ jobs:
           python -m pip install --no-index \
             -f "$GHIDRA_INSTALL_DIR/Ghidra/Features/PyGhidra/pypkg/dist" pyghidra
           python -m pip install "smda==${SMDA_VERSION}" requests
-
-      - name: Install Xvfb and ImageMagick
-        run: |
-          sudo apt-get update
-          sudo apt-get install --yes --no-install-recommends xvfb imagemagick
 
       - name: Build deterministic MCRIT fixtures
         run: |
@@ -117,24 +129,33 @@ jobs:
       - name: Start MCRIT server and worker
         shell: bash
         run: |
+          # setsid, not nohup alone: the runner SIGTERMs the step's process group when this step's
+          # shell exits, which would kill the services before the "Wait for MCRIT API" step
           setsid nohup "$RUNNER_TEMP/mcrit-venv/bin/python" -m mcrit server \
             > "$RUNNER_TEMP/mcrit-server.log" 2>&1 < /dev/null &
           setsid nohup "$RUNNER_TEMP/mcrit-venv/bin/python" -m mcrit worker \
             > "$RUNNER_TEMP/mcrit-worker.log" 2>&1 < /dev/null &
+
+      - name: Wait for MCRIT API
+        shell: bash
+        run: |
           "$RUNNER_TEMP/mcrit-venv/bin/python" - <<'PY'
           import time
           import requests
 
-          deadline = time.monotonic() + 120
+          deadline = time.monotonic() + 90
+          last_error = None
           while time.monotonic() < deadline:
               try:
-                  if requests.get("http://127.0.0.1:8000/version", timeout=2).ok:
+                  response = requests.get("http://127.0.0.1:8000/version", timeout=2)
+                  if response.ok:
+                      print(response.text)
                       break
-              except Exception:
-                  pass
+              except Exception as exc:
+                  last_error = exc
               time.sleep(2)
           else:
-              raise SystemExit("MCRIT API did not become ready")
+              raise SystemExit(f"MCRIT API did not become ready: {last_error}")
           PY
 
       - name: Seed MCRIT reference sample
@@ -148,29 +169,51 @@ jobs:
           echo "REFERENCE_SHA256=$(sha256sum "$RUNNER_TEMP/mcrit-variant-0" | cut -d' ' -f1)" \
             >> "$GITHUB_ENV"
 
-      - name: Run PyGhidra headless integration
+      - name: Build the Ghidra extension
+        run: |
+          python scripts/ghidra/package_extension.py --repo . \
+            --output "dist/mcrit-ghidra.zip" --ghidra-version "$GHIDRA_VERSION"
+
+      - name: Install the Ghidra extension with Ghidra's installer
+        run: python scripts/ghidra/check_extension_install.py --zip dist/mcrit-ghidra.zip
+
+      - name: Upload the Ghidra extension
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: mcrit-ghidra-extension
+          path: dist/mcrit-ghidra.zip
+
+      - name: Run headless integration tests
         run: |
           python scripts/ghidra/run_pyghidra_integration.py \
             --input "$RUNNER_TEMP/mcrit-variant-1" \
             --mcrit-server "$MCRIT_SERVER" \
-            --reference-sha256 "$REFERENCE_SHA256"
+            --reference-sha256 "$REFERENCE_SHA256" \
+            2>&1 | tee "$RUNNER_TEMP/ghidra-headless-integration.log"
 
-      - name: Run Ghidra GUI integration
+      - name: Run GUI integration tests
         run: |
           xvfb-run -a -s "-screen 0 1600x1000x24" \
             python scripts/ghidra/run_gui_integration.py \
               --input "$RUNNER_TEMP/mcrit-variant-2" \
               --mcrit-server "$MCRIT_SERVER" \
               --reference-sha256 "$REFERENCE_SHA256" \
-              --screenshots "$RUNNER_TEMP/ghidra-screenshots"
+              --screenshots "$RUNNER_TEMP/ghidra-screenshots" \
+              2>&1 | tee "$RUNNER_TEMP/ghidra-gui-integration.log"
 
-      - name: Upload GUI screenshots
+      - name: Upload integration logs
         if: always()
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
-          name: ghidra-gui-screenshots
-          path: ${{ runner.temp }}/ghidra-screenshots
-          if-no-files-found: ignore
+          name: ghidra-${{ env.GHIDRA_VERSION }}-linux-logs
+          retention-days: 14
+          path: |
+            ${{ runner.temp }}/ghidra-headless-integration.log
+            ${{ runner.temp }}/ghidra-gui-integration.log
+            ${{ runner.temp }}/mcrit-server.log
+            ${{ runner.temp }}/mcrit-worker.log
+            ${{ runner.temp }}/ghidra-screenshots
+          if-no-files-found: warn
 
       - name: Show MCRIT logs on failure
         if: failure()

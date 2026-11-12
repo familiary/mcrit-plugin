@@ -35,7 +35,7 @@ class BlockMatchWidget(QMainWindow):
         self._shown_function = None
         self._shown_block = None
         self.name = "Block Scope"
-        self.icon = self.cc.QIcon(self.parent.config.ICON_FILE_PATH + "puzzle.png")
+        self.icon = self.cc.QIcon(self.parent.config.ICON_FILE_PATH + "blocks.png")
         self.central_widget = self.cc.QWidget()
         self.setCentralWidget(self.central_widget)
         self.label_current_function_matches = self.cc.QLabel("Block Matches for: <function_offset>")
@@ -279,23 +279,25 @@ class BlockMatchWidget(QMainWindow):
         missing = [h for h in dict.fromkeys(hashes) if h not in self.parent.blockhash_matches]
         if not missing:
             return
+        interface = self.parent.mcrit_interface
+        # one connection for every lookup and the cache write, so a server switch drops them all
+        connection = interface._pinConnection()
         failed = threading.Event()
 
         def lookup(block_hash):
             # after a failure the remaining lookups would each wait out the same timeout
             if failed.is_set() or (stop is not None and stop()):
                 return None
-            matches = self.parent.mcrit_interface.getMatchesForPicBlockHash(block_hash)
+            matches = interface.getMatchesForPicBlockHash(block_hash, connection)
             if matches is None:
                 failed.set()
             return matches
 
         start = time.time()
         with ThreadPoolExecutor(BLOCK_QUERY_WORKERS) as pool:
-            for block_hash, matches in zip(missing, pool.map(lookup, missing)):
-                # a failed query stays uncached so the next visit retries it
-                if matches is not None:
-                    self.parent.blockhash_matches[block_hash] = matches
+            # a failed query stays uncached so the next visit retries it
+            found = {h: m for h, m in zip(missing, pool.map(lookup, missing)) if m is not None}
+        interface.storeBlockMatches(found, connection)
         duration = time.time() - start
         print(
             f"Querying {len(missing)} blocks took {duration:5.3f} seconds, "

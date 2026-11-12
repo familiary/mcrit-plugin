@@ -14,9 +14,41 @@ Ninja or Ghidra applies to that plugin only.
   the IDA and Binary Ninja plugins in a window docked into the CodeBrowser, one session per open
   program. Reports are exported from Ghidra's own analysis through SMDA (4.9.0 or newer), matched
   local blocks are tinted in the listing with markers that are not saved with the program, remote
-  CFGs open in Ghidra's graph view, and the settings are under Tool Options > MCRIT. It runs from
-  this repository's `ghidra_scripts` folder; see the README for setup. Not released yet; versioned
-  on its own from 0.1.0.
+  CFGs open in Ghidra's graph view, and the settings are under Tool Options > MCRIT. It installs as a
+  Ghidra extension ZIP, built by `scripts/ghidra/package_extension.py`, or runs from a clone; see
+  the README for setup. Its toolbar and tabs use
+  the same icons, at 24 px in the toolbar and in the theme's text colour from when the window
+  opens. Converting, uploading and exporting wait for auto-analysis to finish, and Clear Match
+  Coloring in the MCRIT window's menu removes the tint. Not released yet; versioned on its own
+  from 0.1.0.
+- IDA and Binary Ninja: a Settings button on the toolbar, a "Change..." link on the remote server
+  line, and a Settings entry in the menus (IDA: Edit → Plugins → MCRIT4IDA Settings...; Binary
+  Ninja: Plugins → MCRIT → Settings). In IDA they open the Plugin Settings Manager on mcrit-ida when
+  `ida-settings-editor` is installed; in Binary Ninja, Settings on the MCRIT group. Without the
+  settings editor, IDA shows the plugin's own form for the server, API token, username and timeout;
+  it saves only the fields you changed, greys out the ones `config_override.json` forces, and
+  connects again at once. Closing the settings window or tab opened this way also picks up a
+  changed token, username or timeout without reopening the plugin. A changed server is picked up
+  the same way until the plugin holds results from the current one; after that, it says so, keeps
+  the current server with its token and username, and reopening the plugin switches. An answer
+  that arrives from the previous server after a switch is dropped, and a converted sample is
+  looked up on the new server. Server URLs that differ only by a trailing slash are the same
+  server. A server forced by `config_override.json` is not checked when the other fields are
+  saved, and if saving fails partway, the settings saved before the failure are used.
+- A failed connection check while the server is still the default `http://127.0.0.1:8000/` points
+  at the Settings button (Ghidra: Edit > Tool Options > MCRIT).
+- IDA: opening a matched function's graph, or a block match's function, tints the matched basic
+  blocks of the local function in IDA's disassembly and graph views, as Binary Ninja and Ghidra do.
+  The tint is drawn, not stored in the database. Edit → Plugins → MCRIT4IDA Clear Match Coloring
+  removes it, and closing MCRIT does too.
+- IDA: on a dark theme the score colors in the tables are tints over the table background, as in
+  Binary Ninja and Ghidra, instead of the light theme's colors.
+
+### Changed
+
+- IDA and Binary Ninja: new toolbar and tab icons from one set (Lucide, plus the YARA mark from
+  YARA-X), each tab with its own icon; credits and licences are in `icons/NOTICE.md`. The toolbar
+  icons are 24 px in both (IDA drew them at 32 px).
 
 ### Fixed
 
@@ -26,6 +58,15 @@ Ninja or Ghidra applies to that plugin only.
   example, branch targets kept their exact bytes. The escaping now follows the report's
   architecture; one without an SMDA escaper keeps its raw bytes. Copy Escaped Bytes falls back to
   raw bytes like the rule text when escaping fails, instead of copying nothing.
+- IDA: importing labels counted names IDA refused as imported; they count as skipped now, and
+  applying a single label says whether it was accepted.
+- IDA and Binary Ninja: when re-exporting the report failed, Export and Upload raised an error and
+  dropped the converted report; they keep the report and say that the export failed.
+- IDA and Binary Ninja: the toolbar and tab icons take the theme's text color, also after a theme
+  change, so they are visible on dark themes; disabled toolbar icons show dimmed instead of almost
+  black.
+- IDA 9.0: importing labels, and every other change the plugin makes to the database, failed with
+  a `TypeError`, because IDA 9.0 takes its undo points in another form than later versions do.
 
 ## [2.1.1] - 2026-10-15
 

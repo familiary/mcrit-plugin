@@ -1,0 +1,288 @@
+name: Binary Ninja CI
+
+on:
+  push:
+    branches: ["**"]
+    paths:
+      - "mcrit_plugin/binja/**"
+      - "plugin.json"
+      - "__init__.py"
+      - "requirements.txt"
+      - "**/ida-plugin.json"
+      - "scripts/binja/**"
+      - "tests/binja/**"
+      - ".github/workflows/binja-*.yml"
+      - "mcrit_plugin/core/**"
+      - "mcrit_plugin/__init__.py"
+      - "mcrit_plugin/ui_qt/**"
+      - "icons/**"
+      - "scripts/common/**"
+      - "tests/core/**"
+      - "tests/ui_qt/**"
+      - "tests/conftest.py"
+      - "tests/fixtures/**"
+      - "README.md"
+      - "LICENSE"
+      - "pyproject.toml"
+      - ".gitattributes"
+  pull_request:
+    paths:
+      - "mcrit_plugin/binja/**"
+      - "plugin.json"
+      - "__init__.py"
+      - "requirements.txt"
+      - "**/ida-plugin.json"
+      - "scripts/binja/**"
+      - "tests/binja/**"
+      - ".github/workflows/binja-*.yml"
+      - "mcrit_plugin/core/**"
+      - "mcrit_plugin/__init__.py"
+      - "mcrit_plugin/ui_qt/**"
+      - "icons/**"
+      - "scripts/common/**"
+      - "tests/core/**"
+      - "tests/ui_qt/**"
+      - "tests/conftest.py"
+      - "tests/fixtures/**"
+      - "README.md"
+      - "LICENSE"
+      - "pyproject.toml"
+      - ".gitattributes"
+
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  # Serialize runs that share a named license; never cancel a running licensed process.
+  group: binaryninja-license
+  cancel-in-progress: false
+
+defaults:
+  run:
+    shell: bash
+
+env:
+  MCRIT_VERSION: "1.12.0"
+  MCRIT_SERVER: "http://127.0.0.1:8000"
+  SMDA_VERSION: "4.10.0"
+
+jobs:
+  preflight:
+    name: Check license availability
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    outputs:
+      run: ${{ steps.decide.outputs.run }}
+      reason: ${{ steps.decide.outputs.reason }}
+    steps:
+      - name: Check configuration
+        id: decide
+        env:
+          FORK_PR: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository }}
+          HAS_SECRETS: ${{ secrets.BN_LICENSE_B64 != '' && secrets.BN_DOWNLOAD_URL_LINUX_X64_STABLE != '' }}
+        run: |
+          reason=""
+          if [[ "$FORK_PR" == "true" ]]; then
+            reason="fork pull requests cannot receive Binary Ninja license secrets"
+          elif [[ "$HAS_SECRETS" != "true" ]]; then
+            reason="BN_LICENSE_B64 or BN_DOWNLOAD_URL_LINUX_X64_STABLE is not configured"
+          fi
+          if [[ -z "$reason" ]]; then
+            echo "run=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "run=false" >> "$GITHUB_OUTPUT"
+            echo "reason=$reason" >> "$GITHUB_OUTPUT"
+            echo "::warning::Binary Ninja integration will not run: $reason"
+          fi
+
+  binja:
+    name: Binary Ninja / Linux / headless and GUI
+    needs: preflight
+    if: needs.preflight.outputs.run == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    services:
+      mongo:
+        image: mongo:5.0
+        ports:
+          - 27017:27017
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Set up Python
+        uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
+        with:
+          python-version: "3.12"
+
+      - name: Install GUI runtime dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install --yes --no-install-recommends \
+            xvfb libegl1 libgl1 libopengl0 libxkbcommon-x11-0 libxcb-cursor0 \
+            libxcb-icccm4 libxcb-image0 libxcb-keysyms1 libxcb-render-util0 \
+            libxcb-xinerama0 libxcb-xkb1 libdbus-1-3 fontconfig
+
+      - name: Install disassembler
+        env:
+          DOWNLOAD_URL: ${{ secrets.BN_DOWNLOAD_URL_LINUX_X64_STABLE }}
+          BN_LICENSE_B64: ${{ secrets.BN_LICENSE_B64 }}
+        run: |
+          curl --fail --silent --show-error --location --retry 3 \
+            "$DOWNLOAD_URL" --output "$RUNNER_TEMP/binaryninja.zip"
+          unzip -q "$RUNNER_TEMP/binaryninja.zip" -d "$RUNNER_TEMP"
+          test -x "$RUNNER_TEMP/binaryninja/binaryninja"
+          site="$(python -m site --user-site)"
+          mkdir -p "$site"
+          echo "$RUNNER_TEMP/binaryninja/python" > "$site/binaryninja.pth"
+          python - <<'PYTHON'
+          import base64
+          import json
+          import os
+          from pathlib import Path
+
+          data = base64.b64decode(os.environ["BN_LICENSE_B64"], validate=True)
+          entries = json.loads(data)
+          for entry in entries if isinstance(entries, list) else [entries]:
+              for value in entry.values():
+                  if isinstance(value, str) and value:
+                      escaped = value.replace("%", "%25").replace("\r", "%0D").replace("\n", "%0A")
+                      print(f"::add-mask::{escaped}")
+          path = Path(os.environ["RUNNER_TEMP"]) / "binaryninja-license.dat"
+          path.touch(mode=0o600)
+          path.write_bytes(data)
+          PYTHON
+
+      - name: Install MCRIT service
+        shell: bash
+        run: |
+          python -m venv "$RUNNER_TEMP/mcrit-venv"
+          "$RUNNER_TEMP/mcrit-venv/bin/python" -m pip install --upgrade pip
+          "$RUNNER_TEMP/mcrit-venv/bin/python" -m pip install "mcrit==${MCRIT_VERSION}"
+
+      - name: Install plugin dependencies
+        # binaryninjaui supplies the matching Qt bindings; a pip PySide6 may have another ABI.
+        run: python -m pip install "smda==${SMDA_VERSION}" requests
+
+      - name: Build deterministic MCRIT fixtures
+        run: |
+          for variant in 0 1 2; do
+            python scripts/common/build_test_fixture.py \
+              --source tests/fixtures/mcrit_sample.c \
+              --output "$RUNNER_TEMP/mcrit-variant-$variant" \
+              --variant "$variant"
+          done
+
+      - name: Start MCRIT server and worker
+        shell: bash
+        run: |
+          # setsid, not nohup alone: the runner SIGTERMs the step's process group when this step's
+          # shell exits, which would kill the services before the "Wait for MCRIT API" step
+          setsid nohup "$RUNNER_TEMP/mcrit-venv/bin/python" -m mcrit server \
+            > "$RUNNER_TEMP/mcrit-server.log" 2>&1 < /dev/null &
+          setsid nohup "$RUNNER_TEMP/mcrit-venv/bin/python" -m mcrit worker \
+            > "$RUNNER_TEMP/mcrit-worker.log" 2>&1 < /dev/null &
+
+      - name: Wait for MCRIT API
+        shell: bash
+        run: |
+          "$RUNNER_TEMP/mcrit-venv/bin/python" - <<'PY'
+          import time
+          import requests
+
+          deadline = time.monotonic() + 90
+          last_error = None
+          while time.monotonic() < deadline:
+              try:
+                  response = requests.get("http://127.0.0.1:8000/version", timeout=2)
+                  if response.ok:
+                      print(response.text)
+                      break
+              except Exception as exc:
+                  last_error = exc
+              time.sleep(2)
+          else:
+              raise SystemExit(f"MCRIT API did not become ready: {last_error}")
+          PY
+
+      - name: Seed MCRIT reference sample
+        env:
+          PYTHONPATH: ${{ github.workspace }}
+        run: |
+          "$RUNNER_TEMP/mcrit-venv/bin/python" scripts/common/seed_mcrit.py \
+            --server "$MCRIT_SERVER" \
+            --sample "$RUNNER_TEMP/mcrit-variant-0" \
+            --timeout 180
+          echo "REFERENCE_SHA256=$(sha256sum "$RUNNER_TEMP/mcrit-variant-0" | cut -d' ' -f1)" \
+            >> "$GITHUB_ENV"
+
+      - name: Run headless integration tests
+        run: |
+          python scripts/binja/run_headless_integration.py \
+            --input "$RUNNER_TEMP/mcrit-variant-1" \
+            --mcrit-server "$MCRIT_SERVER" \
+            --reference-sha256 "$REFERENCE_SHA256" \
+            --license "$RUNNER_TEMP/binaryninja-license.dat" \
+            2>&1 | tee "$RUNNER_TEMP/binja-headless-integration.log"
+
+      - name: Run GUI integration tests
+        run: |
+          xvfb-run -a -s "-screen 0 1600x1000x24" \
+            python scripts/binja/run_gui_integration.py \
+              --install-dir "$RUNNER_TEMP/binaryninja" \
+              --input "$RUNNER_TEMP/mcrit-variant-2" \
+              --mcrit-server "$MCRIT_SERVER" \
+              --reference-sha256 "$REFERENCE_SHA256" \
+              --license "$RUNNER_TEMP/binaryninja-license.dat" \
+              --python-library "$(python -c 'import sysconfig; from pathlib import Path; print(Path(sysconfig.get_config_var("LIBDIR")) / sysconfig.get_config_var("INSTSONAME"))')" \
+              --log "$RUNNER_TEMP/binja-gui-startup.log" \
+              2>&1 | tee "$RUNNER_TEMP/binja-gui-integration.log"
+
+      - name: Upload integration logs
+        if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: binja-linux-logs
+          retention-days: 14
+          path: |
+            ${{ runner.temp }}/binja-headless-integration.log
+            ${{ runner.temp }}/binja-gui-integration.log
+            ${{ runner.temp }}/mcrit-server.log
+            ${{ runner.temp }}/mcrit-worker.log
+            ${{ runner.temp }}/binja-gui-startup.log
+          if-no-files-found: warn
+
+      - name: Show MCRIT logs on failure
+        if: failure()
+        shell: bash
+        run: |
+          cat "$RUNNER_TEMP/mcrit-server.log" || true
+          cat "$RUNNER_TEMP/mcrit-worker.log" || true
+
+  result:
+    name: Integration result
+    needs: [preflight, binja]
+    if: always()
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Report integration result
+        env:
+          PREFLIGHT: ${{ needs.preflight.result }}
+          RESULT: ${{ needs.binja.result }}
+          REASON: ${{ needs.preflight.outputs.reason }}
+        run: |
+          if [[ "$PREFLIGHT" != "success" || "$RESULT" == "failure" || "$RESULT" == "cancelled" ]]; then
+            echo "::error::Binary Ninja integration failed (preflight=$PREFLIGHT, integration=$RESULT)"
+            exit 1
+          fi
+          if [[ "$RESULT" == "skipped" ]]; then
+            echo "::warning::Binary Ninja integration did not run: $REASON"
+            echo "Binary Ninja integration did not run: $REASON" >> "$GITHUB_STEP_SUMMARY"
+          else
+            echo "Binary Ninja headless and GUI integration passed." >> "$GITHUB_STEP_SUMMARY"
+          fi

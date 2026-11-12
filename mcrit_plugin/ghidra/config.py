@@ -1,6 +1,7 @@
 """Settings of the Ghidra plugin: the keys declared in mcrit_plugin/core/settings.json, registered
-under Edit > Tool Options > MCRIT. config_override.json next to plugin.json still takes precedence,
-as in IDA and Binary Ninja (McritConfig handles that)."""
+under Edit > Tool Options > MCRIT. config_override.json in the plugin's root folder (the clone's
+root, or the installed extension's folder) still takes precedence, as in IDA and Binary Ninja
+(McritConfig handles that)."""
 
 import json
 import os
