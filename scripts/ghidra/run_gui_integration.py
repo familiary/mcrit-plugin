@@ -105,11 +105,32 @@ class Gui:
         swing.invoke_later(func)
 
     def shot(self, name):
-        if not self.screenshots or not shutil.which("import"):
+        if not self.screenshots:
             return
         self.step += 1
         target = Path(self.screenshots) / f"{self.step:02d}_{name}.png"
-        subprocess.run(["import", "-window", "root", str(target)], check=False)
+        if shutil.which("import"):
+            subprocess.run(["import", "-window", "root", str(target)], check=False)
+        else:
+            # without ImageMagick's X11 grab, e.g. on macOS: each window paints itself
+            self.edt(lambda: self._paint_windows(target))
+
+    def _paint_windows(self, target):
+        from java.awt.image import BufferedImage
+        from java.io import File
+        from javax.imageio import ImageIO
+
+        for number, window in enumerate(self.windows()):
+            image = BufferedImage(
+                max(int(window.getWidth()), 1),
+                max(int(window.getHeight()), 1),
+                BufferedImage.TYPE_INT_RGB,
+            )
+            graphics = image.createGraphics()
+            window.paint(graphics)
+            graphics.dispose()
+            path = target.with_name(f"{target.stem}_{number}.png")
+            ImageIO.write(image, "png", File(str(path)))
 
     def windows(self, title=None):
         from jpype import JClass
@@ -153,6 +174,8 @@ class Gui:
             width = tabs.getWidth()
             for index in range(tabs.getTabCount()):
                 rect = tabs.getBoundsAt(index)
+                if rect is None:  # JTabbedPane has no bounds for a tab that is not visible
+                    continue
                 x, y = int(rect.getCenterX()), int(rect.getCenterY())
                 if index != tabs.getSelectedIndex() and 0 <= x < width:
                     break
@@ -241,7 +264,11 @@ def run_steps(args, gui):
     _check(True, "MCRIT window open and connected")
     # a press can land before the freshly docked window takes input; a broken click fails all three
     for attempt in range(3):
-        pressed_tab = gui.press_tab(main.tabs)
+        if args.no_tab_click:
+            pressed_tab = (int(main.tabs.getSelectedIndex()) + 1) % int(main.tabs.getTabCount())
+            gui.edt(lambda: main.tabs.setSelectedIndex(pressed_tab))
+        else:
+            pressed_tab = gui.press_tab(main.tabs)
         try:
             _wait(
                 lambda: main.tabs.getSelectedIndex() == pressed_tab, "tab selected by a click", 10
@@ -250,7 +277,7 @@ def run_steps(args, gui):
         except TimeoutError:
             if attempt == 2:
                 raise
-    _check(True, "clicking a tab header selects it")
+    _check(True, "selecting a tab" if args.no_tab_click else "clicking a tab header selects it")
     gui.shot("opened")
 
     # convert an unknown sample: family and version are asked for
@@ -409,8 +436,11 @@ def run_steps(args, gui):
     _wait(lambda: controller.active_key == controller._program_key(program), "switch back", 30)
 
     # closing a program with renamed functions offers to upload them
+    # a Mach-O build of the fixture has no unnamed function left after the label import
+    functions = list(report.getFunctions())
     renamed = next(
-        f.offset for f in report.getFunctions() if backend.has_default_function_name(f.offset)
+        (f.offset for f in functions if backend.has_default_function_name(f.offset)),
+        functions[0].offset,
     )
     with backend.mutation("Rename for the close prompt"):
         backend.set_function_name(renamed, "renamed_in_ghidra")
@@ -467,6 +497,12 @@ def main() -> int:
     parser.add_argument("--timeout", type=int, default=180)
     parser.add_argument("--ghidra-dir", help="Ghidra installation; defaults to GHIDRA_INSTALL_DIR")
     parser.add_argument("--screenshots", help="directory for a screenshot per step")
+    parser.add_argument(
+        "--no-tab-click",
+        action="store_true",
+        help="select the first tab directly instead of pressing the mouse on its header, for a "
+        "screen too narrow to show a second tab header in the MCRIT window",
+    )
     parser.add_argument("--keep-open", action="store_true", help="leave Ghidra running at the end")
     parser.add_argument("--workdir", type=Path, help=argparse.SUPPRESS)
     parser.add_argument("--prepare-only", action="store_true", help=argparse.SUPPRESS)

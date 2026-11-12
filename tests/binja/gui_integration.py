@@ -1152,6 +1152,7 @@ class IntegrationTest:
         main_widget = self.session.main_widget
         expected_validity = {
             "MCRIT\\Show Sidebar": True,
+            "MCRIT\\Settings": True,
             "MCRIT\\Convert to SMDA Report": True,
             "MCRIT\\Upload SMDA Report": main_widget.uploadSmdaAction.isEnabled(),
             "MCRIT\\Fetch Matching Result": main_widget.getMatchResultAction.isEnabled(),
@@ -1212,6 +1213,7 @@ class IntegrationTest:
 
         effects = {
             "MCRIT\\Show Sidebar": lambda: self.find_widget(),
+            "MCRIT\\Settings": lambda: main_widget._watchedSettingsWidget is not None,
             "MCRIT\\Convert to SMDA Report": started_background,
             "MCRIT\\Upload SMDA Report": started_background,
             "MCRIT\\Export SMDA Report...": started_background,

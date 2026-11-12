@@ -217,7 +217,10 @@ python scripts/ghidra/run_pyghidra_integration.py --input /tmp/mcrit-query --ref
 The GUI run starts Ghidra in PyGhidra mode with a throwaway profile and project, opens MCRIT through
 `mcrit_plugin/ghidra/ghidra_scripts/MCRIT.py` and works through every tab and dialog, the remote
 CFG, export, switching programs and the upload prompt on close. The input must be new to the server. It needs a display;
-`--screenshots DIR` keeps one per step.
+`--screenshots DIR` keeps one per step (through ImageMagick's `import` where it is installed, else
+each window paints itself, which also works on macOS). On a screen so narrow that the MCRIT window
+shows a single tab header, add `--no-tab-click`: the run then selects the tab directly instead of
+pressing the mouse on it.
 
 ```bash
 python scripts/common/build_test_fixture.py --source tests/fixtures/mcrit_sample.c --output /tmp/mcrit-gui-query --variant 2
