@@ -74,9 +74,12 @@ class McritSidebarWidget(SidebarWidget):
 def _forget(widget):
     # background results must not reach the destroyed Qt widgets behind this session
     widget.backend.closed = True
-    MatchRenderLayer.clear(widget.backend.bv.file.session_id)
     if widget in _SIDEBAR_WIDGETS:
         _SIDEBAR_WIDGETS.remove(widget)
+    # the tint is kept per file, which the file's other tabs and view types share
+    session_id = widget.backend.bv.file.session_id
+    if not any(other.backend.bv.file.session_id == session_id for other in _SIDEBAR_WIDGETS):
+        MatchRenderLayer.clear(session_id)
 
 
 def _sidebar_icon():
@@ -125,7 +128,8 @@ class McritContextNotification(UIContextNotification):
         # navigation from the Symbols pane reaches the sidebar only through this global notification
         if view is None or location is None or not location.isValid():
             return
-        widget = _widget_for_view(view.getData(), frame)
+        # not another tab's widget: its cursor is its own
+        widget = _widget_for_view(view.getData(), frame, other_tab=frame is None)
         if widget is not None:
             widget.notifyOffsetChanged(location.getOffset())
 
@@ -143,8 +147,7 @@ class McritContextNotification(UIContextNotification):
             session = widget.session
             if session.findUnsyncedFunctionNames() and widget.backend.ask_yes_no(
                 "Function names changed since the SMDA report was created. "
-                "Upload an updated report to the MCRIT server before closing? "
-                "Binary Ninja will wait for the upload to finish."
+                "Upload an updated report to the MCRIT server before closing?"
             ):
                 session.uploadUpdatedReport()
         return True
@@ -178,7 +181,7 @@ def _frame_for(context):
     return ui_context.getCurrentViewFrame() if ui_context is not None else None
 
 
-def _widget_for_view(bv, frame=None):
+def _widget_for_view(bv, frame=None, other_tab=True):
     # per-view-type sidebars: the Raw and PE views of one file share a session_id, and a file split
     # into several tabs has one widget per tab, told apart by its view frame
     matches = [
@@ -195,7 +198,7 @@ def _widget_for_view(bv, frame=None):
     for widget in matches:
         if any(widget.backend.view_frame is tab_frame for tab_frame in tab_frames):
             return widget
-    return matches[0] if matches else None
+    return matches[0] if matches and other_tab else None
 
 
 def _frames_in_tab_of(frame):
@@ -217,6 +220,7 @@ def _has_report(session):
 # (action name, handler(session) or None to only open the sidebar, enabled(session) or None when always available)
 _ACTIONS = [
     ("MCRIT\\Show Sidebar", None, None),
+    ("MCRIT\\Settings", lambda session: session.main_widget._onSettingsButtonClicked(), None),
     (
         "MCRIT\\Convert to SMDA Report",
         lambda session: session.main_widget._onConvertSmdaButtonClicked(),
@@ -260,11 +264,18 @@ _ACTIONS = [
 ]
 
 
+def _clear_stored_token():
+    clear_stored_secrets()
+    # the open sidebars would keep sending the token they read when they opened
+    for widget in list(_SIDEBAR_WIDGETS):
+        widget.session.main_widget._reloadSettings()
+
+
 def _register_global_actions():
     name = "MCRIT\\Clear Stored API Token"
     UIAction.registerAction(name)
     UIActionHandler.globalActions().bindAction(
-        name, UIAction(lambda context: clear_stored_secrets())
+        name, UIAction(lambda context: _clear_stored_token())
     )
     Menu.mainMenu("Plugins").addAction(name, "MCRIT")
 

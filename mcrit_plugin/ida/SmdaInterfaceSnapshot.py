@@ -1,6 +1,13 @@
 # smda.ida.BackendInterface exists in every smda the IDA plugin supports (4.3.10 and newer)
 from smda.ida.BackendInterface import BackendInterface
 
+# functions read between two looks at the wait box's Cancel button
+CANCEL_CHECK_INTERVAL = 64
+
+
+class ExportCancelled(Exception):
+    """The user cancelled the wait box while the snapshot was read."""
+
 
 class SmdaInterfaceSnapshot(BackendInterface):
     """Everything smda's Exporter reads from a BackendInterface, read up front.
@@ -10,7 +17,7 @@ class SmdaInterfaceSnapshot(BackendInterface):
     Exporter.analyzeBuffer asks for, so the report is the one the live interface yields.
     """
 
-    def __init__(self, interface):
+    def __init__(self, interface, cancelled=None):
         super().__init__()
         self._architecture = interface.getArchitecture()
         self._bitness = interface.getBitness()
@@ -24,7 +31,9 @@ class SmdaInterfaceSnapshot(BackendInterface):
         self._instruction_bytes = {}
         self._code_in_refs = {}
         self._code_out_refs = {}
-        for function_offset in self._functions:
+        for number, function_offset in enumerate(self._functions):
+            if cancelled is not None and number % CANCEL_CHECK_INTERVAL == 0 and cancelled():
+                raise ExportCancelled()
             if interface.isExternalFunction(function_offset):
                 self._external_functions.add(function_offset)
                 continue

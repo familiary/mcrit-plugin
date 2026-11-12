@@ -63,6 +63,9 @@ class MatchTableView:
 
     def reset(self, headers, rows, foreground=None, alignment=None):
         self.rows = rows
+        # an open combo box would write its choice into whichever row takes its place
+        if self.table.isEditing():
+            self.table.getCellEditor().cancelCellEditing()
         texts = JArray(JString, 2)([[str(text) for text in row.texts] for row in rows])
         keys = JArray(JObject, 2)([[_java_key(key) for key in row.sort_keys] for row in rows])
         backgrounds = JArray(JClass("java.awt.Color"))([java_color(row.background) for row in rows])

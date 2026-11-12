@@ -36,7 +36,7 @@ class FunctionOverviewWidget(QMainWindow):
         self.resolved_function_labels = {}  # offset -> resolved label string
         self.parent = parent
         self.name = "Function Overview"
-        self.icon = self.cc.QIcon(self.parent.config.ICON_FILE_PATH + "relationship.png")
+        self.icon = self.cc.QIcon(self.parent.config.ICON_FILE_PATH + "network.png")
         self.central_widget = self.cc.QWidget()
         self.setCentralWidget(self.central_widget)
         self.b_fetch_labels = self.cc.QPushButton("Fetch labels for matches")
@@ -330,13 +330,20 @@ class FunctionOverviewWidget(QMainWindow):
                         f"Error: Could not parse label '{label_via_table}' for function at 0x{offset:x}."
                     )
                     continue
-                label_via_table = label_via_table.split("|")[1]
+                label_via_table = label_via_table.split("|", 1)[1]
                 if self.cc.backend.has_default_function_name(offset):
-                    self.cc.backend.set_function_name(offset, label_via_table)
-                    num_names_applied += 1
+                    # the disassembler may refuse a name, e.g. one IDA cannot represent
+                    if self.cc.backend.set_function_name(offset, label_via_table):
+                        num_names_applied += 1
+                    else:
+                        num_names_skipped += 1
         if num_names_applied:
             self.parent.local_widget.updateActivityInfo(
                 f"Success! Imported {num_names_applied} function names (skipped: {num_names_skipped})."
+            )
+        elif num_names_skipped:
+            self.parent.local_widget.updateActivityInfo(
+                f"No function names imported (skipped: {num_names_skipped})."
             )
         else:
             self.parent.local_widget.updateActivityInfo(

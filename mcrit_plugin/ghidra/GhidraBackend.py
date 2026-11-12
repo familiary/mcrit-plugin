@@ -2,17 +2,18 @@
 
 All Ghidra access goes through JPype. Swing is single threaded: widgets are touched on the event
 dispatch thread only, requests to the MCRIT server run on Python threads, and the export runs as a
-Ghidra background task so the status bar shows it.
+Ghidra background task with a progress dialog that does not block the tool.
 """
 
 import hashlib
 import os
 import threading
+import time
 import traceback
 from contextlib import contextmanager
 
-from mcrit_plugin.core.Backend import Backend
-from mcrit_plugin.core.ScoreColorProvider import ThemeRole
+from mcrit_plugin.core.Backend import Backend, run_until_cancelled
+from mcrit_plugin.core.ScoreColorProvider import ThemeRole, tint_over
 from mcrit_plugin.ghidra import swing
 from mcrit_plugin.ghidra.GhidraSmdaInterface import (
     GhidraSmdaInterface,
@@ -21,10 +22,9 @@ from mcrit_plugin.ghidra.GhidraSmdaInterface import (
 )
 
 TITLE = "MCRIT"
-# dark themes get the role colors as tints over the table background, as Binary Ninja does
-TINT_STRENGTH = 0.4
 # a remote CFG with more blocks than this is not worth laying out as a graph
 MAX_GRAPH_BLOCKS = 2000
+ANALYSIS_POLL_SECONDS = 0.2
 # below the selection (100) and search highlight (50) markers, so both stay visible over a tint
 MARKER_PRIORITY = 40
 
@@ -32,6 +32,7 @@ MARKER_PRIORITY = 40
 class GhidraBackend(Backend):
     name = "Ghidra"
     plugin_name = "MCRIT4Ghidra"
+    settings_location = "Edit > Tool Options > MCRIT"
 
     def __init__(self, program, tool=None):
         self.program = program
@@ -242,11 +243,22 @@ class GhidraBackend(Backend):
     def _report_failure(self, title):
         print(f"[MCRIT] {title} failed:\n{traceback.format_exc()}")
         self._on_ui_thread(
-            lambda: self.show_warning(f"{title} failed, see the console for details.")
+            lambda: self.show_failure(f"{title} failed, see the console for details.")
         )
 
     def _on_ui_thread(self, func):
         swing.invoke_later(lambda: None if self.closed else func())
+
+    def run_blocking(self, title, work):
+        if self.tool is None:
+            work()
+            return True
+        finished = []
+        # a modal Ghidra task dialog with Cancel; work stays off Swing's thread
+        swing.launch_modal_task(
+            title, lambda monitor: finished.append(run_until_cancelled(work, monitor.isCancelled))
+        )
+        return bool(finished and finished[0])
 
     def run_background(self, title, work, on_done):
         if self.tool is None:
@@ -255,8 +267,12 @@ class GhidraBackend(Backend):
         backend = self
 
         def run(monitor):
-            monitor.setMessage(title)
             try:
+                # reports must reflect finished analysis, as in Binary Ninja's run_background
+                backend._wait_for_analysis(monitor, title)
+                if backend.closed:
+                    return
+                monitor.setMessage(title)
                 result = work()
             except Exception:
                 backend._report_failure(title)
@@ -264,6 +280,15 @@ class GhidraBackend(Backend):
             backend._on_ui_thread(lambda: on_done(result))
 
         swing.launch_background_task(title, run)
+
+    def _wait_for_analysis(self, monitor, title):
+        from ghidra.app.plugin.core.analysis import AutoAnalysisManager
+
+        manager = AutoAnalysisManager.getAnalysisManager(self.program)
+        if manager.isAnalyzing():
+            monitor.setMessage(f"{title} (waiting for analysis)")
+        while not self.closed and manager.isAnalyzing():
+            time.sleep(ANALYSIS_POLL_SECONDS)
 
     def run_request(self, title, work, on_done):
         if self.tool is None:
@@ -332,7 +357,7 @@ class GhidraBackend(Backend):
             return background
         if role == ThemeRole.CURRENT:
             return swing.selection_background()
-        return tuple(int(b + TINT_STRENGTH * (t - b)) for t, b in zip(default, background))
+        return tint_over(default, background)
 
     def show_local_match_coloring(self, smda_function, coloring):
         markers = self._service("ghidra.app.services.MarkerService")
@@ -393,8 +418,11 @@ class GhidraBackend(Backend):
 
         def display(monitor):
             # a new window per graph, owned by Ghidra's graph service like any other graph
-            graph_display = broker.getDefaultGraphDisplay(False, monitor)
-            graph_display.setGraph(graph, options, title, False, monitor)
+            try:
+                graph_display = broker.getDefaultGraphDisplay(False, monitor)
+                graph_display.setGraph(graph, options, title, False, monitor)
+            except Exception:
+                self._report_failure("Drawing the remote CFG")
 
         swing.launch_background_task("MCRIT: drawing the remote CFG", display)
 

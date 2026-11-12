@@ -36,7 +36,10 @@ class _Dialog:
         from javax.swing import JDialog
 
         self.main_panel = main_panel
-        self.dialog = JDialog(_window(main_panel), title)
+        # no window once the MCRIT provider is hidden; JPype cannot pick an overload for None
+        owner = _window(main_panel)
+        self.dialog = JDialog(owner, title) if owner is not None else JDialog()
+        self.dialog.setTitle(title)
         self.dialog.setModal(True)
         self.dialog.getContentPane().setLayout(BorderLayout())
         self._size = (width, height)

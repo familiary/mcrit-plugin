@@ -33,7 +33,8 @@ def controller_for(tool):
     registry = _registry()
     key = int(tool.hashCode()), str(tool.getName())
     controller = registry.get(key)
-    if controller is None or controller.disposed:
+    # a closed tool's hash can come back with a new tool of the same name
+    if controller is None or controller.disposed or not controller.tool.equals(tool):
         controller = McritToolController(tool, key)
         registry[key] = controller
     return controller
@@ -110,12 +111,27 @@ class McritToolController:
         )
         self._provider_listener = _ProviderListener(self)
         self.provider.setListener(self._provider_listener)
+        from docking.action.builder import ActionBuilder
+
+        # in the window's own menu, like Binary Ninja's MCRIT > Clear Match Coloring
+        self._clear_coloring_action = (
+            ActionBuilder("Clear Match Coloring", WINDOW_NAME)
+            .menuPath("Clear Match Coloring")
+            .description("Remove the tint MCRIT put on matched blocks in the listing.")
+            .onAction(swing.Consumer(lambda _context: self._clear_coloring()))
+            .buildAndInstallLocal(self.provider)
+        )
         self._event_listener = _EventListener(self)
         tool.addListenerForAllPluginEvents(self._event_listener)
         self._settle_timer = Timer(
             CURSOR_SETTLE_MS, swing.ActionListener(lambda _e: self._cursor_settled())
         )
         self._settle_timer.setRepeats(False)
+        # Ghidra tells a script nothing when its tool closes; the tool's frame is disposed of then
+        self._tool_frame = tool.getToolFrame()
+        self._frame_listener = swing.WindowClosedListener(self._tool_closed)
+        if self._tool_frame is not None:
+            self._tool_frame.addWindowListener(self._frame_listener)
 
     # placeholder for programs without a session
 
@@ -183,6 +199,11 @@ class McritToolController:
         if session.config.AUTO_ANALYZE_SMDA_ON_STARTUP:
             session.main_widget._onConvertSmdaButtonClicked()
         return _SessionEntry(program, backend, session)
+
+    def _clear_coloring(self):
+        entry = self.entries.get(self.active_key)
+        if entry is not None:
+            entry.backend.clear_local_match_coloring()
 
     def session_for(self, program):
         entry = self.entries.get(self._program_key(program))
@@ -260,10 +281,22 @@ class McritToolController:
             return
         entry.session.refreshCursorWidgets(entry.backend.cursor_offset)
 
+    def _tool_closed(self):
+        """Release the sessions and reports of a tool that closed; it asked about its programs
+        while it closed them, and has no window left to ask in."""
+        for entry in list(self.entries.values()):
+            entry.backend.close()
+        self.entries.clear()
+        self._settle_timer.stop()
+        self.disposed = True
+        _registry().pop(self.key, None)
+
     def dispose(self):
         """Close every session and the window, e.g. before reloading the plugin."""
         for entry in list(self.entries.values()):
             self._close_session(entry.program)
+        if self._tool_frame is not None:
+            self._tool_frame.removeWindowListener(self._frame_listener)
         self.tool.removeListenerForAllPluginEvents(self._event_listener)
         self.provider.removeFromTool()
         self.disposed = True

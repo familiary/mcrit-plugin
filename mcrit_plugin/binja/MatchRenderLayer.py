@@ -56,6 +56,17 @@ class MatchRenderLayer(binaryninja.RenderLayer):
                 return rgb
         return None
 
+    # the layer is on for every file; without a tint the base classes' walk over each graph node
+    # and linear line is skipped
+    def apply_to_flow_graph(self, graph):
+        if self._ranges:
+            super().apply_to_flow_graph(graph)
+
+    def apply_to_linear_view_object(self, obj, prev, next, lines):
+        if not self._ranges:
+            return lines
+        return super().apply_to_linear_view_object(obj, prev, next, lines)
+
     def apply_to_block(self, block, lines):
         # one override for disassembly and IL blocks in graph view and, through the base class, in
         # linear view; IL blocks are located by the disassembly block they were lifted from

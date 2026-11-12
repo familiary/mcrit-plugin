@@ -37,7 +37,8 @@ def is_default_function_name(function):
     from ghidra.program.model.symbol import SourceType
 
     symbol = function.getSymbol()
-    if symbol is not None and symbol.getSource() == SourceType.DEFAULT:
+    # a thunk has the DEFAULT source too, but shows its target's name, e.g. an import's
+    if symbol is not None and symbol.getSource() == SourceType.DEFAULT and not function.isThunk():
         return True
     return is_default_name(function.getName())
 
