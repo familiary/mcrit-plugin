@@ -20,7 +20,6 @@ class LocalInfoWidget(QMainWindow):
         print("[|] loading LocalInfoWidget")
         self.parent = parent
         self.name = "LocalInfo"
-        self.icon = self.cc.QIcon(self.parent.config.ICON_FILE_PATH + "scan.png")
         self.central_widget = self.cc.QWidget()
         self.setCentralWidget(self.central_widget)
         self.label_mcrit_activity_info = self.cc.QLabel("Activity Info: <PLACEHOLDER>")

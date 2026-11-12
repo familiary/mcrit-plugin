@@ -35,7 +35,7 @@ class BlockMatchWidget(QMainWindow):
         self._shown_function = None
         self._shown_block = None
         self.name = "Block Scope"
-        self.icon = self.cc.QIcon(self.parent.config.ICON_FILE_PATH + "puzzle.png")
+        self.icon = self.cc.QIcon(self.parent.config.ICON_FILE_PATH + "blocks.png")
         self.central_widget = self.cc.QWidget()
         self.setCentralWidget(self.central_widget)
         self.label_current_function_matches = self.cc.QLabel("Block Matches for: <function_offset>")
