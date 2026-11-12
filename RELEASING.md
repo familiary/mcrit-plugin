@@ -7,9 +7,11 @@ This repository follows the release process shared across the MCRIT ecosystem
 [docker-mcrit](https://github.com/familiary/docker-mcrit)). The shape is the same everywhere;
 this file states the values that are specific to this repository.
 
-This repository ships two plugins that are versioned and released independently: the IDA plugin
-follows the shared process below, and the Binary Ninja plugin is released through the extension
-manager's own workflow ([Binary Ninja](#binary-ninja)).
+This repository ships two released plugins that are versioned and released independently: the IDA
+plugin follows the shared process below, and the Binary Ninja plugin is released through the
+extension manager's own workflow ([Binary Ninja](#binary-ninja)). Both workflows build every asset
+first, attach them to a draft release and only then publish it, so a failed build leaves no
+published release.
 
 ## IDA
 
@@ -69,20 +71,23 @@ Pushing the tag is the release. `.github/workflows/ida-release.yml` then:
 
 1. **Verify** — refuses to continue unless the tag matches both version strings, `CHANGELOG.md` has a
    `## [X.Y.Z] - <date>` section (which becomes the release notes), the tagged commit is on `main`,
-   and the `pytest` workflow passed on that commit.
+   and the newest unit-test, validation and IDA CI runs passed on that exact commit. All six
+   live integration jobs must have actually succeeded; a green skipped-license summary is insufficient.
 2. **Validate and build** — runs `verify_metadata_sync.py` against the tag's version,
    `verify_settings_sync.py` and `run_quality_checks.py`, builds `mcrit-ida-<version>.zip`, and lints
    the archive with `hcli plugin lint`.
-3. **Release** — creates the GitHub release for the tag with the changelog section as its body,
-   GitHub's generated contributor and PR list appended under it, and the archive attached. It is
+3. **Offline dependencies** — builds the Windows `smda` and `full` bundles from the verified
+   commit before publication. The reusable workflow's build jobs have read-only tokens.
+4. **Release** — creates a draft GitHub release with the plugin ZIP and every dependency bundle,
+   then publishes it with the changelog section as its body and GitHub's generated contributor and
+   PR list appended under it. It is
    never marked as the latest release, because the Binary Ninja extension manager reads the latest
    release. HCLI indexes only the ten most recent releases of the repository, so if Binary Ninja
    releases ever push the newest IDA release out of that window, cut another IDA release to bring
    it back.
-4. **Offline dependencies** — calls `offline-dependencies.yml`, which attaches the Windows
-   wheelhouse bundles (`smda` and `full`) to the release. It is called directly because a release
-   created with `GITHUB_TOKEN` does not start workflows that listen for release events. To attach
-   bundles to an existing release, run it by hand with that release's tag.
+   Assets are complete before publication, so immutable releases are supported. The release
+   job rechecks that the tag still names the verified commit. The asset-only dependency workflow
+   remains available for older mutable releases; it cannot append assets to immutable releases.
 
 Each gate fails with a message naming what to fix. Nothing has to be remembered at the console.
 
@@ -127,9 +132,8 @@ Done once, by a repository owner; the workflow cannot create these for itself.
 
 - **Label** `no-changelog`, used by the changelog check.
 - Optionally, **immutable releases** (Settings → General → Releases), so a published release's
-  assets and tag can no longer be changed. Note that the offline-dependency workflow uploads
-  assets to the release after it is published, so it has to finish before a release is made
-  immutable.
+  assets and tag can no longer be changed. The release workflows upload all assets to the draft
+  before publishing. Standalone attachment only works for mutable releases.
 
 ### Release order across the ecosystem
 
@@ -160,15 +164,19 @@ A release takes two steps, the same shape as an IDA release:
    gh workflow run binja-release.yml -f description="$(cat notes.md)"   # blank generates notes
    ```
 
-`.github/workflows/binja-release.yml` checks that CI passed on `main`, that the version in
-`plugin.json` is new (no tag `X.Y.Z` or `vX.Y.Z` names it yet, and it is greater than the latest
-release), and runs the metadata, settings, quality and pytest checks there with a read-only token.
-It then tags the same commit with the bare version through the release API and publishes it as the
-latest GitHub release, with the description as notes and GitHub's generated list since the previous
-latest release appended. It never pushes to `main`, so the ruleset needs no bypass. If `main` moved
-between the checks and the release, the run stops. Afterwards it calls
-`offline-dependencies.yml` to attach a `binja` wheelhouse bundle built from `requirements.txt`
-for Python 3.11 to 3.13. To attach it to an existing release by hand, pass the same inputs:
+`.github/workflows/binja-release.yml` checks that the newest `pytest` and `Validate` runs passed on
+the default branch's commit, that the version in `plugin.json` is new (no tag `X.Y.Z` or `vX.Y.Z`
+names it yet, and it is greater than the latest release), and runs the metadata, settings, quality
+and pytest checks there with a read-only token. The licensed Binary Ninja CI does not gate the
+release, because its secrets are not configured yet. The workflow then calls
+`offline-dependencies.yml` to build a `binja` wheelhouse bundle from that commit's
+`requirements.txt` for Python 3.11 to 3.13. Once every bundle is built, it creates a draft release
+for the bare version on the verified commit, attaches the bundles, and publishes it as the latest
+release, with the description as notes and GitHub's generated list since the previous latest
+release appended. Publishing creates the tag. It never pushes to `main`, so the ruleset needs no
+bypass. If `main` moved between the checks and the release, the run stops. `dry-run=true` runs the
+checks without building bundles, tagging or publishing. To attach bundles to an existing release
+that is not immutable, pass the same inputs:
 
 ```bash
 gh workflow run offline-dependencies.yml -f tag=X.Y.Z \
@@ -206,3 +214,10 @@ has to attach that ZIP; no workflow does that yet. A source archive cannot build
 changes get `Ghidra:` entries in `CHANGELOG.md` like the other plugins' do. Before a first
 release, decide on a tag scheme (e.g. `ghidra-vX.Y.Z`) and whether a release guard like the IDA
 one should check it.
+
+## Failed publication and reruns
+
+A failure before publication leaves either no release or an unpublished draft. Delete the failed
+draft before re-running, so the tag does not end up with two. A draft creates no tag; the Binary
+Ninja version tag only exists once its release is published. A published immutable release cannot
+be corrected: cut a new version instead.

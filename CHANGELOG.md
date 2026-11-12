@@ -65,6 +65,8 @@ Ninja or Ghidra applies to that plugin only.
 - IDA and Binary Ninja: the toolbar and tab icons take the theme's text color, also after a theme
   change, so they are visible on dark themes; disabled toolbar icons show dimmed instead of almost
   black.
+- IDA 9.0: importing labels, and every other change the plugin makes to the database, failed with
+  a `TypeError`, because IDA 9.0 takes its undo points in another form than later versions do.
 
 ## [2.1.1] - 2026-10-15
 

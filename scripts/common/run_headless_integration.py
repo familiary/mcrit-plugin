@@ -39,7 +39,14 @@ def _matches_sample(matches, sample_id):
     return any(isinstance(match, dict) and match.get("sample_id") == sample_id for match in samples)
 
 
-def run(input_path: Path, server: str, reference_sha256: str | None, timeout: int) -> None:
+def run(
+    input_path: Path,
+    server: str,
+    reference_sha256: str | None,
+    timeout: int,
+    *,
+    backend=None,
+) -> None:
     from mcrit_plugin.core.config import PLUGIN_ROOT, McritConfig
     from mcrit_plugin.core.HeadlessMcritContext import HeadlessMcritContext
     from mcrit_plugin.headless.HeadlessBackend import HeadlessBackend
@@ -52,7 +59,8 @@ def run(input_path: Path, server: str, reference_sha256: str | None, timeout: in
     override_path = Path(PLUGIN_ROOT) / "config_override.json"
     if override_path.exists():
         raise RuntimeError(f"{override_path} would override the test settings; move it aside")
-    backend = HeadlessBackend(input_path)
+    if backend is None:
+        backend = HeadlessBackend(input_path)
     context = HeadlessMcritContext(McritConfig("headless", get_setting), backend)
     interface = context.mcrit_interface
     client = interface.mcrit_client

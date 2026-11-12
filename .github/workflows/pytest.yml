@@ -2,10 +2,17 @@ name: pytest
 
 on:
   push:
+    branches: ["**"]
   pull_request:
+
+  workflow_dispatch:
 
 permissions:
   contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
 
 env:
   MCRIT_VERSION: "1.12.0"
@@ -13,6 +20,8 @@ env:
 
 jobs:
   pytest:
+    name: Unit tests
+    timeout-minutes: 15
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
@@ -41,6 +50,7 @@ jobs:
 
   headless-integration:
     name: Headless backend / live MCRIT
+    timeout-minutes: 20
     runs-on: ubuntu-latest
     services:
       mongo:
