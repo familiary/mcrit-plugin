@@ -71,6 +71,25 @@ def _get_secret(key, settings):
     raise KeyError(key)
 
 
+def set_setting(key, value):
+    full_key = f"{GROUP}.{key}"
+    settings = Settings()
+    if key in SECRET_SETTINGS:
+        provider = SecretsProvider.get(KEYCHAIN_PROVIDER)
+        if provider is not None and provider.has_data(full_key):
+            provider.delete_data(full_key)
+        settings.reset(full_key)
+        if value:
+            # moved into the keychain by the next read, as for a value typed into Settings
+            settings.set_string(full_key, value)
+    elif key in NUMBER_SETTINGS:
+        settings.set_integer(full_key, int(value))
+    elif isinstance(value, bool):
+        settings.set_bool(full_key, value)
+    else:
+        settings.set_string(full_key, value)
+
+
 def clear_stored_secrets():
     provider = SecretsProvider.get(KEYCHAIN_PROVIDER)
     settings = Settings()

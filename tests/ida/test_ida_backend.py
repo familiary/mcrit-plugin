@@ -44,7 +44,7 @@ def backend(monkeypatch):
         register_timer=_no_ida_timers,
         waker=waker,
     )
-    for name in ("ida_bytes", "ida_funcs", "ida_idaapi", "ida_nalt", "ida_undo", "idc"):
+    for name in ("ida_bytes", "ida_expr", "ida_funcs", "ida_idaapi", "ida_nalt", "ida_undo", "idc"):
         monkeypatch.setitem(sys.modules, name, types.ModuleType(name))
     monkeypatch.setitem(sys.modules, "ida_kernwin", kernwin)
     monkeypatch.setitem(sys.modules, "ida_hexrays", None)
@@ -209,6 +209,7 @@ def test_the_waker_runs_its_callback_on_the_thread_that_created_it(monkeypatch):
     QtWidgets = pytest.importorskip("PySide6.QtWidgets")
     for name in (
         "ida_bytes",
+        "ida_expr",
         "ida_funcs",
         "ida_idaapi",
         "ida_kernwin",
@@ -389,3 +390,60 @@ def test_an_import_by_ordinal_without_a_name_is_named_by_its_ordinal(fast_interf
         0x1008: "WS2_32!connect",
         0x1010: "#7",
     }
+
+
+def test_open_settings_opens_the_settings_editor_on_mcrit_ida(backend, monkeypatch):
+    instance, kernwin = backend
+    module = sys.modules["mcrit_plugin.ida.IdaBackend"]
+    monkeypatch.setattr(module.ida_expr, "find_idc_func", lambda prefix, n=0: prefix, raising=False)
+    eval_idc = MagicMock()
+    monkeypatch.setattr(module.idc, "eval_idc", eval_idc, raising=False)
+    editor, qt_widget = object(), object()
+    kernwin.find_widget = MagicMock(return_value=editor)
+    to_qt = MagicMock(return_value=qt_widget)
+    kernwin.PluginForm = types.SimpleNamespace(FormToPyQtWidget=to_qt)
+
+    assert instance.open_settings(MagicMock()) is qt_widget
+
+    eval_idc.assert_called_once_with('ida_settings_show_plugin_settings("mcrit-ida")')
+    kernwin.find_widget.assert_called_once_with("Plugin Settings Manager")
+    to_qt.assert_called_once_with(editor)
+
+
+def test_an_editor_window_that_cannot_be_found_still_counts_as_opened(backend, monkeypatch):
+    instance, kernwin = backend
+    module = sys.modules["mcrit_plugin.ida.IdaBackend"]
+    monkeypatch.setattr(module.ida_expr, "find_idc_func", lambda prefix, n=0: prefix, raising=False)
+    monkeypatch.setattr(module.idc, "eval_idc", MagicMock(), raising=False)
+    kernwin.find_widget = MagicMock(return_value=None)
+
+    assert instance.open_settings(MagicMock()) is True
+
+
+def test_open_settings_without_the_editor_leaves_it_to_the_plugin_form(backend, monkeypatch):
+    instance, _kernwin = backend
+    module = sys.modules["mcrit_plugin.ida.IdaBackend"]
+    monkeypatch.setattr(module.ida_expr, "find_idc_func", lambda prefix, n=0: "", raising=False)
+    eval_idc = MagicMock()
+    monkeypatch.setattr(module.idc, "eval_idc", eval_idc, raising=False)
+
+    assert instance.open_settings(MagicMock()) is None
+    eval_idc.assert_not_called()
+
+
+def test_save_settings_stores_strings_through_ida_settings(backend, monkeypatch):
+    instance, _kernwin = backend
+    ida_settings = types.SimpleNamespace(set_plugin_setting=MagicMock())
+    monkeypatch.setitem(sys.modules, "ida_settings", ida_settings)
+    # recorded first, so teardown also drops the copy imported against the fake ida_settings
+    monkeypatch.setitem(sys.modules, "mcrit_plugin.ida.config", None)
+    monkeypatch.delitem(sys.modules, "mcrit_plugin.ida.config")
+
+    instance.save_settings(
+        {"mcrit_server": "https://mcrit.example.com/", "mcrit_request_timeout": 30}
+    )
+
+    ida_settings.set_plugin_setting.assert_any_call(
+        "mcrit-ida", "mcrit_server", "https://mcrit.example.com/"
+    )
+    ida_settings.set_plugin_setting.assert_any_call("mcrit-ida", "mcrit_request_timeout", "30")

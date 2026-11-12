@@ -2,7 +2,9 @@
 
 import os
 import threading
+from contextlib import contextmanager
 from types import SimpleNamespace
+from unittest.mock import MagicMock
 
 import pytest
 
@@ -10,15 +12,20 @@ os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 pytest.importorskip("PySide6.QtWidgets")
 
 import mcrit_plugin.ui_qt.widgets.BlockMatchWidget as block_match_module  # noqa: E402
+from mcrit_plugin.core.McritInterface import McritInterface  # noqa: E402
 from mcrit_plugin.ui_qt.widgets.BlockMatchWidget import BlockMatchWidget  # noqa: E402
 
 
 def _widget(lookup, cached=None):
-    widget = BlockMatchWidget.__new__(BlockMatchWidget)
-    widget.parent = SimpleNamespace(
-        blockhash_matches=dict(cached or {}),
-        mcrit_interface=SimpleNamespace(getMatchesForPicBlockHash=lookup),
+    interface = McritInterface.__new__(McritInterface)
+    interface.parent = SimpleNamespace(
+        blockhash_matches=dict(cached or {}), local_widget=MagicMock(), mcrit_interface=interface
     )
+    interface._switch_lock = threading.Lock()
+    interface._server_generation = 0
+    interface.mcrit_client = SimpleNamespace(getMatchesForPicBlockHash=lookup)
+    widget = BlockMatchWidget.__new__(BlockMatchWidget)
+    widget.parent = interface.parent
     return widget
 
 
@@ -83,3 +90,45 @@ def test_lookups_stop_once_the_cursor_left(monkeypatch):
 
     assert queried == [1, 2]
     assert widget.parent.blockhash_matches == {1: [1], 2: [2]}, "skipped hashes stay uncached"
+
+
+def test_block_matches_from_the_previous_server_are_not_cached():
+    widget = _widget(lambda block_hash: [block_hash])
+    interface = widget.parent.mcrit_interface
+    storing = interface._storing
+
+    @contextmanager
+    def switch_first(generation):
+        # the server changes after every lookup passed its own check, before the cache write
+        interface._server_generation += 1
+        with storing(generation) as current:
+            yield current
+
+    interface._storing = switch_first
+
+    widget._lookupBlockHashes([1, 2])
+
+    assert widget.parent.blockhash_matches == {}
+
+
+class _LockCheckedDict(dict):
+    def __init__(self, lock):
+        super().__init__()
+        self.lock = lock
+
+    def __setitem__(self, key, value):
+        assert self.lock.locked()
+        super().__setitem__(key, value)
+
+    def update(self, *args, **kwargs):
+        assert self.lock.locked()
+        super().update(*args, **kwargs)
+
+
+def test_block_matches_are_cached_under_the_switch_lock():
+    widget = _widget(lambda block_hash: [block_hash])
+    widget.parent.blockhash_matches = _LockCheckedDict(widget.parent.mcrit_interface._switch_lock)
+
+    widget._lookupBlockHashes([1, 2])
+
+    assert widget.parent.blockhash_matches == {1: [1], 2: [2]}
