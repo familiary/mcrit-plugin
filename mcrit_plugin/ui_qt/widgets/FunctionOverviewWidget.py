@@ -94,6 +94,7 @@ class FunctionOverviewWidget(QMainWindow):
         self.button_layout.addWidget(self.b_select_deselect_all)
         self.button_layout.addWidget(self.b_import_labels)
         self.button_layout.addStretch()  # Add stretch to push buttons to the left
+        self.label_minhash_threshold = self.cc.QLabel("Min. Score:")
         self.sb_minhash_threshold = self.cc.QSpinBox()
         self.sb_minhash_threshold.setRange(100, 100)
         self.sb_minhash_threshold.valueChanged.connect(self.handleSpinThresholdChange)
@@ -125,7 +126,11 @@ class FunctionOverviewWidget(QMainWindow):
         function_info_layout.addWidget(self.b_fetch_labels)
         function_info_layout.addWidget(self.filter_container)
         function_info_layout.addWidget(self.button_container)
-        function_info_layout.addWidget(self.sb_minhash_threshold)
+        threshold_layout = self.cc.QHBoxLayout()
+        threshold_layout.addWidget(self.label_minhash_threshold)
+        threshold_layout.addWidget(self.sb_minhash_threshold)
+        threshold_layout.addStretch()
+        function_info_layout.addLayout(threshold_layout)
         function_info_layout.addWidget(self.hline)
         function_info_layout.addWidget(self.label_local_functions)
         function_info_layout.addWidget(self.table_local_functions)
@@ -630,10 +635,6 @@ class FunctionOverviewWidget(QMainWindow):
             dropdowns,
         )
         table.setLabelColumn(label_score_column_index)
-        if rows:
-            # a drop-down needs more room than the font alone asks for
-            row_height = max(table.verticalHeader().defaultSectionSize(), 26)
-            table.verticalHeader().setDefaultSectionSize(row_height)
         header = table.horizontalHeader()
         for header_id in range(len(self.local_function_header_labels)):
             # only the score/label column stretches; the rest stay as narrow as their content

@@ -46,6 +46,25 @@ Ninja or Ghidra applies to that plugin only.
 
 ### Changed
 
+- IDA and Binary Ninja: the tables look and behave like the hosts' own lists: no row numbers or
+  grid lines, the whole row selected, long texts cut with an ellipsis instead of wrapped,
+  scrolling by pixels. In Block Scope, Function Scope and the Sample Match Summary the rows are
+  one text line high, the headers are aligned with their columns, and the columns are fitted to
+  their contents, at most 280 px wide, and can be dragged; the Sample Match Summary no longer
+  squeezes every column into the window. Filling these tables no longer measures every cell
+  through Qt, which was most of the time a function with many blocks took to show.
+- Binary Ninja: the values the tables show as `0x...`, addresses and block hashes, use Binary
+  Ninja's code font.
+- IDA and Binary Ninja: dialog buttons are in the platform's order, e.g. Cancel before OK on
+  macOS, and Return presses OK in the YARA String Builder instead of Copy Escaped Bytes; the
+  YARA rule shows in Binary Ninja's code font, in IDA in the system's fixed-width font, instead
+  of Courier; the Function Overview's score threshold has a label; tab titles a narrow dock cuts
+  short have tooltips.
+- Ghidra: the tables are Ghidra's own (`GTable`): its header with sort marks and the column menu,
+  sorting on several columns, its row colors and fonts, and its copy and export actions. The
+  dialogs are Ghidra dialogs with its button row, opened over the tool and closed by Escape.
+- Ghidra: a Settings button on the MCRIT toolbar opens Tool Options on the MCRIT page; when the
+  dialog closes, a changed token, username, timeout or server is picked up as in the other two.
 - IDA and Binary Ninja: new toolbar and tab icons from one set (Lucide, plus the YARA mark from
   YARA-X), each tab with its own icon; credits and licences are in `icons/NOTICE.md`. The toolbar
   icons are 24 px in both (IDA drew them at 32 px).

@@ -209,6 +209,11 @@ class BinjaBackend(Backend):
         # no analysis wait, unlike run_background; without cancel, as a request cannot be stopped
         Task(title, False).start()
 
+    def monospace_font(self, widget):
+        from binaryninjaui import getMonospaceFont
+
+        return getMonospaceFont(widget)
+
     def run_blocking(self, title, work):
         from binaryninja.interaction import run_progress_dialog
 

@@ -188,10 +188,7 @@ class SampleInfoWidget(QMainWindow):
 
     def _fill(self, table, headers, rows, alignment=None):
         table.table_model.reset(headers, rows, alignment=alignment)
-        # every column stretches, so nothing is sized to its contents
-        header = table.horizontalHeader()
-        for header_id in range(len(headers)):
-            header.setSectionResizeMode(header_id, self._QtShim.get_QHeaderView().Stretch)
+        table.resizeColumnsToContents()
 
     ################################################################################
     # Buttons and Actions

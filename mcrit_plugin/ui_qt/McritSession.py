@@ -88,10 +88,12 @@ class McritSession:
         from mcrit_plugin.ui_qt.widgets.FunctionOverviewWidget import FunctionOverviewWidget
         from mcrit_plugin.ui_qt.widgets.LocalInfoWidget import LocalInfoWidget
         from mcrit_plugin.ui_qt.widgets.MainWidget import MainWidget
+        from mcrit_plugin.ui_qt.widgets.NativeLook import set_monospace_font_provider
         from mcrit_plugin.ui_qt.widgets.SampleInfoWidget import SampleInfoWidget
 
         time_before = time.time()
         print("[/] setting up widgets...")
+        set_monospace_font_provider(self.cc.backend.monospace_font)
         self.local_widget = LocalInfoWidget(self)
         self.block_match_widget = BlockMatchWidget(self)
         self.function_match_widget = FunctionMatchWidget(self)

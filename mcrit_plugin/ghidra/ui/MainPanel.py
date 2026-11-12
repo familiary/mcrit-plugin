@@ -6,6 +6,7 @@ the dialogs they open are in dialogs.py.
 
 import json
 
+from mcrit_plugin.core.config import same_server
 from mcrit_plugin.ghidra.ui.components import button, load_icon, scrolling_tabs
 from mcrit_plugin.ghidra.ui.dialogs import (
     ResultChooserDialog,
@@ -73,6 +74,12 @@ class MainPanel:
             "Build a YARA string from the current selection.",
             self._onBuildYaraStringButtonClicked,
             False,
+        )
+        self.settingsAction = tool(
+            "settings.png",
+            "Set the MCRIT server, API token and other plugin settings.",
+            self._onSettingsButtonClicked,
+            True,
         )
         self.tabs = scrolling_tabs()
         for widget in self.tabbed_widgets:
@@ -237,6 +244,35 @@ class MainPanel:
         report.is_library = smda_info["is_library"]
         self._enableMatchWidgets()
         self.parent.local_widget.update()
+
+    def _onSettingsButtonClicked(self):
+        backend = self.cc.backend
+        if not backend.open_settings(self.parent.config):
+            self.parent.local_widget.updateActivityInfo(
+                "The settings are under Edit > Tool Options > MCRIT."
+            )
+            return
+        # Tool Options closed: take over the connection settings, as IDA and Binary Ninja do
+        interface = self.parent.mcrit_interface
+        server = interface.server
+        waiting_server = interface.reloadSettings()
+        report = self.parent.local_smda_report
+        if report is not None and not same_server(interface.server, server):
+            # the sample the old server did not know may be on the new one
+            backend.run_request(
+                "MCRIT: looking up the converted sample",
+                lambda: interface.querySampleSha256(report.sha256),
+                lambda _result: self._onSampleLookedUpAgain(report),
+            )
+        if waiting_server is not None:
+            backend.show_warning(
+                "The new settings are saved. MCRIT keeps using %s for the results it already has; "
+                "%s to switch to %s." % (interface.server, backend.reopen_hint, waiting_server)
+            )
+
+    def _onSampleLookedUpAgain(self, report):
+        if self.parent.remote_sample_entry is not None:
+            self._applyConvertedReport(report)
 
     def _enableMatchWidgets(self):
         self.parent.block_match_widget.enable()

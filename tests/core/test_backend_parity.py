@@ -11,7 +11,7 @@ FRONTENDS = {
     "Ghidra": ROOT / "ghidra" / "GhidraBackend.py",
 }
 # optional hooks whose default does the job everywhere
-WORKING_DEFAULTS = {"mutation", "run_background", "run_request", "show_failure"}
+WORKING_DEFAULTS = {"mutation", "run_background", "run_request", "show_failure", "monospace_font"}
 # optional hooks whose default leaves a visible feature out
 VISIBLE_HOOKS = {
     "show_local_match_coloring",
@@ -23,8 +23,7 @@ VISIBLE_HOOKS = {
     "run_blocking",
 }
 NOT_SUPPORTED = {
-    ("Ghidra", "open_settings"): "no Settings button yet; settings are in Edit > Tool Options",
-    ("Ghidra", "save_settings"): "no Settings button yet; settings are in Edit > Tool Options",
+    ("Ghidra", "save_settings"): "Tool Options always opens, so the plugin's own form never shows",
 }
 
 

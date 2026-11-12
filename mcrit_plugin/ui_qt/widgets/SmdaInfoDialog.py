@@ -1,4 +1,5 @@
 import mcrit_plugin.ui_qt.QtShim as QtShim
+from mcrit_plugin.ui_qt.widgets.NativeLook import button_box
 
 QDialog = QtShim.get_QDialog()
 
@@ -52,9 +53,9 @@ class SmdaInfoDialog(QDialog):
         self.cancel_button = self.cc.QPushButton(self.tr("Cancel"))
         self.ok_button.clicked.connect(self.accept)
         self.cancel_button.clicked.connect(self.reject)
-        self.button_layout.addStretch(1)
-        self.button_layout.addWidget(self.ok_button)
-        self.button_layout.addWidget(self.cancel_button)
+        self.button_layout.addWidget(
+            button_box(accept=[self.ok_button], reject=[self.cancel_button], default=self.ok_button)
+        )
 
     def accept(self):
         # display mode

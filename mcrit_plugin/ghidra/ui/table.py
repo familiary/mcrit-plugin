@@ -1,5 +1,6 @@
 """Tables of the Ghidra frontend: rows are filled from Python in one call, the Java model keeps the
-texts and sort keys, and a RowSorter orders the view (see McritTableModel.java).
+texts and sort keys, and the model, one of Ghidra's sorted models shown in a GTable, sorts itself
+(see McritTableModel.java).
 
 MatchRow and the reset/entryAt/positionOf/selectEntireRow calls mirror the Qt MatchTableView, so the
 panels read like their Qt counterparts.
@@ -89,14 +90,15 @@ class MatchTableView:
         self._tables.fitColumns(self.table, max_width)
 
     def sort_by(self, column, ascending):
-        self._tables.sortBy(self.table, column, ascending)
+        self.model.sortBy(column, ascending)
 
     # rows
 
     def modelRow(self, view_row):
-        if view_row < 0 or view_row >= self.table.getRowCount():
-            return None
-        return int(self.table.convertRowIndexToModel(view_row))
+        """The position the row shown at view_row was filled in at; the model sorts itself, so
+        that is not the row's place in the table."""
+        source_row = int(self.model.sourceRow(view_row))
+        return source_row if source_row >= 0 else None
 
     def entryAt(self, view_row):
         model_row = self.modelRow(view_row)
@@ -107,7 +109,7 @@ class MatchTableView:
         return self.rows[model_row] if model_row is not None else None
 
     def positionOf(self, source_row):
-        """The model row of the row filled in at source_row; model rows keep their fill order."""
+        """The row filled in at source_row, as the other methods here address it."""
         return source_row if 0 <= source_row < len(self.rows) else None
 
     def selectEntireRow(self, model_row):
@@ -145,6 +147,8 @@ class MatchTableView:
 
     def on_popup(self, func):
         """func(view_row, model_column) for a context click on a cell; the cell gets selected."""
+
+        self.table.setOwnPopup(True)
 
         def popup(event):
             point = event.getPoint()

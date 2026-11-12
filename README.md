@@ -126,9 +126,12 @@ their display names. The API token field is masked, but Ghidra stores it with th
 plain text. A `config_override.json` in the extension's folder (`Extensions/MCRIT` in Ghidra's
 settings folder), or in the clone's root, takes precedence as it does in IDA. Reinstalling the
 extension replaces that folder, so keep a copy of the file.
-The table columns are read whenever a table is filled. The connection settings (server, token,
-username, timeout) and the starting values of the checkboxes and thresholds are read when MCRIT
-opens for a program; reopen the program after changing those. The other settings are read when
+The Settings button on the MCRIT toolbar opens them there. The table columns are read whenever a
+table is filled. The connection settings (server, token, username, timeout) are read when MCRIT
+opens for a program, and again when the options dialog its Settings button opened closes (a
+different server only until MCRIT holds results from the current one); after changing them any
+other way, reopen the program. The starting values of the checkboxes and thresholds are read when
+MCRIT opens for a program. The other settings are read when
 they are used.
 
 ### Use

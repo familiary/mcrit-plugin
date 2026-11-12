@@ -32,7 +32,8 @@ MARKER_PRIORITY = 40
 class GhidraBackend(Backend):
     name = "Ghidra"
     plugin_name = "MCRIT4Ghidra"
-    settings_location = "Edit > Tool Options > MCRIT"
+    settings_location = "the Settings button (Edit > Tool Options > MCRIT)"
+    reopen_hint = "reopen the program"
 
     def __init__(self, program, tool=None):
         self.program = program
@@ -59,6 +60,17 @@ class GhidraBackend(Backend):
         from jpype import JClass
 
         return self.tool.getService(JClass(name))
+
+    def open_settings(self, config):
+        """Ghidra's Tool Options on the MCRIT page; the dialog is modal, so the settings are
+        final when this returns."""
+        service = self._service("docking.options.OptionsService")
+        if service is None:
+            return None
+        from mcrit_plugin.ghidra.config import OPTIONS_CATEGORY
+
+        service.showOptionsDialog(OPTIONS_CATEGORY, "")
+        return True
 
     def _smda_interface(self):
         return GhidraSmdaInterface(self.program)

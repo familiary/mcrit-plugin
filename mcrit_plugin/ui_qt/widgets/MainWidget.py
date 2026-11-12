@@ -47,7 +47,9 @@ class MainWidget(QMainWindow):
         self.tabs = self.cc.QTabWidget()
         self.tabs.setTabsClosable(False)
         for widget in self.tabbed_widgets:
-            self.tabs.addTab(widget, widget.name)
+            index = self.tabs.addTab(widget, widget.name)
+            # a narrow dock cuts the titles short
+            self.tabs.setTabToolTip(index, widget.name)
         layout = self.cc.QVBoxLayout()
         self.splitter = self.cc.QSplitter(self.cc.QtCore.Qt.Vertical)
         q_clean_style = self.cc.QStyleFactory.create("Plastique")

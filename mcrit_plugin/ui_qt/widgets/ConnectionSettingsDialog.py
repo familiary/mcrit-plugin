@@ -1,6 +1,7 @@
 from urllib.parse import urlparse
 
 import mcrit_plugin.ui_qt.QtShim as QtShim
+from mcrit_plugin.ui_qt.widgets.NativeLook import button_box
 
 QDialog = QtShim.get_QDialog()
 
@@ -70,13 +71,14 @@ class ConnectionSettingsDialog(QDialog):
             layout.addWidget(label)
         buttons = self.cc.QHBoxLayout()
         self.save_button = self.cc.QPushButton("Save and connect")
-        self.save_button.setDefault(True)
         self.cancel_button = self.cc.QPushButton("Cancel")
         self.save_button.clicked.connect(self.accept)
         self.cancel_button.clicked.connect(self.reject)
-        buttons.addStretch(1)
-        buttons.addWidget(self.save_button)
-        buttons.addWidget(self.cancel_button)
+        buttons.addWidget(
+            button_box(
+                accept=[self.save_button], reject=[self.cancel_button], default=self.save_button
+            )
+        )
         layout.addLayout(buttons)
         self.setLayout(layout)
         self._initial_values = self.values()

@@ -5,11 +5,12 @@ package mcrit.ghidra;
 
 import java.awt.Color;
 import java.awt.Component;
-import java.util.List;
 
 import javax.swing.*;
-import javax.swing.table.DefaultTableCellRenderer;
-import javax.swing.table.TableRowSorter;
+
+import docking.widgets.table.GTable;
+import docking.widgets.table.GTableCellRenderer;
+import docking.widgets.table.GTableCellRenderingData;
 
 /** Builds and drives the tables of the MCRIT window. */
 public final class McritTables {
@@ -17,31 +18,27 @@ public final class McritTables {
 	private McritTables() {
 	}
 
-	/** Shows a cell's text over the background the model gives it; choice cells get an arrow. */
-	static final class Renderer extends DefaultTableCellRenderer {
+	/**
+	 * Ghidra's own cell look (font, selection, alternating rows), with the score tint the model
+	 * gives a cell over it; choice cells get an arrow.
+	 */
+	static final class Renderer extends GTableCellRenderer {
 		@Override
-		public Component getTableCellRendererComponent(JTable table, Object value,
-				boolean isSelected, boolean hasFocus, int row, int column) {
+		public Component getTableCellRendererComponent(GTableCellRenderingData data) {
+			super.getTableCellRendererComponent(data);
+			JTable table = data.getTable();
 			McritTableModel model = (McritTableModel) table.getModel();
-			int modelRow = table.convertRowIndexToModel(row);
-			int modelColumn = table.convertColumnIndexToModel(column);
-			String text = value == null ? "" : value.toString();
-			if (model.isChoiceCell(modelRow, modelColumn)) {
-				text = text + "  \u25BE";
+			int sourceRow = model.sourceRow(data.getRowViewIndex());
+			int modelColumn = data.getColumnModelIndex();
+			if (model.isChoiceCell(sourceRow, modelColumn)) {
+				setText(getText() + "  \u25BE");
 			}
-			super.getTableCellRendererComponent(table, text, isSelected, hasFocus, row, column);
 			setHorizontalAlignment(model.isCentered() ? SwingConstants.CENTER : SwingConstants.LEADING);
-			Color background = model.getBackground(modelRow, modelColumn);
-			if (!isSelected) {
-				if (background != null) {
-					setBackground(background);
-					Color foreground = model.getTintForeground();
-					setForeground(foreground != null ? foreground : table.getForeground());
-				}
-				else {
-					setBackground(table.getBackground());
-					setForeground(table.getForeground());
-				}
+			Color background = model.getBackground(sourceRow, modelColumn);
+			if (!data.isSelected() && background != null) {
+				setBackground(background);
+				Color foreground = model.getTintForeground();
+				setForeground(foreground != null ? foreground : table.getForeground());
 			}
 			return this;
 		}
@@ -62,7 +59,7 @@ public final class McritTables {
 		public Component getTableCellEditorComponent(JTable table, Object value,
 				boolean isSelected, int row, int column) {
 			McritTableModel model = (McritTableModel) table.getModel();
-			String[] choices = model.getChoices(table.convertRowIndexToModel(row));
+			String[] choices = model.getChoices(model.sourceRow(row));
 			combo.setModel(new DefaultComboBoxModel<>(choices != null ? choices : new String[0]));
 			combo.setSelectedItem(value == null ? null : value.toString());
 			SwingUtilities.invokeLater(() -> {
@@ -74,41 +71,45 @@ public final class McritTables {
 		}
 	}
 
-	public static JTable create(McritTableModel model) {
-		JTable table = new JTable(model) {
-			// fill the viewport while the columns fit, scroll sideways once they do not; a narrow
-			// dock would otherwise squeeze every column to a few characters
-			@Override
-			public boolean getScrollableTracksViewportWidth() {
-				return getPreferredSize().width < getParent().getWidth();
-			}
-		};
+	/** A GTable: Ghidra's header with its sort marks and column menu, its copy and export actions. */
+	public static final class Table extends GTable {
+		private boolean ownPopup;
+
+		Table(McritTableModel model) {
+			super(model);
+		}
+
+		/** The panel shows a menu of its own on a context click; Ghidra's would open with it. */
+		public void setOwnPopup(boolean ownPopup) {
+			this.ownPopup = ownPopup;
+		}
+
+		@Override
+		protected boolean supportsPopupActions() {
+			return !ownPopup;
+		}
+
+		// fill the viewport while the columns fit, scroll sideways once they do not; a narrow
+		// dock would otherwise squeeze every column to a few characters
+		@Override
+		public boolean getScrollableTracksViewportWidth() {
+			return getPreferredSize().width < getParent().getWidth();
+		}
+	}
+
+	public static Table create(McritTableModel model) {
+		Table table = new Table(model);
 		table.setDefaultRenderer(McritTableModel.Cell.class, new Renderer());
 		table.setDefaultEditor(McritTableModel.Cell.class, new ChoiceEditor());
 		table.setSelectionMode(ListSelectionModel.SINGLE_SELECTION);
 		table.setFillsViewportHeight(true);
 		table.setAutoResizeMode(JTable.AUTO_RESIZE_SUBSEQUENT_COLUMNS);
-		TableRowSorter<McritTableModel> sorter = new TableRowSorter<>(model);
-		sorter.setSortsOnUpdates(true);
-		table.setRowSorter(sorter);
 		return table;
 	}
 
-	/** Sort by one column, as a header click would. */
-	public static void sortBy(JTable table, int column, boolean ascending) {
-		RowSorter<?> sorter = table.getRowSorter();
-		if (sorter != null && column >= 0 && column < table.getModel().getColumnCount()) {
-			sorter.setSortKeys(List.of(new RowSorter.SortKey(column,
-				ascending ? SortOrder.ASCENDING : SortOrder.DESCENDING)));
-		}
-	}
-
-	/** Select a whole row given by its model index and scroll it into view. */
-	public static void selectModelRow(JTable table, int modelRow) {
-		if (modelRow < 0 || modelRow >= table.getModel().getRowCount()) {
-			return;
-		}
-		int viewRow = table.convertRowIndexToView(modelRow);
+	/** Select the whole row a source row is shown at and scroll it into view. */
+	public static void selectModelRow(JTable table, int sourceRow) {
+		int viewRow = ((McritTableModel) table.getModel()).shownRow(sourceRow);
 		if (viewRow < 0) {
 			return;
 		}

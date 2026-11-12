@@ -202,6 +202,11 @@ class Backend(ABC):
         """
         return default
 
+    def monospace_font(self, widget):
+        """The font the disassembler shows code and addresses in, for widget; None where its own
+        lists show addresses in the interface font."""
+        return None
+
     def show_local_match_coloring(self, smda_function, coloring):
         """Tint the matched blocks of the local function in the disassembler's own views;
         coloring maps block offset -> 0xRRGGBB. Backends without such a view keep this no-op."""
